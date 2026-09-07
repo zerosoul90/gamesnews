@@ -5,7 +5,7 @@
 Đọc `CLAUDE.md`, `PLAN.md`, `DATA-SOURCES.md`, `SCHEMA.md`, `PROGRESS.md`.
 Xác nhận Phase 1 đã đạt checkpoint.
 
-Đây là mũi nhọn của sản phẩm. Làm cho đúng và bền, đừng làm nhanh.
+Đây là mũi nhọn đã chốt của sản phẩm. Làm cho đúng và bền, đừng làm nhanh.
 
 ## Phạm vi
 

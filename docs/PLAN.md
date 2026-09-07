@@ -15,9 +15,8 @@ Database game  →  Tổng hợp nội dung  →  Cộng đồng  →  Biên t�
    (nền)           (traffic + SEO)      (giữ chân)    (khác biệt)
 ```
 
-**Mũi nhọn giai đoạn đầu:** giá VND kèm cảnh báo đáy lịch sử.
-Ứng viên số hai: giftcode / lịch banner game mobile.
-→ *Cần chốt trước khi bắt đầu Phase 2.*
+**Mũi nhọn giai đoạn đầu (đã chốt):** giá VND kèm cảnh báo đáy lịch sử.
+Giftcode / lịch banner game mobile lùi xuống Phase 8, không làm song song.
 
 ## 2. Ràng buộc
 
@@ -47,9 +46,8 @@ Database game  →  Tổng hợp nội dung  →  Cộng đồng  →  Biên t�
 
 1. **Web framework** — SEO là kênh tăng trưởng chính, Angular SSR làm được
    nhưng vất vả hơn. Cần quyết trước Phase 5.
-2. **Mũi nhọn** — giá VND hay giftcode mobile. Quyết trước Phase 2.
-3. **Phạm vi ngôn ngữ MVP** — đề xuất chỉ Việt + Anh.
-4. **Có làm affiliate không** — ảnh hưởng tới việc dùng Reddit/RAWG API
+2. **Phạm vi ngôn ngữ MVP** — đề xuất chỉ Việt + Anh.
+3. **Có làm affiliate không** — ảnh hưởng tới việc dùng Reddit/RAWG API
    (tầng miễn phí của họ chỉ cho phi thương mại).
 
 ## 5. Lộ trình

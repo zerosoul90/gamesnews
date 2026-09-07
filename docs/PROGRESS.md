@@ -8,8 +8,7 @@
 ## Quyết định cần chốt trước khi code
 
 - [x] Tên dự án chính thức: `gamesnews`
-- [ ] **Mũi nhọn**: giá VND + đáy lịch sử **hay** giftcode/lịch banner mobile
-      → quyết trước Phase 2
+- [x] **Mũi nhọn**: giá VND + đáy lịch sử (giftcode/lịch banner lùi Phase 8)
 - [ ] **Web framework**: Angular (quen tay) vs Next.js/Nuxt (SEO tốt hơn)
       → quyết trước Phase 4
 - [ ] Ngôn ngữ MVP (đề xuất: chỉ Việt + Anh)
