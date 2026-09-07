@@ -62,7 +62,7 @@ khi checkpoint chưa đạt.
 ### Phase 0 — Nền móng · 1–2 tuần
 
 - Repo, cấu trúc thư mục, `docker-compose.yml` đủ MongoDB + Meilisearch +
-  Qdrant + Redis + FastAPI
+  Qdrant + Redis + FastAPI + worker Arq
 - Skeleton FastAPI: health check, config, logging, migration
 - CI cơ bản (lint + test)
 - `CLAUDE.md`, `PROGRESS.md`

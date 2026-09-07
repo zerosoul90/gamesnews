@@ -5,6 +5,10 @@
 Đọc `CLAUDE.md`, `PLAN.md`, `DATA-SOURCES.md`, `SCHEMA.md`, `PROGRESS.md`.
 Xác nhận Phase 5 đã đạt checkpoint.
 
+**Qdrant bắt đầu được dùng thật từ phase này.** Chuyển nó sang nhóm phụ thuộc
+bắt buộc của `/health` (xem bảng ở `PHASE-0.md` mục 4): từ đây Qdrant hỏng thì
+`/health` phải trả 503, không còn là `degraded`.
+
 ## Ranh giới bản quyền — đọc trước khi làm bất cứ gì
 
 - **Không tái bản nguyên văn** bài viết của bên khác

@@ -65,6 +65,10 @@ Tầng được tính lại định kỳ, không cố định. Ngoài ra: tăng 
 Scheduler phải tự điều tiết theo quota còn lại, không được để cạn bucket rồi
 job khác chết đói.
 
+Job chạy trên worker Arq, khác tiến trình với API. Vì vậy **token bucket phải
+nằm trong Redis**, không phải trong bộ nhớ tiến trình — nếu không, mỗi worker
+sẽ có bucket riêng và tổng số request vượt quota Steam.
+
 ### 5. Lưu giá
 
 Theo `SCHEMA.md`. Hai điểm bắt buộc:

@@ -20,11 +20,12 @@
 
 ## Phase 0 — Nền móng
 
-**Checkpoint:** `docker compose up` khởi động toàn bộ stack, `/health` xanh cả
-4 dịch vụ phụ thuộc.
+**Checkpoint:** `docker compose up` khởi động cả 6 service, `/health` xanh cả
+4 kho dữ liệu.
 
 - [ ] Khởi tạo repo, cấu trúc thư mục theo `CLAUDE.md`
-- [ ] `docker-compose.yml`: MongoDB, Meilisearch, Qdrant, Redis, app
+- [ ] `docker-compose.yml`: MongoDB, Meilisearch, Qdrant, Redis, app, worker
+- [ ] Worker Arq chạy riêng tiến trình, state dùng chung nằm trong Redis
 - [ ] Skeleton FastAPI: config, logging, health check
 - [ ] `adapters/base.py` — interface chung cho mọi nguồn
 - [ ] CI: ruff + mypy + pytest
