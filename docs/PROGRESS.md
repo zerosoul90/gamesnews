@@ -1,7 +1,10 @@
 # PROGRESS.md — Tiến độ
 
-**Phase hiện tại:** Phase 0 — Nền móng
+**Phase hiện tại:** Phase 1 — Catalog + Search
 **Cập nhật lần cuối:** 2026-09-07
+
+Phase 0 đã đạt toàn bộ checkpoint nghiệm thu. Chỉ còn mục 7 (đăng ký key ngoài)
+là việc của người dùng, Phase 1 mới cần tới.
 
 ---
 
@@ -31,10 +34,11 @@
 - [x] `ruff`, `mypy --strict`, `pytest` sạch trên máy dev và trên CI
 - [x] CI: ruff + mypy + pytest — xanh ở run #1. Có Redis service thật nên 10
       test token bucket chạy thật, không skip
-- [~] `docker-compose.yml`: 6 service — cú pháp đã được `docker compose config`
-      xác nhận trên CI, nhưng **chưa từng `up` thật** (máy dev chưa cài Docker)
-- [~] Worker Arq — đã viết, đã kiểm `arq.worker.get_kwargs` đọc đúng
-      `WorkerSettings`, **chưa chạy thật**
+- [x] `docker-compose.yml`: 6 service — `docker compose up` chạy thật, cả 6
+      container lên, 3 healthcheck (mongo/redis/meilisearch) đều `healthy`
+- [x] Worker Arq — chạy thật, nhận job `ping` qua Redis và trả `pong`
+- [x] `/health` nghiệm thu tích hợp: 200 khi đủ 4 kho; tắt Meilisearch → 503
+      chỉ đúng service hỏng; tắt Qdrant → vẫn 200, body ghi `degraded`
 - [ ] Đăng ký key: Twitch developer (IGDB), Steam Web API — việc của người dùng
 
 ---
@@ -198,3 +202,38 @@ Commit `0ec3144`, chạy 46 giây, cả hai job đều success.
   capacity, trần chờ, đồng hồ Redis.
 - `compose`: `docker compose config` hợp lệ. Mới là cú pháp, chưa chứng minh
   service khởi động được — checkpoint `docker compose up` vẫn còn nợ.
+
+### 2026-09-07 — Trả nốt 3 checkpoint Docker của Phase 0
+
+Máy dev đã có Docker (engine 29.6.1). Ba mục ghi nợ ở entry đầu ngày nay giờ
+nghiệm thu được, **không phải sửa dòng code nào** — compose và worker chạy đúng
+ngay lần `up` đầu tiên.
+
+- **`docker compose up -d --build`**: cả 6 service lên. `mongo`, `redis`,
+  `meilisearch` báo `healthy`; `qdrant` chỉ `running` vì cố ý không có
+  healthcheck; `app` và `worker` chờ đúng thứ tự `depends_on` rồi mới khởi
+  động.
+- **Worker Arq nhận job thật**: enqueue `ping` từ container `app` qua Redis,
+  worker trả `'pong'`. Log worker cho thấy `job_id` được dùng làm `request_id`
+  — đúng ý đồ `on_job_start`.
+- **`/health` ba nhánh, kiểm bằng cách tắt service thật:**
+
+  | Kịch bản | HTTP | `status` | Ghi nhận |
+  |---|---|---|---|
+  | Đủ 4 kho | 200 | `ok` | latency mỗi kho 3–13 ms |
+  | Tắt Meilisearch | 503 | `unhealthy` | chỉ `meilisearch` là `down` |
+  | Tắt Qdrant | 200 | `degraded` | `qdrant.required: false` |
+
+**Quan sát, chưa sửa:**
+
+- Khi một kho chết, `/health` mất đúng `HEALTH_TIMEOUT_SECONDS` (2 s) mới trả
+  lời, vì `_probe` chạy hết trần timeout. Bốn probe chạy song song nên 2 s là
+  trần chung, không cộng dồn. Chấp nhận được với health check, nhưng nếu sau
+  này gắn vào load balancer có timeout ngắn hơn thì phải hạ số này.
+- `git status` sạch sau toàn bộ quá trình: `.env` (có `MEILI_MASTER_KEY` thật)
+  nằm ngoài index đúng như `.gitignore` quy định.
+
+**Còn lại của Phase 0:** chỉ mục 7 — đăng ký `STEAM_API_KEY` ở
+<https://steamcommunity.com/dev/apikey> và `TWITCH_CLIENT_ID` /
+`TWITCH_CLIENT_SECRET` ở <https://dev.twitch.tv/console/apps> (cùng cặp key này
+dùng cho IGDB). Việc của người dùng, Phase 1 mới cần tới.
