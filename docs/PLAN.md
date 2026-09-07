@@ -45,7 +45,7 @@ Giftcode / lịch banner game mobile lùi xuống Phase 8, không làm song song
 ## 4. Quyết định còn mở
 
 1. **Web framework** — SEO là kênh tăng trưởng chính, Angular SSR làm được
-   nhưng vất vả hơn. Cần quyết trước Phase 5.
+   nhưng vất vả hơn. Cần quyết trước Phase 4.
 2. **Phạm vi ngôn ngữ MVP** — đề xuất chỉ Việt + Anh.
 3. **Có làm affiliate không** — ảnh hưởng tới việc dùng Reddit/RAWG API
    (tầng miễn phí của họ chỉ cho phi thương mại).
