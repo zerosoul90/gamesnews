@@ -26,10 +26,45 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      # Ràng buộc unique một phần và cơ chế "chỉ ghi khi content_hash đổi" là
+      # hành vi của chính Mongo, mock lại thì test chỉ kiểm được cái mock.
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval db.adminCommand('ping').ok"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      # Chất lượng tìm kiếm tiếng Việt là checkpoint khó nhất của Phase 1 và
+      # phụ thuộc vào tokenizer + ranking rules của Meilisearch, không phải vào
+      # code của ta. Chỉ chạy thật mới biết nó còn đúng.
+      meilisearch:
+        image: getmeili/meilisearch:v1.11
+        ports:
+          - 7700:7700
+        env:
+          MEILI_MASTER_KEY: ci-test-key
+          MEILI_ENV: production
+          MEILI_NO_ANALYTICS: "true"
+        options: >-
+          --health-cmd "curl --fail http://localhost:7700/health"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     env:
       TEST_REDIS_URL: redis://localhost:6379/15
-      # Trên CI, test rate limiter không được phép skip.
+      TEST_MONGO_URI: mongodb://localhost:27017
+      TEST_MEILI_URL: http://localhost:7700
+      MEILI_MASTER_KEY: ci-test-key
+      # Trên CI không kho nào được phép skip: skip im lặng nghĩa là phần logic
+      # quan trọng nhất coi như chưa bao giờ được kiểm.
       REQUIRE_REDIS: "1"
+      REQUIRE_MONGO: "1"
+      REQUIRE_MEILI: "1"
 
     steps:
       - uses: actions/checkout@v4
