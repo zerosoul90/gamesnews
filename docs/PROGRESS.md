@@ -48,13 +48,14 @@ là việc của người dùng, Phase 1 mới cần tới.
 **Checkpoint:** `elden ring` / `elden` / `erden ring` / `vong elden` đều ra
 đúng game ở vị trí đầu. Catalog ≥ 50.000 game.
 
-- [ ] Adapter IGDB + job đồng bộ ban đầu
-- [ ] Collection `games` theo `SCHEMA.md`, index đầy đủ
-- [ ] Sinh `aliases_normalized` (bỏ dấu, lowercase, chuẩn hoá khoảng trắng)
-- [ ] Bảng ID mapping: IGDB / Steam AppID / Epic slug / CheapShark
+- [ ] Adapter IGDB + job đồng bộ ban đầu — **chặn**: chưa có key Twitch
+- [x] Collection `games` theo `SCHEMA.md`, index đầy đủ
+- [x] Sinh `aliases_normalized` (bỏ dấu, lowercase, chuẩn hoá khoảng trắng)
+- [x] Bảng ID mapping + `find_game_by_external_id` — **khung** đã xong; dữ liệu
+      thật phải chờ adapter
 - [ ] Bổ sung game mobile từ Google Play + App Store
-- [ ] Index Meilisearch + cấu hình tiếng Việt
-- [ ] API tìm kiếm + facet
+- [x] Index Meilisearch + cấu hình tiếng Việt
+- [x] API tìm kiếm + facet
 - [ ] Trang admin xem/sửa entity
 
 ---
@@ -233,7 +234,71 @@ ngay lần `up` đầu tiên.
 - `git status` sạch sau toàn bộ quá trình: `.env` (có `MEILI_MASTER_KEY` thật)
   nằm ngoài index đúng như `.gitignore` quy định.
 
-**Còn lại của Phase 0:** chỉ mục 7 — đăng ký `STEAM_API_KEY` ở
-<https://steamcommunity.com/dev/apikey> và `TWITCH_CLIENT_ID` /
-`TWITCH_CLIENT_SECRET` ở <https://dev.twitch.tv/console/apps> (cùng cặp key này
-dùng cho IGDB). Việc của người dùng, Phase 1 mới cần tới.
+### 2026-09-07 — Phase 1: xương sống catalog + tìm kiếm
+
+Chưa có key Twitch nên mục 1 (adapter IGDB) và mục 5 (scraper mobile) để lại.
+Làm mục 2, 3, 4, 6, 7 trước — `SCHEMA.md` đã định nghĩa sẵn document `games`
+nên thứ bị chặn chỉ là tầng ánh xạ field của riêng IGDB, không phải schema.
+
+Mục 3 hoá ra đã xong từ ba commit trước đó, chỉ bổ sung `slugify`.
+
+**Quyết định phát sinh:**
+
+- **`partialFilterExpression`, không phải `sparse`, cho các ID ngoài.** Đa số
+  game không bán trên Steam nên `external_ids.steam_appid` là null trên phần
+  lớn document. `sparse` chỉ bỏ qua document *thiếu hẳn* field; ở đây field có
+  mặt với giá trị null, mà Mongo coi nhiều null là trùng nhau → index unique
+  đổ ngay ở document thứ hai. Có test riêng cho chốt này.
+- **`content_hash` quyết định có ghi hay không.** Upsert thẳng thì mỗi lần
+  chạy job, cả catalog bị ghi đè và `updated_at` nhảy hết dù dữ liệu y nguyên.
+  Hệ quả là job đồng bộ delta ở mục 6 mất căn cứ — "delta" thành "toàn bộ".
+  `updated_at` và `content_hash` cố ý **không** nằm trong model `Game`, để hash
+  chỉ băm phần nội dung.
+- **Định danh entity bằng ID của nguồn, không bằng slug.** Slug đổi được.
+- **`type_rank:asc` đặt SAU `exactness` trong ranking rules.** Đặt trước thì nó
+  thắng cả độ khớp: gõ đúng tên một DLC vẫn bị game cha đẩy lên đầu. Đặt cuối
+  thì nó chỉ phá thế hoà — đúng lúc cần và chỉ lúc đó. Có test cho cả hai chiều.
+- **Meilisearch báo lỗi trong *task*, không bằng mã HTTP.** Xoá một index không
+  tồn tại vẫn trả 202 kèm `taskUid`, rồi task đó mới `failed`. Bản đầu kiểm mã
+  404 nên job chạy lần hai là đỏ. `wait_for_task` giờ nhận `ignore_error_codes`.
+- **Alias không được chép tay vào fixture** mà sinh qua `with_aliases`, đúng
+  đường job đồng bộ thật sẽ đi. Nhờ vậy test tìm kiếm kiểm luôn `normalize_vi`.
+- **CI có thêm Mongo và Meilisearch thật**, kèm `REQUIRE_MONGO` /
+  `REQUIRE_MEILI` để test không được phép skip — cùng lý lẽ với `REQUIRE_REDIS`.
+- **Master key Meilisearch chỉ ở phía server.** Client không nói thẳng với
+  Meilisearch, mọi truy vấn đi qua `/search` của ta.
+
+**Đã nghiệm thu (174 test xanh, ruff + mypy --strict sạch):**
+
+| Checkpoint PHASE-1 | Trạng thái |
+|---|---|
+| `elden ring` / `elden` / `erden ring` / `vong elden` ra đúng game đầu bảng | xanh |
+| `エルデンリング` ra đúng game | xanh |
+| Game mobile phổ biến ở VN (Liên Quân) | xanh |
+| Lọc platform + năm cho facet count đúng | xanh |
+| Chạy lại job đồng bộ không sinh entity trùng | xanh (`unchanged: 26`) |
+| Test `normalize_vi` | xanh |
+| Catalog ≥ 50.000 game | **chưa** — cần adapter IGDB |
+
+Kiểm cả trên app thật qua HTTP, không chỉ trong test: `đế chế` ra Age of
+Empires II, `liên quân` ra Arena of Valor, `final fantasy 7 remake` ra bản
+`VII`, `per_page` ngoài khoảng trả 422.
+
+**Nợ lại:** catalog hiện chỉ có 26 game fixture. Bộ này đủ để chứng minh chất
+lượng tìm kiếm và ranking, **không** phải dữ liệu thật — nó nằm trong
+`tests/fixtures/`, không phải nguồn seed cho sản phẩm.
+
+---
+
+## Đang chặn
+
+**Key ngoài — việc của người dùng.** Đây là mục 7 còn nợ của Phase 0, và giờ nó
+đang chặn thật:
+
+| Biến | Đăng ký ở | Chặn cái gì |
+|---|---|---|
+| `TWITCH_CLIENT_ID` + `TWITCH_CLIENT_SECRET` | <https://dev.twitch.tv/console/apps> | Phase 1 mục 1 — adapter IGDB, và qua đó là checkpoint "catalog ≥ 50.000 game" |
+| `STEAM_API_KEY` | <https://steamcommunity.com/dev/apikey> | Phase 2 (giá) và Phase 3 (thư viện người dùng) |
+
+Cùng cặp key Twitch dùng luôn cho IGDB. Luồng client-credentials không dùng tới
+OAuth Redirect URL, điền `http://localhost` là được.
