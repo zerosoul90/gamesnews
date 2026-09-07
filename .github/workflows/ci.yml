@@ -32,12 +32,13 @@ jobs:
         image: mongo:7
         ports:
           - 27017:27017
-        # Không dùng dấu nháy lồng trong lệnh healthcheck: `options` ở đây là
-        # một chuỗi do runner tự tách, không phải mảng exec như trong
-        # docker-compose.yml, nên `db.adminCommand('ping')` bị nuốt mất nháy và
-        # healthcheck không bao giờ xanh. Dạng {ping:1} không cần nháy nào.
+        # Biểu thức JS phải nằm trong nháy đơn. `options` ở đây là chuỗi, nên
+        # Docker chạy healthcheck qua `sh -c` — khác hẳn dạng mảng exec trong
+        # docker-compose.yml. Để trần thì cặp ngoặc đơn của `adminCommand(...)`
+        # bị shell đọc như cú pháp subshell: `sh: 1: Syntax error: "(" unexpected`,
+        # healthcheck không bao giờ xanh và service bị coi là chết.
         options: >-
-          --health-cmd "mongosh --quiet --eval db.adminCommand({ping:1}).ok"
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ping:1}).ok'"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
