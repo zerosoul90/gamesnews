@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+
+    services:
+      # Token bucket nằm trong script Lua, phải chạy trên Redis thật mới có
+      # ý nghĩa. Không có service này thì test rate limiter tự bỏ qua.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      TEST_REDIS_URL: redis://localhost:6379/15
+      # Trên CI, test rate limiter không được phép skip.
+      REQUIRE_REDIS: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Cài phụ thuộc đúng theo lock
+        run: uv sync --frozen
+
+      - name: ruff
+        run: uv run ruff check .
+
+      - name: mypy
+        run: uv run mypy app tests
+
+      - name: pytest
+        run: uv run pytest
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: docker-compose.yml phải hợp lệ
+        run: |
+          cp .env.example .env
+          sed -i 's/^MEILI_MASTER_KEY=.*/MEILI_MASTER_KEY=ci-placeholder-key/' .env
+          docker compose config --quiet

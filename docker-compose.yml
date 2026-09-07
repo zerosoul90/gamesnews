@@ -1,0 +1,92 @@
+# Sáu service theo PHASE-0.md mục 2.
+# `app` và `worker` dùng chung image và code, chỉ khác lệnh khởi động.
+# Cổng của kho dữ liệu KHÔNG expose ra host — khi cần debug thì tạo
+# docker-compose.override.yml (đã nằm trong .gitignore), xem file .example.
+
+name: gamesnews
+
+x-app-base: &app-base
+  build:
+    context: .
+  image: gamesnews-app:dev
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    MONGO_URI: mongodb://mongo:27017
+    REDIS_URL: redis://redis:6379/0
+    MEILI_URL: http://meilisearch:7700
+    QDRANT_URL: http://qdrant:6333
+  depends_on:
+    mongo:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    meilisearch:
+      condition: service_healthy
+    qdrant:
+      condition: service_started
+
+services:
+  app:
+    <<: *app-base
+    ports:
+      - "${APP_PORT:-8000}:8000"
+
+  worker:
+    <<: *app-base
+    command: ["arq", "app.jobs.worker.WorkerSettings"]
+
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # appendonly: job đang chờ trong hàng đợi Arq không được mất khi restart
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.11
+    restart: unless-stopped
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?bắt buộc, xem .env.example}
+      MEILI_ENV: production
+      MEILI_NO_ANALYTICS: "true"
+    volumes:
+      - meili-data:/meili_data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    restart: unless-stopped
+    volumes:
+      - qdrant-data:/qdrant/storage
+    # Không có healthcheck: image không kèm curl/wget. `app` chỉ cần
+    # service_started vì Qdrant chưa dùng tới Phase 6 (PHASE-0.md mục 4).
+
+volumes:
+  mongo-data:
+  redis-data:
+  meili-data:
+  qdrant-data:

@@ -1,0 +1,11 @@
+# Copy thành docker-compose.override.yml khi cần soi thẳng vào kho dữ liệu.
+# File override thật nằm trong .gitignore — đừng commit.
+services:
+  mongo:
+    ports: ["27017:27017"]
+  redis:
+    ports: ["6379:6379"]
+  meilisearch:
+    ports: ["7700:7700"]
+  qdrant:
+    ports: ["6333:6333"]
