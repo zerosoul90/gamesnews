@@ -288,6 +288,21 @@ Empires II, `liên quân` ra Arena of Valor, `final fantasy 7 remake` ra bản
 lượng tìm kiếm và ranking, **không** phải dữ liệu thật — nó nằm trong
 `tests/fixtures/`, không phải nguồn seed cho sản phẩm.
 
+**CI xanh ở run thứ ba — 174 passed, 0 skipped.** Hai lần đỏ đầu đều là lỗi
+cấu hình service, đáng ghi vì dễ gặp lại:
+
+1. `MEILI_MASTER_KEY` trên CI chỉ 11 byte. `MEILI_ENV=production` đòi tối thiểu
+   16 byte, nên container chết ngay lúc khởi động.
+2. Healthcheck Mongo không bao giờ xanh. `options:` của GitHub Actions là một
+   **chuỗi**, Docker chạy nó qua `sh -c`; còn `docker-compose.yml` dùng **mảng
+   exec**, không qua shell. Cùng một lệnh `mongosh --eval db.adminCommand(...)`
+   chạy tốt ở máy dev nhưng trên CI thì cặp ngoặc đơn bị shell đọc như cú pháp
+   subshell: `sh: 1: Syntax error: "(" unexpected`. Phải bọc cả biểu thức JS
+   trong nháy đơn.
+
+Điều đáng nhớ: `docker compose config` hợp lệ và compose chạy được ở máy dev
+**không** bảo đảm cùng lệnh đó chạy được trong service container của CI.
+
 ---
 
 ## Đang chặn
