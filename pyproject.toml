@@ -52,6 +52,9 @@ select = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]  # assert là chuyện bình thường trong test
+# Ký tự "nhập nhằng" (fullwidth, nháy cong) chính là thứ đang được kiểm.
+"tests/test_normalize.py" = ["S101", "RUF001"]
+"app/services/normalize.py" = ["RUF001"]
 
 # ---------------------------------------------------------------- mypy
 [tool.mypy]
