@@ -36,7 +36,7 @@ Giftcode / lịch banner game mobile lùi xuống Phase 8, không làm song song
 | Vector | Qdrant | "game giống X", bài liên quan |
 | Cache / queue | Redis | |
 | Scheduler | APScheduler hoặc Arq | dùng chung cho giá + metrics |
-| Web | **CHƯA CHỐT** | Angular (quen tay) vs Next.js/Nuxt (SEO tốt hơn) |
+| Web | Angular + `@angular/ssr` | quen tay; SSR bắt buộc vì SEO là kênh chính |
 | Mobile | Flutter | một codebase cho Android + iOS |
 | Push | Firebase Cloud Messaging | miễn phí không giới hạn |
 | Analytics | Umami self-host | |
@@ -44,10 +44,8 @@ Giftcode / lịch banner game mobile lùi xuống Phase 8, không làm song song
 
 ## 4. Quyết định còn mở
 
-1. **Web framework** — SEO là kênh tăng trưởng chính, Angular SSR làm được
-   nhưng vất vả hơn. Cần quyết trước Phase 4.
-2. **Phạm vi ngôn ngữ MVP** — đề xuất chỉ Việt + Anh.
-3. **Có làm affiliate không** — ảnh hưởng tới việc dùng Reddit/RAWG API
+1. **Phạm vi ngôn ngữ MVP** — đề xuất chỉ Việt + Anh.
+2. **Có làm affiliate không** — ảnh hưởng tới việc dùng Reddit/RAWG API
    (tầng miễn phí của họ chỉ cho phi thương mại).
 
 ## 5. Lộ trình

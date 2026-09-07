@@ -4,8 +4,8 @@
 
 Đọc `CLAUDE.md`, `PLAN.md`, `PROGRESS.md`. Xác nhận Phase 3 đã đạt checkpoint.
 
-**Chặn:** framework web phải được chốt trước (Angular vs Next.js/Nuxt). Nếu
-`PROGRESS.md` chưa tick mục này thì DỪNG và hỏi tôi.
+**Framework đã chốt:** Angular với `@angular/ssr`. SSR không phải tuỳ chọn —
+xem mục 1 bên dưới.
 
 ## Mục tiêu
 

@@ -9,8 +9,7 @@
 
 - [x] Tên dự án chính thức: `gamesnews`
 - [x] **Mũi nhọn**: giá VND + đáy lịch sử (giftcode/lịch banner lùi Phase 8)
-- [ ] **Web framework**: Angular (quen tay) vs Next.js/Nuxt (SEO tốt hơn)
-      → quyết trước Phase 4
+- [x] **Web framework**: Angular, bắt buộc bật `@angular/ssr`
 - [ ] Ngôn ngữ MVP (đề xuất: chỉ Việt + Anh)
 - [ ] Có làm affiliate không → ảnh hưởng quyền dùng Reddit / RAWG API
 - [ ] Đăng ký Oracle Cloud Always Free, mua domain
