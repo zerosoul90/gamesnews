@@ -39,6 +39,11 @@ Ba tài liệu tham chiếu, luôn đọc trước khi viết code:
   không bao giờ lộ ra client
 - Type hint đầy đủ; ruff + mypy phải sạch trước khi commit
 - Nội dung tĩnh dạng JSON, không nhúng vào code
+- Job nền chạy bằng Arq (worker riêng, Redis làm broker), không tự viết vòng
+  lặp scheduler trong tiến trình API
+- Web: Angular + TypeScript, luôn bật `@angular/ssr`
+- Mobile: Flutter + Dart, state bằng Riverpod
+- Ngôn ngữ nội dung MVP: Việt + Anh
 
 ## Cấu trúc
 

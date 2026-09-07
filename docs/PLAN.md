@@ -30,23 +30,25 @@ Giftcode / lịch banner game mobile lùi xuống Phase 8, không làm song song
 
 | Lớp | Lựa chọn | Ghi chú |
 |---|---|---|
-| Backend | Python + FastAPI | |
+| Backend | Python 3.12 + FastAPI | async xuyên suốt |
 | DB chính | MongoDB | time-series collection cho metrics |
 | Search | Meilisearch | tên game, tiếng Việt không dấu |
 | Vector | Qdrant | "game giống X", bài liên quan |
 | Cache / queue | Redis | |
-| Scheduler | APScheduler hoặc Arq | dùng chung cho giá + metrics |
-| Web | Angular + `@angular/ssr` | quen tay; SSR bắt buộc vì SEO là kênh chính |
-| Mobile | Flutter | một codebase cho Android + iOS |
+| Scheduler | Arq | chạy trên Redis sẵn có; dùng chung cho giá + metrics |
+| Web | Angular (TypeScript) + `@angular/ssr` | quen tay; SSR bắt buộc vì SEO là kênh chính |
+| Mobile | Flutter (Dart) + Riverpod | một codebase cho Android + iOS |
 | Push | Firebase Cloud Messaging | miễn phí không giới hạn |
 | Analytics | Umami self-host | |
 | Hạ tầng | Docker Compose trên Oracle Cloud Always Free | 4 core ARM / 24GB |
 
 ## 4. Quyết định còn mở
 
-1. **Phạm vi ngôn ngữ MVP** — đề xuất chỉ Việt + Anh.
-2. **Có làm affiliate không** — ảnh hưởng tới việc dùng Reddit/RAWG API
+1. **Có làm affiliate không** — ảnh hưởng tới việc dùng Reddit/RAWG API
    (tầng miễn phí của họ chỉ cho phi thương mại).
+
+**Ngôn ngữ nội dung MVP (đã chốt):** Việt + Anh. Route i18n và `hreflang` phải
+dựng ngay từ Phase 4 để thêm ngôn ngữ sau không phải đổi cấu trúc URL.
 
 ## 5. Lộ trình
 

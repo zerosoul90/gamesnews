@@ -10,7 +10,9 @@
 - [x] Tên dự án chính thức: `gamesnews`
 - [x] **Mũi nhọn**: giá VND + đáy lịch sử (giftcode/lịch banner lùi Phase 8)
 - [x] **Web framework**: Angular, bắt buộc bật `@angular/ssr`
-- [ ] Ngôn ngữ MVP (đề xuất: chỉ Việt + Anh)
+- [x] Ngôn ngữ nội dung MVP: Việt + Anh
+- [x] **Scheduler**: Arq (Redis-backed, async)
+- [x] **State management Flutter**: Riverpod
 - [ ] Có làm affiliate không → ảnh hưởng quyền dùng Reddit / RAWG API
 - [ ] Đăng ký Oracle Cloud Always Free, mua domain
 

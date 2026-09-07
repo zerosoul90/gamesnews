@@ -21,8 +21,8 @@ widget/Live Activity, đăng ký store.
 
 ### 1. Khung app
 
-Flutter, một codebase. State management chọn cái đơn giản, không cần kiến trúc
-nặng. Client API sinh từ OpenAPI schema của FastAPI.
+Flutter, một codebase. State management dùng **Riverpod** — giữ đơn giản,
+không dựng kiến trúc nặng. Client API sinh từ OpenAPI schema của FastAPI.
 
 ### 2. Màn hình
 
