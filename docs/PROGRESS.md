@@ -28,12 +28,13 @@
       trả đúng 503 khi cả bốn kho đều tắt
 - [x] `adapters/base.py` — interface chung, token bucket Redis, retry/backoff,
       phân loại lỗi, hook đo quota; kèm `adapters/dummy/` và test
-- [x] `ruff`, `mypy --strict`, `pytest` sạch trên máy dev
-- [~] `docker-compose.yml`: 6 service — **đã viết, chưa chạy được** (máy dev
-      chưa cài Docker). Cần nghiệm thu lại khi có Docker.
+- [x] `ruff`, `mypy --strict`, `pytest` sạch trên máy dev và trên CI
+- [x] CI: ruff + mypy + pytest — xanh ở run #1. Có Redis service thật nên 10
+      test token bucket chạy thật, không skip
+- [~] `docker-compose.yml`: 6 service — cú pháp đã được `docker compose config`
+      xác nhận trên CI, nhưng **chưa từng `up` thật** (máy dev chưa cài Docker)
 - [~] Worker Arq — đã viết, đã kiểm `arq.worker.get_kwargs` đọc đúng
       `WorkerSettings`, **chưa chạy thật**
-- [~] CI: ruff + mypy + pytest — đã viết, **chưa chạy lần nào** trên GitHub
 - [ ] Đăng ký key: Twitch developer (IGDB), Steam Web API — việc của người dùng
 
 ---
@@ -183,6 +184,17 @@ Xong khung dự án. `ruff` + `mypy --strict` + `pytest` sạch (28 pass, 10 ski
 
 - 3 checkpoint cần Docker (`docker compose up`, worker nhận job, tắt từng
   service xem `/health`). Máy dev chưa cài Docker.
-- 10 test rate limiter cần Redis thật — trên máy dev bị skip, phải chờ CI.
 - `/health` đã có test đơn vị cho cả ba nhánh 200/degraded/503, nhưng đó không
   thay được test tích hợp thật.
+
+### 2026-09-07 — CI run #1 xanh
+
+Commit `0ec3144`, chạy 46 giây, cả hai job đều success.
+
+- `lint-test`: ruff, mypy, pytest đều xanh. **10 test token bucket đã chạy
+  thật trên Redis**, suy ra từ `REQUIRE_REDIS=1` — nếu Redis service không lên
+  hoặc test skip thì `pytest.fail` đã làm step đỏ. Nghĩa là script Lua đúng:
+  bucket dùng chung giữa hai client, nạp lại theo thời gian, không tích quá
+  capacity, trần chờ, đồng hồ Redis.
+- `compose`: `docker compose config` hợp lệ. Mới là cú pháp, chưa chứng minh
+  service khởi động được — checkpoint `docker compose up` vẫn còn nợ.
