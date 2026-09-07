@@ -7,7 +7,7 @@
 
 ## Quyết định cần chốt trước khi code
 
-- [ ] Tên dự án chính thức (tạm: `gamehub-vn`)
+- [x] Tên dự án chính thức: `gamesnews`
 - [ ] **Mũi nhọn**: giá VND + đáy lịch sử **hay** giftcode/lịch banner mobile
       → quyết trước Phase 2
 - [ ] **Web framework**: Angular (quen tay) vs Next.js/Nuxt (SEO tốt hơn)

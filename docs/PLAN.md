@@ -1,6 +1,6 @@
 # PLAN.md — Kế hoạch phát triển
 
-> Tên dự án tạm đặt là **gamehub-vn**. Đổi lại trước khi tạo repo.
+> Tên dự án: **gamesnews** — repo <https://github.com/zerosoul90/gamesnews>.
 
 ## 1. Định vị
 
