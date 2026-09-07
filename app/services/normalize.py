@@ -159,6 +159,16 @@ def roman_to_arabic(normalized: str) -> str | None:
     return " ".join(out) if changed else None
 
 
+def slugify(text: str) -> str:
+    """Slug URL từ tên game: 'Elden Ring' -> 'elden-ring'.
+
+    Chỉ là phương án dự phòng. Nguồn nào có slug sẵn (IGDB, Epic) thì dùng slug
+    của nguồn, vì slug tự sinh từ tên tiếng Nhật sẽ ra chuỗi không đọc được
+    trên URL — `normalize_vi` cố ý giữ nguyên chữ Nhật.
+    """
+    return normalize_vi(text).replace(" ", "-")
+
+
 def collapse_spaces(text: str) -> str:
     """Biến thể viết liền: 'elden ring' -> 'eldenring'.
 

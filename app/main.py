@@ -1,4 +1,4 @@
-"""Điểm vào của API. Phase 0 chưa có nghiệp vụ nào ngoài /health."""
+"""Điểm vào của API. Hiện có /health (Phase 0) và /search (Phase 1)."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 
 from app.api.health import router as health_router
+from app.api.search import router as search_router
 from app.core.config import get_settings
 from app.core.db import close_clients, create_clients
 from app.core.logging import new_request_id, request_id_var, setup_logging
@@ -52,3 +53,4 @@ async def request_id_middleware(
 
 
 app.include_router(health_router)
+app.include_router(search_router)

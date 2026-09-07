@@ -1,0 +1,281 @@
+[
+  {
+    "slug": "elden-ring",
+    "titles": { "primary": "Elden Ring", "ja": "エルデンリング" },
+    "extra_aliases": ["Vòng Elden"],
+    "external_ids": { "igdb": 119133, "steam_appid": 1245620 },
+    "type": "game",
+    "platforms": ["pc", "ps5", "xbox-series"],
+    "genres": ["action-rpg"],
+    "developers": ["FromSoftware"],
+    "publishers": ["Bandai Namco Entertainment"],
+    "release_dates": [{ "region": "ww", "date": "2022-02-25", "platform": "pc" }]
+  },
+  {
+    "slug": "elden-ring-shadow-of-the-erdtree",
+    "titles": { "primary": "Elden Ring: Shadow of the Erdtree" },
+    "external_ids": { "igdb": 240785, "steam_appid": 2778580 },
+    "type": "dlc",
+    "parent_slug": "elden-ring",
+    "platforms": ["pc", "ps5", "xbox-series"],
+    "genres": ["action-rpg"],
+    "developers": ["FromSoftware"],
+    "release_dates": [{ "region": "ww", "date": "2024-06-21", "platform": "pc" }]
+  },
+  {
+    "slug": "dark-souls-iii",
+    "titles": { "primary": "Dark Souls III", "ja": "ダークソウルIII" },
+    "external_ids": { "igdb": 11133, "steam_appid": 374320 },
+    "type": "game",
+    "platforms": ["pc", "ps4", "xbox-one"],
+    "genres": ["action-rpg"],
+    "developers": ["FromSoftware"],
+    "release_dates": [{ "region": "ww", "date": "2016-04-12", "platform": "pc" }]
+  },
+  {
+    "slug": "sekiro-shadows-die-twice",
+    "titles": { "primary": "Sekiro: Shadows Die Twice", "ja": "隻狼" },
+    "external_ids": { "igdb": 81085, "steam_appid": 814380 },
+    "type": "game",
+    "platforms": ["pc", "ps4", "xbox-one"],
+    "genres": ["action-adventure"],
+    "developers": ["FromSoftware"],
+    "release_dates": [{ "region": "ww", "date": "2019-03-22", "platform": "pc" }]
+  },
+  {
+    "slug": "the-witcher-3-wild-hunt",
+    "titles": { "primary": "The Witcher 3: Wild Hunt", "vi": "The Witcher 3: Săn Lùng Dã Thú" },
+    "extra_aliases": ["Thợ Săn Quái Vật 3"],
+    "external_ids": { "igdb": 1942, "steam_appid": 292030 },
+    "type": "game",
+    "platforms": ["pc", "ps4", "xbox-one", "switch"],
+    "genres": ["action-rpg"],
+    "developers": ["CD Projekt Red"],
+    "release_dates": [{ "region": "ww", "date": "2015-05-19", "platform": "pc" }]
+  },
+  {
+    "slug": "cyberpunk-2077",
+    "titles": { "primary": "Cyberpunk 2077™" },
+    "external_ids": { "igdb": 1877, "steam_appid": 1091500 },
+    "type": "game",
+    "platforms": ["pc", "ps5", "xbox-series"],
+    "genres": ["action-rpg"],
+    "developers": ["CD Projekt Red"],
+    "release_dates": [{ "region": "ww", "date": "2020-12-10", "platform": "pc" }]
+  },
+  {
+    "slug": "final-fantasy-vii-remake",
+    "titles": { "primary": "Final Fantasy VII Remake", "ja": "ファイナルファンタジーVII リメイク" },
+    "external_ids": { "igdb": 19592, "steam_appid": 1462040 },
+    "type": "game",
+    "platforms": ["pc", "ps4", "ps5"],
+    "genres": ["jrpg"],
+    "developers": ["Square Enix"],
+    "release_dates": [{ "region": "ww", "date": "2020-04-10", "platform": "ps4" }]
+  },
+  {
+    "slug": "final-fantasy-xiv",
+    "titles": { "primary": "Final Fantasy XIV Online" },
+    "external_ids": { "igdb": 6754, "steam_appid": 39210 },
+    "type": "game",
+    "platforms": ["pc", "ps4", "ps5"],
+    "genres": ["mmorpg"],
+    "developers": ["Square Enix"],
+    "is_live_service": true,
+    "release_dates": [{ "region": "ww", "date": "2013-08-27", "platform": "pc" }]
+  },
+  {
+    "slug": "persona-5-royal",
+    "titles": { "primary": "Persona 5 Royal", "ja": "ペルソナ5 ザ・ロイヤル" },
+    "external_ids": { "igdb": 114283, "steam_appid": 1687950 },
+    "type": "game",
+    "platforms": ["pc", "ps4", "ps5", "switch"],
+    "genres": ["jrpg"],
+    "developers": ["Atlus"],
+    "release_dates": [{ "region": "jp", "date": "2019-10-31", "platform": "ps4" }]
+  },
+  {
+    "slug": "nier-automata",
+    "titles": { "primary": "NieR: Automata", "ja": "ニーア オートマタ" },
+    "external_ids": { "igdb": 19564, "steam_appid": 524220 },
+    "type": "game",
+    "platforms": ["pc", "ps4", "xbox-one", "switch"],
+    "genres": ["action-rpg"],
+    "developers": ["PlatinumGames"],
+    "release_dates": [{ "region": "ww", "date": "2017-03-17", "platform": "pc" }]
+  },
+  {
+    "slug": "grand-theft-auto-v",
+    "titles": { "primary": "Grand Theft Auto V" },
+    "extra_aliases": ["GTA V", "GTA 5"],
+    "external_ids": { "igdb": 1020, "steam_appid": 271590 },
+    "type": "game",
+    "platforms": ["pc", "ps4", "ps5", "xbox-one"],
+    "genres": ["action-adventure"],
+    "developers": ["Rockstar North"],
+    "release_dates": [{ "region": "ww", "date": "2015-04-14", "platform": "pc" }]
+  },
+  {
+    "slug": "red-dead-redemption-2",
+    "titles": { "primary": "Red Dead Redemption 2" },
+    "external_ids": { "igdb": 25076, "steam_appid": 1174180 },
+    "type": "game",
+    "platforms": ["pc", "ps4", "xbox-one"],
+    "genres": ["action-adventure"],
+    "developers": ["Rockstar Games"],
+    "release_dates": [{ "region": "ww", "date": "2019-12-05", "platform": "pc" }]
+  },
+  {
+    "slug": "baldurs-gate-3",
+    "titles": { "primary": "Baldur's Gate 3" },
+    "external_ids": { "igdb": 119171, "steam_appid": 1086940 },
+    "type": "game",
+    "platforms": ["pc", "ps5", "xbox-series"],
+    "genres": ["crpg"],
+    "developers": ["Larian Studios"],
+    "release_dates": [{ "region": "ww", "date": "2023-08-03", "platform": "pc" }]
+  },
+  {
+    "slug": "counter-strike-2",
+    "titles": { "primary": "Counter-Strike 2" },
+    "extra_aliases": ["CS2", "Cây Sung"],
+    "external_ids": { "igdb": 249104, "steam_appid": 730 },
+    "type": "game",
+    "platforms": ["pc"],
+    "genres": ["fps"],
+    "developers": ["Valve"],
+    "is_live_service": true,
+    "release_dates": [{ "region": "ww", "date": "2023-09-27", "platform": "pc" }]
+  },
+  {
+    "slug": "dota-2",
+    "titles": { "primary": "Dota 2" },
+    "external_ids": { "igdb": 1500, "steam_appid": 570 },
+    "type": "game",
+    "platforms": ["pc"],
+    "genres": ["moba"],
+    "developers": ["Valve"],
+    "is_live_service": true,
+    "release_dates": [{ "region": "ww", "date": "2013-07-09", "platform": "pc" }]
+  },
+  {
+    "slug": "league-of-legends",
+    "titles": { "primary": "League of Legends", "vi": "Liên Minh Huyền Thoại" },
+    "extra_aliases": ["LMHT", "LOL"],
+    "external_ids": { "igdb": 115 },
+    "type": "game",
+    "platforms": ["pc"],
+    "genres": ["moba"],
+    "developers": ["Riot Games"],
+    "is_live_service": true,
+    "release_dates": [{ "region": "ww", "date": "2009-10-27", "platform": "pc" }]
+  },
+  {
+    "slug": "arena-of-valor",
+    "titles": { "primary": "Arena of Valor", "vi": "Liên Quân Mobile" },
+    "extra_aliases": ["Liên Quân", "AOV"],
+    "external_ids": { "igdb": 28070, "google_play": "com.garena.game.kgvn" },
+    "type": "game",
+    "platforms": ["android", "ios"],
+    "genres": ["moba"],
+    "developers": ["TiMi Studio Group"],
+    "publishers": ["Garena"],
+    "is_live_service": true,
+    "release_dates": [{ "region": "vn", "date": "2016-11-18", "platform": "android" }]
+  },
+  {
+    "slug": "genshin-impact",
+    "titles": { "primary": "Genshin Impact", "ja": "原神" },
+    "extra_aliases": ["Nguyên Thần"],
+    "external_ids": { "igdb": 130949, "google_play": "com.miHoYo.GenshinImpact" },
+    "type": "game",
+    "platforms": ["pc", "android", "ios", "ps4", "ps5"],
+    "genres": ["action-rpg", "gacha"],
+    "developers": ["miHoYo"],
+    "is_live_service": true,
+    "release_dates": [{ "region": "ww", "date": "2020-09-28", "platform": "pc" }]
+  },
+  {
+    "slug": "honkai-star-rail",
+    "titles": { "primary": "Honkai: Star Rail", "ja": "崩壊：スターレイル" },
+    "external_ids": { "igdb": 195770, "google_play": "com.HoYoverse.hkrpgoversea" },
+    "type": "game",
+    "platforms": ["pc", "android", "ios", "ps5"],
+    "genres": ["jrpg", "gacha"],
+    "developers": ["HoYoverse"],
+    "is_live_service": true,
+    "release_dates": [{ "region": "ww", "date": "2023-04-26", "platform": "pc" }]
+  },
+  {
+    "slug": "pubg-battlegrounds",
+    "titles": { "primary": "PUBG: Battlegrounds" },
+    "extra_aliases": ["PlayerUnknown's Battlegrounds", "Đấu trường sinh tử"],
+    "external_ids": { "igdb": 21127, "steam_appid": 578080 },
+    "type": "game",
+    "platforms": ["pc", "ps4", "xbox-one"],
+    "genres": ["battle-royale"],
+    "developers": ["PUBG Studios"],
+    "is_live_service": true,
+    "release_dates": [{ "region": "ww", "date": "2017-12-21", "platform": "pc" }]
+  },
+  {
+    "slug": "age-of-empires-ii-definitive-edition",
+    "titles": { "primary": "Age of Empires II: Definitive Edition" },
+    "extra_aliases": ["Đế Chế", "De Che 2", "AoE 2"],
+    "external_ids": { "igdb": 103343, "steam_appid": 813780 },
+    "type": "game",
+    "platforms": ["pc"],
+    "genres": ["rts"],
+    "developers": ["Forgotten Empires"],
+    "release_dates": [{ "region": "ww", "date": "2019-11-14", "platform": "pc" }]
+  },
+  {
+    "slug": "minecraft",
+    "titles": { "primary": "Minecraft" },
+    "external_ids": { "igdb": 121, "google_play": "com.mojang.minecraftpe" },
+    "type": "game",
+    "platforms": ["pc", "android", "ios", "switch", "ps4", "xbox-one"],
+    "genres": ["sandbox"],
+    "developers": ["Mojang Studios"],
+    "release_dates": [{ "region": "ww", "date": "2011-11-18", "platform": "pc" }]
+  },
+  {
+    "slug": "stardew-valley",
+    "titles": { "primary": "Stardew Valley" },
+    "external_ids": { "igdb": 17000, "steam_appid": 413150 },
+    "type": "game",
+    "platforms": ["pc", "switch", "android", "ios"],
+    "genres": ["simulation"],
+    "developers": ["ConcernedApe"],
+    "release_dates": [{ "region": "ww", "date": "2016-02-26", "platform": "pc" }]
+  },
+  {
+    "slug": "hollow-knight",
+    "titles": { "primary": "Hollow Knight" },
+    "external_ids": { "igdb": 14593, "steam_appid": 367520 },
+    "type": "game",
+    "platforms": ["pc", "switch"],
+    "genres": ["metroidvania"],
+    "developers": ["Team Cherry"],
+    "release_dates": [{ "region": "ww", "date": "2017-02-24", "platform": "pc" }]
+  },
+  {
+    "slug": "assassins-creed-valhalla",
+    "titles": { "primary": "Assassin's Creed Valhalla" },
+    "external_ids": { "igdb": 126459 },
+    "type": "game",
+    "platforms": ["pc", "ps5", "xbox-series"],
+    "genres": ["action-rpg"],
+    "developers": ["Ubisoft Montreal"],
+    "release_dates": [{ "region": "ww", "date": "2020-11-10", "platform": "pc" }]
+  },
+  {
+    "slug": "stardew-valley-demo",
+    "titles": { "primary": "Stardew Valley Demo" },
+    "external_ids": { "igdb": 900001 },
+    "type": "demo",
+    "platforms": ["pc"],
+    "genres": ["simulation"],
+    "release_dates": [{ "region": "ww", "date": "2016-02-26", "platform": "pc" }]
+  }
+]
