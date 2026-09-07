@@ -157,6 +157,10 @@ def test_chuoi_alias_tu_titles_toi_normalized() -> None:
         ("final fantasy xiv", "final fantasy 14"),
         ("ni no kuni ii revenant kingdom", "ni no kuni 2 revenant kingdom"),
         ("dynasty warriors ix", "dynasty warriors 9"),
+        # Ký tự đơn: V và X được đổi.
+        ("final fantasy x", "final fantasy 10"),
+        ("grand theft auto v", "grand theft auto 5"),
+        ("dragon quest v", "dragon quest 5"),
     ],
 )
 def test_roman_to_arabic(raw: str, expected: str) -> None:
@@ -166,24 +170,36 @@ def test_roman_to_arabic(raw: str, expected: str) -> None:
 @pytest.mark.parametrize(
     "raw",
     [
-        # Ký tự đơn là chữ cái, không phải số. Nếu đổi thì "Mega Man X"
-        # thành "mega man 10" và "Project X" thành "project 10".
-        "mega man x",
-        "project x",
-        "dragon quest v",
         "half life 2",  # đã là số Ả Rập
         "elden ring",  # không có số La Mã
         "vi",  # một từ duy nhất -> giữ nguyên là chữ
         "xi",
+        "x",
         # Ngoài khoảng 2-40: mi/di/li/mc là từ thật, không được coi là số.
         "mi casa",
         "di sản",
         "mc donald",
-        "grand theft auto v",  # V đơn -> không đổi
+        "li kỳ",
+        # I là 1, dưới sàn 2 -> đại từ "I" trong tiếng Anh vẫn an toàn.
+        "i am fish",
+        "we are i",
     ],
 )
 def test_roman_to_arabic_khong_doi(raw: str) -> None:
     assert roman_to_arabic(normalize_vi(raw)) is None
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        # Cái giá của việc cho phép ký tự đơn: X dùng như chữ cái cũng bị đổi.
+        # Đây là alias thừa, không thay alias gốc, nên chấp nhận được.
+        ("mega man x", "mega man 10"),
+        ("project x", "project 10"),
+    ],
+)
+def test_ky_tu_don_sinh_alias_thua_da_biet(raw: str, expected: str) -> None:
+    assert roman_to_arabic(raw) == expected
 
 
 @pytest.mark.parametrize("token", ["iiii", "vv", "xxxx", "ic", "im", "vx"])
@@ -201,6 +217,12 @@ def test_alias_so_la_ma_vao_aliases_normalized() -> None:
     assert "finalfantasyvii" in normalized
 
 
-def test_alias_so_la_ma_khong_lam_hong_ten_thuong() -> None:
-    normalized = build_aliases_normalized(["Mega Man X", "Elden Ring"])
+def test_alias_so_la_ma_khong_dong_toi_ten_khong_co_so() -> None:
+    normalized = build_aliases_normalized(["Elden Ring", "Liên Quân Mobile"])
     assert not any(char.isdigit() for char in " ".join(normalized))
+
+
+def test_alias_ky_tu_don() -> None:
+    normalized = build_aliases_normalized(["Final Fantasy X"])
+    assert "final fantasy x" in normalized  # bản gốc vẫn còn
+    assert "final fantasy 10" in normalized

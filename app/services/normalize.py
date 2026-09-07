@@ -85,16 +85,20 @@ def normalize_vi(text: str) -> str:
 # "Final Fantasy VII" và "final fantasy 7" phải ra cùng một game. Sinh thêm
 # alias dạng số Ả Rập, KHÔNG thay alias gốc.
 #
-# Chỗ này dễ sinh rác nên có ba chốt chặn:
+# Chỗ này dễ sinh rác nên có hai chốt chặn:
 #
-# 1. Bỏ qua ký tự đơn (I, V, X, L, C, D, M). "Mega Man X" và "Project X" thì
-#    X là chữ cái, không phải số 10. Cái giá phải trả: "Final Fantasy X" mất
-#    alias "final fantasy 10".
-# 2. Chỉ nhận giá trị 2-40, tức là khoảng số phần tiếp theo có thật của game.
-#    Nhờ vậy MI (1001), DI (501), LI (51), MC (1100) tự bị loại — chúng là từ
-#    thật trong tiếng Việt và tiếng Anh.
-# 3. Tên chỉ có đúng một từ thì không đổi, để "VI" hay "XI" đứng một mình
+# 1. Chỉ nhận giá trị 2-40, tức là khoảng số phần tiếp theo có thật của game.
+#    Chốt này gánh phần lớn công việc: MI (1001), DI (501), LI (51), MC (1100)
+#    tự bị loại — chúng là từ thật trong tiếng Việt và tiếng Anh. Ký tự đơn
+#    cũng chỉ còn V (5) và X (10) lọt qua, vì I là 1 (dưới sàn) còn
+#    L/C/D/M là 50/100/500/1000 (trên trần).
+# 2. Tên chỉ có đúng một từ thì không đổi, để "VI", "XI", "X" đứng một mình
 #    được giữ nguyên là chữ.
+#
+# Ký tự đơn ĐƯỢC đổi theo yêu cầu: "Final Fantasy X" -> "final fantasy 10",
+# "Grand Theft Auto V" -> "grand theft auto 5". Cái giá phải trả là các tên
+# dùng X như chữ cái cũng bị sinh alias sai: "Mega Man X" có thêm alias
+# "mega man 10". Đây là alias thừa, không thay alias gốc.
 _ROMAN_VALUES = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100, "d": 500, "m": 1000}
 _ROMAN_MAX = 40
 
@@ -139,14 +143,14 @@ def roman_to_arabic(normalized: str) -> str | None:
     Trả về None nếu không có gì để đổi.
     """
     tokens = normalized.split()
-    if len(tokens) < 2:  # chốt 3: tên một từ thì giữ nguyên
+    if len(tokens) < 2:  # chốt 2: tên một từ thì giữ nguyên
         return None
 
     changed = False
     out: list[str] = []
     for token in tokens:
-        value = _roman_to_int(token) if len(token) >= 2 else None  # chốt 1
-        if value is not None and 2 <= value <= _ROMAN_MAX:  # chốt 2
+        value = _roman_to_int(token)
+        if value is not None and 2 <= value <= _ROMAN_MAX:  # chốt 1
             out.append(str(value))
             changed = True
         else:
