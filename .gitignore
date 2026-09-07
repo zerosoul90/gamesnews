@@ -1,0 +1,69 @@
+# --- Secrets & môi trường ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# --- Python / FastAPI ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# --- Node / Web ---
+node_modules/
+.next/
+.nuxt/
+.angular/
+.output/
+.turbo/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Flutter / Dart ---
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+**/build/
+*.iml
+local.properties
+ios/Pods/
+ios/Flutter/Flutter.framework
+ios/Flutter/Generated.xcconfig
+android/.gradle/
+android/key.properties
+*.jks
+*.keystore
+
+# --- Docker / dữ liệu local ---
+data/
+volumes/
+docker-compose.override.yml
+
+# --- IDE ---
+.idea/
+.vscode/
+!.vscode/extensions.json
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Log & tạm ---
+*.log
+logs/
+tmp/
