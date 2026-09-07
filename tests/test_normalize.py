@@ -10,6 +10,7 @@ from app.services.normalize import (
     build_aliases_normalized,
     collapse_spaces,
     normalize_vi,
+    roman_to_arabic,
     strip_latin_diacritics,
 )
 
@@ -141,3 +142,65 @@ def test_chuoi_alias_tu_titles_toi_normalized() -> None:
     assert "deche" in normalized
     assert "age of empires" in normalized
     assert "aoe" in normalized
+
+
+# ---------------------------------------------------------- số La Mã
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("final fantasy vii", "final fantasy 7"),
+        ("civilization vi", "civilization 6"),
+        ("diablo ii resurrected", "diablo 2 resurrected"),
+        ("grand theft auto iv", "grand theft auto 4"),
+        ("final fantasy xiv", "final fantasy 14"),
+        ("ni no kuni ii revenant kingdom", "ni no kuni 2 revenant kingdom"),
+        ("dynasty warriors ix", "dynasty warriors 9"),
+    ],
+)
+def test_roman_to_arabic(raw: str, expected: str) -> None:
+    assert roman_to_arabic(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        # Ký tự đơn là chữ cái, không phải số. Nếu đổi thì "Mega Man X"
+        # thành "mega man 10" và "Project X" thành "project 10".
+        "mega man x",
+        "project x",
+        "dragon quest v",
+        "half life 2",  # đã là số Ả Rập
+        "elden ring",  # không có số La Mã
+        "vi",  # một từ duy nhất -> giữ nguyên là chữ
+        "xi",
+        # Ngoài khoảng 2-40: mi/di/li/mc là từ thật, không được coi là số.
+        "mi casa",
+        "di sản",
+        "mc donald",
+        "grand theft auto v",  # V đơn -> không đổi
+    ],
+)
+def test_roman_to_arabic_khong_doi(raw: str) -> None:
+    assert roman_to_arabic(normalize_vi(raw)) is None
+
+
+@pytest.mark.parametrize("token", ["iiii", "vv", "xxxx", "ic", "im", "vx"])
+def test_so_la_ma_viet_sai_thi_bo_qua(token: str) -> None:
+    """Chỉ nhận dạng viết chuẩn: 4 là "iv", không phải "iiii"."""
+    assert roman_to_arabic(f"game {token}") is None
+
+
+def test_alias_so_la_ma_vao_aliases_normalized() -> None:
+    normalized = build_aliases_normalized(["Final Fantasy VII"])
+
+    assert "final fantasy vii" in normalized  # bản gốc vẫn còn
+    assert "final fantasy 7" in normalized
+    assert "finalfantasy7" in normalized  # kèm bản viết liền
+    assert "finalfantasyvii" in normalized
+
+
+def test_alias_so_la_ma_khong_lam_hong_ten_thuong() -> None:
+    normalized = build_aliases_normalized(["Mega Man X", "Elden Ring"])
+    assert not any(char.isdigit() for char in " ".join(normalized))

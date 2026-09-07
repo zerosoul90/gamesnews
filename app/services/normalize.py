@@ -80,6 +80,81 @@ def normalize_vi(text: str) -> str:
     return " ".join("".join(out).split())
 
 
+# --- số La Mã ---------------------------------------------------------
+#
+# "Final Fantasy VII" và "final fantasy 7" phải ra cùng một game. Sinh thêm
+# alias dạng số Ả Rập, KHÔNG thay alias gốc.
+#
+# Chỗ này dễ sinh rác nên có ba chốt chặn:
+#
+# 1. Bỏ qua ký tự đơn (I, V, X, L, C, D, M). "Mega Man X" và "Project X" thì
+#    X là chữ cái, không phải số 10. Cái giá phải trả: "Final Fantasy X" mất
+#    alias "final fantasy 10".
+# 2. Chỉ nhận giá trị 2-40, tức là khoảng số phần tiếp theo có thật của game.
+#    Nhờ vậy MI (1001), DI (501), LI (51), MC (1100) tự bị loại — chúng là từ
+#    thật trong tiếng Việt và tiếng Anh.
+# 3. Tên chỉ có đúng một từ thì không đổi, để "VI" hay "XI" đứng một mình
+#    được giữ nguyên là chữ.
+_ROMAN_VALUES = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100, "d": 500, "m": 1000}
+_ROMAN_MAX = 40
+
+
+def _roman_to_int(token: str) -> int | None:
+    """Trả về giá trị nếu `token` là số La Mã viết đúng chuẩn, không thì None.
+
+    Bắt buộc đúng dạng chuẩn tắc: "iiii" và "vv" bị loại vì số 4 chỉ có một
+    cách viết đúng là "iv".
+    """
+    total = 0
+    previous = 0
+    for char in reversed(token):
+        value = _ROMAN_VALUES.get(char)
+        if value is None:
+            return None
+        total += value if value >= previous else -value
+        previous = max(previous, value)
+
+    if not 1 <= total <= 3999:
+        return None
+    # Viết ngược lại rồi so — cách rẻ nhất để loại các dạng viết sai.
+    return total if _int_to_roman(total) == token else None
+
+
+def _int_to_roman(value: int) -> str:
+    pairs = (
+        (1000, "m"), (900, "cm"), (500, "d"), (400, "cd"),
+        (100, "c"), (90, "xc"), (50, "l"), (40, "xl"),
+        (10, "x"), (9, "ix"), (5, "v"), (4, "iv"), (1, "i"),
+    )
+    out: list[str] = []
+    for amount, symbol in pairs:
+        count, value = divmod(value, amount)
+        out.append(symbol * count)
+    return "".join(out)
+
+
+def roman_to_arabic(normalized: str) -> str | None:
+    """Đổi mọi token số La Mã trong một tên ĐÃ chuẩn hoá sang số Ả Rập.
+
+    Trả về None nếu không có gì để đổi.
+    """
+    tokens = normalized.split()
+    if len(tokens) < 2:  # chốt 3: tên một từ thì giữ nguyên
+        return None
+
+    changed = False
+    out: list[str] = []
+    for token in tokens:
+        value = _roman_to_int(token) if len(token) >= 2 else None  # chốt 1
+        if value is not None and 2 <= value <= _ROMAN_MAX:  # chốt 2
+            out.append(str(value))
+            changed = True
+        else:
+            out.append(token)
+
+    return " ".join(out) if changed else None
+
+
 def collapse_spaces(text: str) -> str:
     """Biến thể viết liền: 'elden ring' -> 'eldenring'.
 
@@ -113,12 +188,21 @@ def build_aliases(
 
 
 def build_aliases_normalized(aliases: Iterable[str]) -> list[str]:
-    """Sinh `aliases_normalized` từ `aliases`: bản bỏ dấu + bản viết liền."""
+    """Sinh `aliases_normalized`: bản bỏ dấu, bản viết liền, bản số Ả Rập."""
     seen: dict[str, None] = {}
 
+    def add(value: str) -> None:
+        if value and value not in seen:
+            seen[value] = None
+
     for alias in aliases:
-        for variant in (normalize_vi(alias), collapse_spaces(alias)):
-            if variant and variant not in seen:
-                seen[variant] = None
+        base = normalize_vi(alias)
+        add(base)
+        add(base.replace(" ", ""))
+
+        arabic = roman_to_arabic(base)
+        if arabic is not None:
+            add(arabic)
+            add(arabic.replace(" ", ""))
 
     return list(seen)
