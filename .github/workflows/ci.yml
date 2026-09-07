@@ -32,8 +32,12 @@ jobs:
         image: mongo:7
         ports:
           - 27017:27017
+        # Không dùng dấu nháy lồng trong lệnh healthcheck: `options` ở đây là
+        # một chuỗi do runner tự tách, không phải mảng exec như trong
+        # docker-compose.yml, nên `db.adminCommand('ping')` bị nuốt mất nháy và
+        # healthcheck không bao giờ xanh. Dạng {ping:1} không cần nháy nào.
         options: >-
-          --health-cmd "mongosh --quiet --eval db.adminCommand('ping').ok"
+          --health-cmd "mongosh --quiet --eval db.adminCommand({ping:1}).ok"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -46,7 +50,7 @@ jobs:
         ports:
           - 7700:7700
         env:
-          MEILI_MASTER_KEY: ci-test-key
+          MEILI_MASTER_KEY: ci-test-master-key-not-a-secret
           MEILI_ENV: production
           MEILI_NO_ANALYTICS: "true"
         options: >-
@@ -59,7 +63,7 @@ jobs:
       TEST_REDIS_URL: redis://localhost:6379/15
       TEST_MONGO_URI: mongodb://localhost:27017
       TEST_MEILI_URL: http://localhost:7700
-      MEILI_MASTER_KEY: ci-test-key
+      MEILI_MASTER_KEY: ci-test-master-key-not-a-secret
       # Trên CI không kho nào được phép skip: skip im lặng nghĩa là phần logic
       # quan trọng nhất coi như chưa bao giờ được kiểm.
       REQUIRE_REDIS: "1"
