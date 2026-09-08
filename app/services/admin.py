@@ -23,8 +23,14 @@ from typing import Any
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.models.game import ExternalIds, Game, Media, ReleaseDate, SystemRequirements, Titles
-from app.services.catalog import EXTERNAL_ID_FIELDS, games, storage_document, with_aliases
+from app.models.game import Game
+from app.services.catalog import (
+    EXTERNAL_ID_FIELDS,
+    games,
+    merge_content,
+    storage_document,
+    with_aliases,
+)
 from app.services.normalize import normalize_vi
 
 logger = logging.getLogger(__name__)
@@ -40,22 +46,6 @@ class AdminError(RuntimeError):
 
 class EntityNotFoundError(AdminError):
     """Không có entity với _id đó. Router đổi thành 404."""
-
-
-class MergeConflictError(AdminError):
-    """Hai entity mang ID ngoài khác nhau ở cùng một nguồn.
-
-    Đây gần như luôn có nghĩa là chúng KHÔNG phải một game: hai Steam AppID
-    khác nhau là hai sản phẩm khác nhau trên cửa hàng. Gộp bừa thì mất một
-    entity thật và Phase 2 lấy giá của game khác gắn vào.
-    """
-
-    def __init__(self, fields: dict[str, tuple[Any, Any]]) -> None:
-        self.fields = fields
-        detail = ", ".join(
-            f"{field}: giữ={keep!r} bỏ={drop!r}" for field, (keep, drop) in fields.items()
-        )
-        super().__init__(f"xung đột external_ids ({detail}) — kiểm tra lại trước khi gộp")
 
 
 # --- tìm và xem ------------------------------------------------------------
@@ -160,97 +150,6 @@ async def set_manual_aliases(db: Db, game_id: ObjectId, aliases: Iterable[str]) 
 
 
 # --- gộp entity ------------------------------------------------------------
-
-
-def _union(primary: Iterable[str], secondary: Iterable[str]) -> list[str]:
-    """Hợp hai danh sách, giữ thứ tự và không trùng. Bên giữ lại đứng trước."""
-    seen: dict[str, None] = {}
-    for value in (*primary, *secondary):
-        if value and value not in seen:
-            seen[value] = None
-    return list(seen)
-
-
-def _merge_external_ids(keep: ExternalIds, drop: ExternalIds) -> ExternalIds:
-    """Gộp bảng ID mapping. Bên bị gộp chỉ được điền vào chỗ còn trống.
-
-    Đây là nửa quan trọng nhất của thao tác gộp: sau khi gộp, job đồng bộ của
-    nguồn bên bị gộp phải tìm thấy entity còn lại qua ID cũ của nó, nếu không
-    lần chạy tới nó sẽ insert lại đúng cái entity ta vừa xoá.
-    """
-    merged: dict[str, Any] = {}
-    conflicts: dict[str, tuple[Any, Any]] = {}
-
-    for field in ExternalIds.model_fields:
-        kept = getattr(keep, field)
-        dropped = getattr(drop, field)
-        if kept is not None and dropped is not None and kept != dropped:
-            conflicts[field] = (kept, dropped)
-        merged[field] = kept if kept is not None else dropped
-
-    if conflicts:
-        raise MergeConflictError(conflicts)
-    return ExternalIds(**merged)
-
-
-def _merge_release_dates(keep: list[ReleaseDate], drop: list[ReleaseDate]) -> list[ReleaseDate]:
-    seen: dict[tuple[str, str | None, str | None], ReleaseDate] = {}
-    for item in (*keep, *drop):
-        seen.setdefault((item.region, item.platform, item.date), item)
-    return list(seen.values())
-
-
-def _merge_requirements(keep: SystemRequirements, drop: SystemRequirements) -> SystemRequirements:
-    return SystemRequirements(
-        minimum=keep.minimum or drop.minimum,
-        recommended=keep.recommended or drop.recommended,
-    )
-
-
-def merge_content(keep: Game, drop: Game) -> Game:
-    """Nội dung của entity sau khi gộp. Thuần hàm, không đụng Mongo.
-
-    Một luật duy nhất cho mọi field, để còn đoán được kết quả: **bên giữ lại
-    thắng ở chỗ nó có dữ liệu, bên bị gộp chỉ bù vào chỗ trống.** Field dạng
-    danh sách thì hợp lại — mất một platform hay một studio khi gộp là mất
-    dữ liệu thật, trong khi thừa một dòng thì admin xoá được.
-    """
-    external_ids = _merge_external_ids(keep.external_ids, drop.external_ids)
-    aliases = _union(keep.aliases, drop.aliases)
-
-    merged = keep.model_copy(
-        update={
-            "titles": Titles(
-                primary=keep.titles.primary,
-                vi=keep.titles.vi or drop.titles.vi,
-                ja=keep.titles.ja or drop.titles.ja,
-            ),
-            "external_ids": external_ids,
-            "parent_game": keep.parent_game or drop.parent_game,
-            "series": keep.series or drop.series,
-            "platforms": _union(keep.platforms, drop.platforms),
-            "genres": _union(keep.genres, drop.genres),
-            "developers": _union(keep.developers, drop.developers),
-            "publishers": _union(keep.publishers, drop.publishers),
-            "release_dates": _merge_release_dates(keep.release_dates, drop.release_dates),
-            # Một nguồn biết đây là game dịch vụ là đủ để nó là game dịch vụ:
-            # nguồn kia chỉ đơn giản không có trường đó.
-            "is_live_service": keep.is_live_service or drop.is_live_service,
-            "current_season": keep.current_season or drop.current_season,
-            "region_locked_vn": keep.region_locked_vn or drop.region_locked_vn,
-            "media": Media(
-                cover=keep.media.cover or drop.media.cover,
-                screenshots=_union(keep.media.screenshots, drop.media.screenshots),
-                videos=_union(keep.media.videos, drop.media.videos),
-            ),
-            "system_requirements": _merge_requirements(
-                keep.system_requirements, drop.system_requirements
-            ),
-        }
-    )
-    # Qua `with_aliases` để `aliases_normalized` được sinh lại đúng một đường
-    # với mọi chỗ khác, thay vì ghép tay hai mảng normalized có sẵn.
-    return with_aliases(merged, aliases)
 
 
 async def merge_games(db: Db, *, keep_id: ObjectId, drop_id: ObjectId) -> dict[str, Any]:

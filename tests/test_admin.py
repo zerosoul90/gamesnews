@@ -27,14 +27,19 @@ from app.models.game import Game, Media, ReleaseDate, Titles
 from app.services.admin import (
     AdminError,
     EntityNotFoundError,
-    MergeConflictError,
-    merge_content,
     merge_games,
     search_entities,
     set_manual_aliases,
     to_object_id,
 )
-from app.services.catalog import ensure_indexes, games, upsert_game, with_aliases
+from app.services.catalog import (
+    MergeConflictError,
+    ensure_indexes,
+    games,
+    merge_content,
+    upsert_game,
+    with_aliases,
+)
 
 Db = AsyncIOMotorDatabase[dict[str, Any]]
 

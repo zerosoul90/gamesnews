@@ -26,7 +26,8 @@ from pydantic import BaseModel, Field
 from app.core.deps import MeiliDep, MongoDep, SettingsDep
 from app.search.meili import MeiliIndex
 from app.services import admin as service
-from app.services.admin import EntityNotFoundError, MergeConflictError
+from app.services.admin import EntityNotFoundError
+from app.services.catalog import MergeConflictError
 from app.services.search_index import drop_game, sync_game
 
 TEMPLATE_DIR = pathlib.Path(__file__).resolve().parent.parent / "templates"

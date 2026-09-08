@@ -16,6 +16,7 @@ from app.core.config import get_settings
 from app.core.db import close_clients, create_clients
 from app.core.logging import new_request_id, request_id_var, setup_logging
 from app.services.admin import AdminError
+from app.services.catalog import CatalogError
 
 logger = logging.getLogger(__name__)
 
@@ -63,3 +64,4 @@ app.include_router(admin_router)
 # entity xung đột ID), không phải sự cố máy chủ. Không đăng ký chỗ này thì
 # chúng ra ngoài dưới dạng 500.
 app.add_exception_handler(AdminError, admin_error_handler)
+app.add_exception_handler(CatalogError, admin_error_handler)

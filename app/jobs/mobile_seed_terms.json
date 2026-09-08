@@ -1,0 +1,33 @@
+{
+  "_comment": "Từ khoá tìm game trên Google Play, gian hàng VN. Google không có API bảng xếp hạng nên đây là nguồn khám phá thay thế — xem app/adapters/google_play/adapter.py. Người Việt gõ cả tiếng Việt lẫn tiếng Anh nên giữ cả hai. Danh sách này để sửa tay khi thấy mảng nào bị hụt; nó là nội dung tĩnh, không phải code.",
+  "terms": [
+    "game nhập vai",
+    "game bắn súng",
+    "game chiến thuật",
+    "game sinh tồn",
+    "game đua xe",
+    "game thẻ bài",
+    "game kiếm hiệp",
+    "game tiên hiệp",
+    "game nông trại",
+    "game giải đố",
+    "game bóng đá",
+    "game xây dựng",
+    "game phiêu lưu",
+    "game kinh dị",
+    "game bắn cá",
+    "game cờ",
+    "liên quân",
+    "free fire",
+    "liên minh",
+    "moba",
+    "mmorpg",
+    "battle royale",
+    "gacha",
+    "idle rpg",
+    "tower defense",
+    "roguelike",
+    "auto chess",
+    "otome"
+  ]
+}

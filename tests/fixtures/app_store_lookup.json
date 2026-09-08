@@ -1,0 +1,35 @@
+{
+  "resultCount": 2,
+  "results": [
+    {
+      "trackId": 1189041808,
+      "trackName": "Liên Quân Mobile",
+      "artistName": "GARENA ONLINE PRIVATE LIMITED",
+      "sellerName": "Garena Online Private Limited",
+      "primaryGenreId": 6014,
+      "primaryGenreName": "Games",
+      "genres": ["Games", "Action", "Entertainment", "Role Playing"],
+      "releaseDate": "2016-11-18T08:00:00Z",
+      "currentVersionReleaseDate": "2026-08-30T02:11:00Z",
+      "artworkUrl512": "https://is1.example.test/aov/512x512.jpg",
+      "artworkUrl100": "https://is1.example.test/aov/100x100.jpg",
+      "screenshotUrls": [
+        "https://is1.example.test/aov/s1.jpg",
+        "https://is1.example.test/aov/s2.jpg"
+      ],
+      "kind": "software"
+    },
+    {
+      "trackId": 1195621598,
+      "trackName": "Free Fire",
+      "artistName": "GARENA INTERNATIONAL I PRIVATE LIMITED",
+      "primaryGenreId": 6014,
+      "primaryGenreName": "Games",
+      "genres": ["Games", "Action", "Adventure"],
+      "releaseDate": "2017-11-20T08:00:00Z",
+      "artworkUrl512": "https://is1.example.test/ff/512x512.jpg",
+      "screenshotUrls": ["https://is1.example.test/ff/s1.jpg"],
+      "kind": "software"
+    }
+  ]
+}
