@@ -10,6 +10,7 @@ import datetime as dt
 import logging
 from typing import Any
 
+from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.search.meili import MeiliIndex, to_search_document
@@ -35,6 +36,29 @@ _PROJECTION = {
     "release_dates": 1,
     "media.cover": 1,
 }
+
+
+async def sync_game(
+    db: AsyncIOMotorDatabase[dict[str, Any]],
+    index: MeiliIndex,
+    game_id: ObjectId,
+) -> bool:
+    """Đẩy đúng một entity sang index. Trả về False nếu entity không còn.
+
+    Dùng sau mỗi lần sửa tay ở trang admin. Job delta cũng sẽ quét được thay
+    đổi này ở lần chạy sau, nhưng admin sửa xong phải thấy kết quả ngay, không
+    thì họ sửa tiếp một lần nữa vì tưởng lần đầu không ăn.
+    """
+    doc = await games(db).find_one({"_id": game_id}, _PROJECTION)
+    if doc is None:
+        return False
+    await index.add_documents([to_search_document(doc)])
+    return True
+
+
+async def drop_game(index: MeiliIndex, game_id: ObjectId) -> None:
+    """Gỡ một entity khỏi index — entity vừa bị gộp vào entity khác."""
+    await index.delete_document(str(game_id))
 
 
 async def reindex(

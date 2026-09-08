@@ -1,0 +1,11 @@
+{% extends "admin/base.html" %}
+{% block title %}Đăng nhập{% endblock %}
+{% block nav %}{% endblock %}
+{% block content %}
+{% if error %}<p class="warn">{{ error }}</p>{% endif %}
+<form method="post" action="/admin/login" class="inline">
+  <input type="password" name="token" placeholder="ADMIN_TOKEN" autofocus required>
+  <button>Vào</button>
+</form>
+<p class="muted">Token lấy từ biến môi trường <code>ADMIN_TOKEN</code> của server.</p>
+{% endblock %}

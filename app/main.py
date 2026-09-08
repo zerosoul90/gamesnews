@@ -1,4 +1,4 @@
-"""Điểm vào của API. Hiện có /health (Phase 0) và /search (Phase 1)."""
+"""Điểm vào của API. Hiện có /health (Phase 0), /search và /admin (Phase 1)."""
 
 from __future__ import annotations
 
@@ -8,11 +8,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 
+from app.api.admin import admin_error_handler
+from app.api.admin import router as admin_router
 from app.api.health import router as health_router
 from app.api.search import router as search_router
 from app.core.config import get_settings
 from app.core.db import close_clients, create_clients
 from app.core.logging import new_request_id, request_id_var, setup_logging
+from app.services.admin import AdminError
 
 logger = logging.getLogger(__name__)
 
@@ -54,3 +57,9 @@ async def request_id_middleware(
 
 app.include_router(health_router)
 app.include_router(search_router)
+app.include_router(admin_router)
+
+# Lỗi nghiệp vụ của admin là câu trả lời hợp lệ (không tìm thấy entity, hai
+# entity xung đột ID), không phải sự cố máy chủ. Không đăng ký chỗ này thì
+# chúng ra ngoài dưới dạng 500.
+app.add_exception_handler(AdminError, admin_error_handler)

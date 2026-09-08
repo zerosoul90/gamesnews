@@ -87,6 +87,19 @@ def with_aliases(game: Game, alternative_names: Iterable[str] = ()) -> Game:
     )
 
 
+def storage_document(game: Game, *, now: dt.datetime | None = None) -> dict[str, Any]:
+    """Document đầy đủ để ghi xuống Mongo: nội dung + hai field siêu dữ liệu.
+
+    `content_hash` và `updated_at` cố ý không nằm trong model `Game` (xem
+    `models/game.py`), nên mọi đường ghi đều phải đi qua đây để gắn chúng vào.
+    Bỏ sót `updated_at` một lần là job reindex delta bỏ qua entity đó vĩnh viễn.
+    """
+    document = game.to_mongo()
+    document["content_hash"] = game.content_hash()
+    document["updated_at"] = now or dt.datetime.now(dt.UTC)
+    return document
+
+
 async def upsert_game(
     db: AsyncIOMotorDatabase[dict[str, Any]],
     game: Game,
@@ -121,9 +134,7 @@ async def upsert_game(
         return "unchanged"
 
     now = dt.datetime.now(dt.UTC)
-    document = game.to_mongo()
-    document["content_hash"] = new_hash
-    document["updated_at"] = now
+    document = storage_document(game, now=now)
 
     await collection.update_one(
         query,

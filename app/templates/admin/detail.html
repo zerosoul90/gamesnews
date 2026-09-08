@@ -1,0 +1,61 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ game.titles.primary }}{% endblock %}
+{% block content %}
+<p class="muted"><a href="/admin">← Danh sách</a></p>
+
+<h2>{{ game.titles.primary }} <span class="muted">({{ game.type }})</span></h2>
+{% if merged %}<p class="warn">Đã gộp entity <code>{{ merged }}</code> vào entity này.</p>{% endif %}
+
+<table>
+  <tr><th>_id</th><td><code>{{ game._id }}</code></td></tr>
+  <tr><th>slug</th><td><code>{{ game.slug }}</code></td></tr>
+  <tr><th>Tên vi / ja</th><td>{{ game.titles.vi or "—" }} / {{ game.titles.ja or "—" }}</td></tr>
+  <tr><th>ID ngoài</th><td>
+    {%- for source, value in (game.external_ids or {}).items() if value %}
+      <code>{{ source }}={{ value }}</code>{{ ", " if not loop.last }}
+    {%- else %}—{% endfor -%}
+  </td></tr>
+  <tr><th>Platform</th><td>{{ game.platforms | join(", ") or "—" }}</td></tr>
+  <tr><th>Genre</th><td>{{ game.genres | join(", ") or "—" }}</td></tr>
+  <tr><th>Phát hành</th><td>
+    {%- for rd in game.release_dates %}{{ rd.date or "?" }} ({{ rd.region }}{% if rd.platform %}/{{ rd.platform }}{% endif %}){{ ", " if not loop.last }}
+    {%- else %}—{% endfor -%}
+  </td></tr>
+  <tr><th>parent_game</th><td>
+    {% if game.parent_game %}<a href="/admin/games/{{ game.parent_game }}"><code>{{ game.parent_game }}</code></a>{% else %}—{% endif %}
+  </td></tr>
+  <tr><th>updated_at</th><td class="muted">{{ game.updated_at }}</td></tr>
+  {% if game.merged_from %}
+  <tr><th>Đã gộp từ</th><td class="muted">
+    {%- for old in game.merged_from %}<code>{{ old._id }}</code> ({{ old.slug }}){{ ", " if not loop.last }}{% endfor -%}
+  </td></tr>
+  {% endif %}
+</table>
+
+<section>
+  <h3>Alias</h3>
+  <p class="muted">
+    Mỗi dòng một alias. Alias sinh từ tên game luôn được giữ lại, nên xoá chúng
+    khỏi ô này cũng không mất. Bản không dấu (<code>aliases_normalized</code>)
+    được sinh lại tự động.
+  </p>
+  <form method="post" action="/admin/games/{{ game._id }}/aliases">
+    <textarea name="aliases">{{ game.aliases | join("\n") }}</textarea>
+    <p><button>Lưu alias</button></p>
+  </form>
+  <p class="muted"><code>{{ game.aliases_normalized | join(" · ") }}</code></p>
+</section>
+
+<section>
+  <h3>Gộp entity trùng</h3>
+  <p class="muted">
+    Dán <code>_id</code> của entity trùng vào đây. Entity đó sẽ bị xoá, còn ID
+    ngoài, alias và mọi danh sách của nó dồn về entity đang xem. Không hoàn tác
+    được.
+  </p>
+  <form method="post" action="/admin/games/{{ game._id }}/merge" class="inline">
+    <input type="text" name="drop_id" placeholder="_id của entity bị gộp" required>
+    <button>Gộp vào entity này</button>
+  </form>
+</section>
+{% endblock %}

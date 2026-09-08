@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends, Request
+from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.config import Settings, get_settings
 from app.core.db import Clients
@@ -19,6 +20,13 @@ def get_clients(request: Request) -> Clients:
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 ClientsDep = Annotated[Clients, Depends(get_clients)]
+
+
+def get_db(clients: ClientsDep) -> AsyncIOMotorDatabase[dict[str, Any]]:
+    return clients.db
+
+
+MongoDep = Annotated[AsyncIOMotorDatabase[dict[str, Any]], Depends(get_db)]
 
 
 def get_meili(clients: ClientsDep, settings: SettingsDep) -> MeiliIndex:

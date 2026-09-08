@@ -1,0 +1,36 @@
+{% extends "admin/base.html" %}
+{% block title %}Tìm entity{% endblock %}
+{% block content %}
+<form method="get" action="/admin" class="inline">
+  <input type="text" name="q" value="{{ q }}" placeholder="Tên game, slug, hoặc ID ngoài" autofocus>
+  <button>Tìm</button>
+</form>
+
+<p class="muted">
+  {% if q %}{{ total }} entity khớp “{{ q }}”.{% else %}{{ total }} entity, mới sửa xếp trước.{% endif %}
+</p>
+
+<table>
+  <tr><th>Tên</th><th>Slug</th><th>Loại</th><th>ID ngoài</th></tr>
+  {% for game in items %}
+  <tr>
+    <td><a href="/admin/games/{{ game._id }}">{{ game.titles.primary }}</a>
+      {% if game.titles.vi %}<br><span class="muted">{{ game.titles.vi }}</span>{% endif %}</td>
+    <td><code>{{ game.slug }}</code></td>
+    <td>{{ game.type }}</td>
+    <td class="muted">
+      {%- for source, value in (game.external_ids or {}).items() if value -%}
+        {{ source }}={{ value }}{{ ", " if not loop.last }}
+      {%- endfor -%}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="4" class="muted">Không có entity nào khớp.</td></tr>
+  {% endfor %}
+</table>
+
+<p>
+  {% if page > 1 %}<a href="/admin?q={{ q | urlencode }}&page={{ page - 1 }}">← Trang trước</a>{% endif %}
+  {% if has_next %}<a href="/admin?q={{ q | urlencode }}&page={{ page + 1 }}">Trang sau →</a>{% endif %}
+</p>
+{% endblock %}

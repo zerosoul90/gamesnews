@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     # Timeout cho mọi lần ping phụ thuộc trong /health, tính bằng giây.
     health_timeout_seconds: float = Field(default=2.0, gt=0)
 
+    # --- Admin ---
+    #
+    # Phase 3 mới có auth thật. Tới lúc đó, một token tĩnh là thứ duy nhất
+    # ngăn người lạ sửa catalog. Để trống thì `/admin` từ chối mọi request —
+    # mở sẵn một trang sửa entity không mật khẩu nguy hiểm hơn nhiều so với
+    # việc admin tạm thời không dùng được.
+    admin_token: SecretStr = SecretStr("")
+
     # --- Key ngoài. Phase 0 chưa gọi API nào nên để trống vẫn chạy được. ---
     steam_api_key: SecretStr = SecretStr("")
     twitch_client_id: str = ""

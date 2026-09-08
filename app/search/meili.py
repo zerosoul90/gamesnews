@@ -185,6 +185,16 @@ class MeiliIndex:
             task["taskUid"], ignore_error_codes=frozenset({"index_not_found"})
         )
 
+    async def delete_document(self, document_id: str) -> None:
+        """Xoá một document khỏi index. Không có sẵn thì task vẫn succeeded.
+
+        Cần cho thao tác gộp entity của trang admin: entity bị gộp phải biến
+        mất khỏi kết quả tìm kiếm ngay, chứ không đợi lần reindex toàn bộ kế
+        tiếp — trong khoảng chờ đó nó vẫn hiện ra và trỏ tới một _id đã chết.
+        """
+        task = await self._request("DELETE", f"/indexes/{self._uid}/documents/{document_id}")
+        await self.wait_for_task(task["taskUid"])
+
     async def delete_all_documents(self) -> None:
         task = await self._request("DELETE", f"/indexes/{self._uid}/documents")
         await self.wait_for_task(task["taskUid"])
