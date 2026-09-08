@@ -1,72 +1,102 @@
 {
-  "_comment": "Payload rút gọn của google_play_scraper.app(). Mỗi appId có bản 'en' và 'vi' vì adapter gọi hai lần để lấy đủ tên. Trường 'released' cố ý ở hai ngôn ngữ khác nhau — đó chính là lý do adapter chỉ đọc ngày từ bản tiếng Anh.",
-  "com.garena.game.kgvn": {
-    "en": {
-      "appId": "com.garena.game.kgvn",
-      "title": "Arena of Valor",
-      "developer": "GARENA ONLINE PRIVATE LIMITED",
-      "genre": "Action",
-      "genreId": "GAME_ACTION",
-      "released": "Nov 18, 2016",
-      "icon": "https://play.example.test/aov/icon.png",
-      "screenshots": [
-        "https://play.example.test/aov/s1.png",
-        "https://play.example.test/aov/s2.png"
-      ]
+  "_comment": "Payload rút gọn của google_play_scraper. 'apps' là app() — có genreId, và 'released' ở hai ngôn ngữ khác nhau, đó chính là lý do adapter chỉ đọc ngày từ bản tiếng Anh. 'search' là kết quả search(): KHÔNG có genreId, và hit đầu bảng mất appId — cả hai đều đúng với hành vi thật ngày 2026-09-08.",
+  "apps": {
+    "com.garena.game.kgvn": {
+      "en": {
+        "appId": "com.garena.game.kgvn",
+        "title": "Arena of Valor",
+        "developer": "GARENA ONLINE PRIVATE LIMITED",
+        "genre": "Action",
+        "genreId": "GAME_ACTION",
+        "released": "Nov 18, 2016",
+        "icon": "https://play.example.test/aov/icon.png",
+        "screenshots": [
+          "https://play.example.test/aov/s1.png",
+          "https://play.example.test/aov/s2.png"
+        ]
+      },
+      "vi": {
+        "appId": "com.garena.game.kgvn",
+        "title": "Liên Quân Mobile",
+        "developer": "GARENA ONLINE PRIVATE LIMITED",
+        "genre": "Hành động",
+        "genreId": "GAME_ACTION",
+        "released": "18 tháng 11, 2016",
+        "icon": "https://play.example.test/aov/icon.png",
+        "screenshots": []
+      }
     },
-    "vi": {
-      "appId": "com.garena.game.kgvn",
-      "title": "Liên Quân Mobile",
-      "developer": "GARENA ONLINE PRIVATE LIMITED",
-      "genre": "Hành động",
-      "genreId": "GAME_ACTION",
-      "released": "18 tháng 11, 2016",
-      "icon": "https://play.example.test/aov/icon.png",
-      "screenshots": []
+    "com.zing.zalo": {
+      "en": {
+        "appId": "com.zing.zalo",
+        "title": "Zalo",
+        "developer": "Zalo Group",
+        "genre": "Communication",
+        "genreId": "COMMUNICATION",
+        "released": "Dec 8, 2012",
+        "icon": "https://play.example.test/zalo/icon.png",
+        "screenshots": []
+      },
+      "vi": {
+        "appId": "com.zing.zalo",
+        "title": "Zalo",
+        "developer": "Zalo Group",
+        "genre": "Liên lạc",
+        "genreId": "COMMUNICATION",
+        "released": "8 tháng 12, 2012",
+        "icon": "https://play.example.test/zalo/icon.png",
+        "screenshots": []
+      }
+    },
+    "com.dts.freefireth": {
+      "en": {
+        "appId": "com.dts.freefireth",
+        "title": "Free Fire",
+        "developer": "Garena International I",
+        "genre": "Action",
+        "genreId": "GAME_ACTION",
+        "released": "Nov 20, 2017",
+        "icon": "https://play.example.test/ff/icon.png",
+        "screenshots": [
+          "https://play.example.test/ff/s1.png"
+        ]
+      },
+      "vi": {
+        "appId": "com.dts.freefireth",
+        "title": "Free Fire",
+        "developer": "Garena International I",
+        "genre": "Hành động",
+        "genreId": "GAME_ACTION",
+        "released": "20 tháng 11, 2017",
+        "icon": "https://play.example.test/ff/icon.png",
+        "screenshots": []
+      }
     }
   },
-  "com.zing.zalo": {
-    "en": {
-      "appId": "com.zing.zalo",
-      "title": "Zalo",
-      "developer": "Zalo Group",
-      "genre": "Communication",
-      "genreId": "COMMUNICATION",
-      "released": "Dec 8, 2012",
-      "icon": "https://play.example.test/zalo/icon.png",
+  "search": [
+    {
+      "appId": null,
+      "title": "Garena Liên Quân Mobile",
+      "developer": "Garena Mobile Private",
+      "genre": "Hành động",
+      "icon": "https://play.example.test/aov/icon.png",
       "screenshots": []
     },
-    "vi": {
+    {
+      "appId": "com.dts.freefireth",
+      "title": "Free Fire",
+      "developer": "Garena International I",
+      "genre": "Hành động",
+      "icon": "https://play.example.test/ff/icon.png",
+      "screenshots": []
+    },
+    {
       "appId": "com.zing.zalo",
       "title": "Zalo",
       "developer": "Zalo Group",
       "genre": "Liên lạc",
-      "genreId": "COMMUNICATION",
-      "released": "8 tháng 12, 2012",
       "icon": "https://play.example.test/zalo/icon.png",
       "screenshots": []
     }
-  },
-  "com.dts.freefireth": {
-    "en": {
-      "appId": "com.dts.freefireth",
-      "title": "Free Fire",
-      "developer": "Garena International I",
-      "genre": "Action",
-      "genreId": "GAME_ACTION",
-      "released": "Nov 20, 2017",
-      "icon": "https://play.example.test/ff/icon.png",
-      "screenshots": ["https://play.example.test/ff/s1.png"]
-    },
-    "vi": {
-      "appId": "com.dts.freefireth",
-      "title": "Free Fire",
-      "developer": "Garena International I",
-      "genre": "Hành động",
-      "genreId": "GAME_ACTION",
-      "released": "20 tháng 11, 2017",
-      "icon": "https://play.example.test/ff/icon.png",
-      "screenshots": []
-    }
-  }
+  ]
 }

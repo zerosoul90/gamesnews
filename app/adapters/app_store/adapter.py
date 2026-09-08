@@ -1,17 +1,23 @@
 """App Store — `docs/PHASE-1.md` mục 5.
 
 `DATA-SOURCES.md` ghi "thư viện scraper open source" cho hai store mobile. Với
-App Store thì không cần: Apple có sẵn hai endpoint JSON công khai, miễn phí,
-không key và có tài liệu — ổn định hơn hẳn một thư viện bóc HTML, mà thực chất
-các thư viện đó cũng chỉ bọc lại đúng hai endpoint này.
+App Store thì không cần: Apple có sẵn các endpoint JSON công khai, miễn phí,
+không key — ổn định hơn hẳn một thư viện bóc HTML, mà thực chất các thư viện đó
+cũng chỉ bọc lại đúng chúng.
 
-- Bảng xếp hạng: `rss.marketingtools.apple.com/api/v2/{country}/apps/{feed}/...`
-- Chi tiết: `itunes.apple.com/lookup?id=...` — **gộp được 200 id một lần gọi**,
-  nên lấy chi tiết cả bảng xếp hạng chỉ tốn vài request.
+Ba endpoint, và **vai trò của chúng là kết quả của việc thử thật** (kiểm bằng
+tay ngày 2026-09-08):
 
-Hai endpoint trả về hai hình dạng khác nhau cho cùng một app (`id`/`name` so
-với `trackId`/`trackName`), nên `to_game` đọc được cả hai — bảng xếp hạng đã đủ
-dựng entity, `lookup` chỉ bồi thêm ảnh chụp màn hình và thể loại chi tiết.
+- `itunes.apple.com/search` — **nguồn khám phá chính**. Mỗi từ khoá trả về
+  ~150 kết quả, hầu hết là game, và payload đã đủ dựng entity.
+- `itunes.apple.com/{country}/rss/{kind}/limit=N/genre=6014/json` — bảng xếp
+  hạng game của gian hàng VN. Endpoint đời cũ, nhưng là **cái duy nhất lọc
+  được theo thể loại**: API marketing v2 mới hơn chỉ có bảng "apps", mà bảng đó
+  loại hẳn game — kiểm 100/100 mục đầu bảng VN đều là Finance/Photo/Business,
+  không một game nào — và trong v2 không tồn tại bảng games. Apple có khai tử
+  nốt endpoint này thì search vẫn chạy: bảng xếp hạng là phần bồi thêm, không
+  phải chỗ dựa.
+- `itunes.apple.com/lookup` — chi tiết theo lô, **gộp 200 id một lần gọi**.
 
 Hạn mức Apple công bố cho iTunes API là ~20 request/phút. Bucket đặt đúng con
 số đó và nằm trong Redis nên nhiều worker dùng chung một hạn mức.
@@ -37,62 +43,62 @@ from app.services.normalize import slugify
 
 logger = logging.getLogger(__name__)
 
-RSS_BASE = "https://rss.marketingtools.apple.com/api/v2"
+SEARCH_URL = "https://itunes.apple.com/search"
 LOOKUP_URL = "https://itunes.apple.com/lookup"
+RSS_URL = "https://itunes.apple.com/{country}/rss/{kind}/limit={limit}/genre={genre}/json"
 
 # Apple công bố ~20 request/phút cho iTunes API.
 RATE_LIMIT = RateLimit(capacity=20, per_seconds=60.0)
 
-# Một lần lookup nhận tối đa 200 id.
+# Một lần lookup nhận tối đa 200 id; search cũng nhận limit tối đa 200.
 LOOKUP_BATCH = 200
+SEARCH_LIMIT = 200
 
-# Mã thể loại "Games". Bảng xếp hạng trả về đủ mọi loại app nên phải lọc, và
-# đây là cách lọc rẻ nhất: ngay trên payload bảng xếp hạng, trước khi lookup.
+# Trần bảng xếp hạng đã kiểm thật: 100 chạy tốt.
+CHART_LIMIT = 100
+
+# Mã thể loại "Games" của App Store.
 GAMES_GENRE_ID = "6014"
 
+# Tên bảng xếp hạng của endpoint RSS đời cũ, giấu sau tên gọi dễ đọc.
 Feed = Literal["top-free", "top-paid", "top-grossing"]
+_FEED_KINDS: dict[str, str] = {
+    "top-free": "topfreeapplications",
+    "top-paid": "toppaidapplications",
+    "top-grossing": "topgrossingapplications",
+}
 
 # `genres` của iTunes luôn mở đầu bằng nhãn ô dù "Games" rồi mới tới thể loại
 # con. Giữ nhãn đó thì mọi game mobile đều có chung một thể loại vô nghĩa.
 _UMBRELLA_GENRES = frozenset({"games", "entertainment"})
 
 
-def _is_game(entry: dict[str, Any]) -> bool:
-    """Chỉ đúng với payload bảng xếp hạng, nơi `genres` là danh sách object."""
-    return any(str(g.get("genreId")) == GAMES_GENRE_ID for g in entry.get("genres", []))
-
-
-def _genre_names(result: dict[str, Any]) -> list[str]:
-    """`genres` là list chuỗi ở `lookup`, list object ở bảng xếp hạng."""
-    out: list[str] = []
-    for item in result.get("genres", []):
-        name = item.get("name") if isinstance(item, dict) else item
-        if name:
-            out.append(str(name))
-    return out
+def is_game(result: dict[str, Any]) -> bool:
+    """Chỉ dùng được với payload `search`/`lookup`; RSS đã lọc sẵn theo genre."""
+    return str(result.get("primaryGenreId")) == GAMES_GENRE_ID
 
 
 def to_game(result: dict[str, Any], *, international_name: str | None = None) -> Game:
-    """Một record của Apple -> entity `games`. Nhận cả hai hình dạng payload.
+    """Một record `search`/`lookup` -> entity `games`.
 
     `international_name` là tên ở gian hàng Mỹ. Có nó thì tên quốc tế làm
     `titles.primary` còn tên gian hàng VN thành `titles.vi` — đúng hình dạng
     `SCHEMA.md` mô tả, và là thứ giúp ghép được với bản Google Play.
     """
-    store_id = result.get("trackId") or result.get("id")
-    if store_id is None:
-        raise PermanentError(f"record App Store thiếu id: {result.get('trackName')!r}")
+    track_id = result.get("trackId")
+    if track_id is None:
+        raise PermanentError(f"record App Store thiếu trackId: {result.get('trackName')!r}")
 
-    vn_name = str(result.get("trackName") or result.get("name") or "").strip()
+    vn_name = str(result.get("trackName") or "").strip()
     if not vn_name:
-        raise PermanentError(f"record App Store thiếu tên: {store_id}")
+        raise PermanentError(f"record App Store thiếu trackName: {track_id}")
 
     primary = (international_name or vn_name).strip()
     released = str(result.get("releaseDate") or "")
     genres = [
         slug
-        for name in _genre_names(result)
-        if (slug := slugify(name)) not in _UMBRELLA_GENRES
+        for name in result.get("genres", [])
+        if (slug := slugify(str(name))) not in _UMBRELLA_GENRES
     ]
 
     return Game(
@@ -102,7 +108,7 @@ def to_game(result: dict[str, Any], *, international_name: str | None = None) ->
         # ra game thì store không nói, nên `developers` để trống chứ không chép
         # sang cho đầy.
         publishers=[str(result["artistName"])] if result.get("artistName") else [],
-        external_ids=ExternalIds(app_store=str(store_id)),
+        external_ids=ExternalIds(app_store=str(track_id)),
         platforms=["ios"],
         genres=genres,
         release_dates=(
@@ -118,8 +124,8 @@ def to_game(result: dict[str, Any], *, international_name: str | None = None) ->
 def with_international_name(game: Game, name: str | None) -> Game:
     """Gắn tên gian hàng Mỹ làm tên chính, đẩy tên gian hàng VN xuống `titles.vi`.
 
-    Slug đi theo tên chính, vì slug sinh từ tên tiếng Việt thì URL ra một chuỗi
-    không ai gõ được và không khớp với nguồn nào khác.
+    Slug đi theo tên chính, vì slug sinh từ tên tiếng Việt ra một chuỗi không
+    khớp với nguồn nào khác.
     """
     vn_name = game.titles.primary
     if not name or name == vn_name:
@@ -132,8 +138,13 @@ def with_international_name(game: Game, name: str | None) -> Game:
     )
 
 
-class AppStoreAdapter(BaseAdapter[list[dict[str, Any]], list[Game]]):
-    """Hai thao tác: lấy bảng xếp hạng, và tra chi tiết theo lô id."""
+class AppStoreAdapter(BaseAdapter[list[dict[str, Any]], list[dict[str, Any]]]):
+    """`normalize` trả payload thô, việc dựng `Game` để `to_game` lo.
+
+    Ba endpoint trả ba hình dạng khác nhau — RSS đời cũ không hề giống
+    search/lookup — nên không có một phép chuẩn hoá chung nào đúng cho cả ba.
+    Mỗi hàm công khai tự đọc hình dạng của mình.
+    """
 
     source: ClassVar[str] = "app_store"
 
@@ -166,12 +177,18 @@ class AppStoreAdapter(BaseAdapter[list[dict[str, Any]], list[Game]]):
     async def fetch_raw(self, **params: Any) -> list[dict[str, Any]]:
         operation = params["op"]
 
-        if operation == "chart":
+        if operation == "search":
             payload = await self._get_json(
-                f"{RSS_BASE}/{self._country}/apps/{params['feed']}/{params['limit']}/apps.json"
+                SEARCH_URL,
+                {
+                    "term": params["term"],
+                    "country": self._country,
+                    "media": "software",
+                    "entity": "software",
+                    "limit": str(min(params["limit"], SEARCH_LIMIT)),
+                },
             )
-            results = (payload or {}).get("feed", {}).get("results", [])
-            return [entry for entry in results if _is_game(entry)]
+            return [item for item in (payload or {}).get("results", []) if is_game(item)]
 
         if operation == "lookup":
             payload = await self._get_json(
@@ -182,37 +199,69 @@ class AppStoreAdapter(BaseAdapter[list[dict[str, Any]], list[Game]]):
                     "entity": "software",
                 },
             )
-            return list((payload or {}).get("results", []))
+            return [item for item in (payload or {}).get("results", []) if is_game(item)]
+
+        if operation == "chart":
+            payload = await self._get_json(
+                RSS_URL.format(
+                    country=self._country,
+                    kind=_FEED_KINDS[params["feed"]],
+                    limit=min(params["limit"], CHART_LIMIT),
+                    genre=GAMES_GENRE_ID,
+                )
+            )
+            return list((payload or {}).get("feed", {}).get("entry", []))
 
         raise PermanentError(f"thao tác không biết: {operation!r}")
 
-    def normalize(self, raw: list[dict[str, Any]]) -> list[Game]:
-        games: list[Game] = []
+    def normalize(self, raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return raw
+
+    def _entities(self, raw: list[dict[str, Any]]) -> list[Game]:
+        out: list[Game] = []
         for result in raw:
             try:
-                games.append(to_game(result))
+                out.append(to_game(result))
             except PermanentError as exc:
                 # Một record hỏng không được làm hỏng cả lô 200.
                 logger.warning("bỏ qua record App Store", extra={"error": str(exc)})
-        return games
+        return out
 
-    async def chart(self, feed: Feed, *, limit: int = 200) -> list[Game]:
-        """Game trong một bảng xếp hạng của gian hàng VN.
+    async def search(self, term: str, *, limit: int = SEARCH_LIMIT) -> list[Game]:
+        """Tìm game theo từ khoá ở gian hàng VN — nguồn khám phá chính.
 
-        Bảng xếp hạng đã đủ dựng entity; `details` chỉ bồi thêm.
+        Payload có cùng hình dạng với `lookup`, đủ ảnh và thể loại, nên không
+        cần gọi thêm bước nào.
         """
-        return await self.fetch(endpoint=f"chart/{feed}", op="chart", feed=feed, limit=limit)
+        return self._entities(
+            await self.fetch(endpoint="search", op="search", term=term, limit=limit)
+        )
+
+    async def chart_ids(self, feed: Feed, *, limit: int = CHART_LIMIT) -> list[str]:
+        """Id game trong một bảng xếp hạng của gian hàng VN.
+
+        Chỉ trả id: payload RSS đời cũ có hình dạng riêng, mà `lookup` thì gộp
+        được 200 id một lần nên lấy chi tiết ở đó rẻ hơn viết thêm một phép ánh
+        xạ nữa.
+        """
+        entries = await self.fetch(endpoint=f"chart/{feed}", op="chart", feed=feed, limit=limit)
+        ids: list[str] = []
+        for entry in entries:
+            track_id = (entry.get("id") or {}).get("attributes", {}).get("im:id")
+            if track_id:
+                ids.append(str(track_id))
+        return ids
 
     async def details(self, ids: list[str], *, country: str | None = None) -> list[Game]:
-        out: list[Game] = []
+        raw: list[dict[str, Any]] = []
         for start in range(0, len(ids), LOOKUP_BATCH):
-            out += await self.fetch(
+            raw += await self.fetch(
                 endpoint="lookup",
                 op="lookup",
                 ids=ids[start : start + LOOKUP_BATCH],
                 country=country or self._country,
             )
-        return out
+        return self._entities(raw)
 
     async def international_names(self, ids: list[str]) -> dict[str, str]:
         """Tên ở gian hàng Mỹ, để làm `titles.primary`.

@@ -1,5 +1,5 @@
 {
-  "resultCount": 2,
+  "resultCount": 3,
   "results": [
     {
       "trackId": 1189041808,
@@ -8,7 +8,12 @@
       "sellerName": "Garena Online Private Limited",
       "primaryGenreId": 6014,
       "primaryGenreName": "Games",
-      "genres": ["Games", "Action", "Entertainment", "Role Playing"],
+      "genres": [
+        "Games",
+        "Action",
+        "Entertainment",
+        "Role Playing"
+      ],
       "releaseDate": "2016-11-18T08:00:00Z",
       "currentVersionReleaseDate": "2026-08-30T02:11:00Z",
       "artworkUrl512": "https://is1.example.test/aov/512x512.jpg",
@@ -25,10 +30,31 @@
       "artistName": "GARENA INTERNATIONAL I PRIVATE LIMITED",
       "primaryGenreId": 6014,
       "primaryGenreName": "Games",
-      "genres": ["Games", "Action", "Adventure"],
+      "genres": [
+        "Games",
+        "Action",
+        "Adventure"
+      ],
       "releaseDate": "2017-11-20T08:00:00Z",
       "artworkUrl512": "https://is1.example.test/ff/512x512.jpg",
-      "screenshotUrls": ["https://is1.example.test/ff/s1.jpg"],
+      "screenshotUrls": [
+        "https://is1.example.test/ff/s1.jpg"
+      ],
+      "kind": "software"
+    },
+    {
+      "trackId": 579523206,
+      "trackName": "Zalo",
+      "artistName": "Zalo Group",
+      "primaryGenreId": 6005,
+      "primaryGenreName": "Social Networking",
+      "genres": [
+        "Social Networking",
+        "Productivity"
+      ],
+      "releaseDate": "2012-12-08T08:00:00Z",
+      "artworkUrl512": "https://is1.example.test/zalo/512x512.jpg",
+      "screenshotUrls": [],
       "kind": "software"
     }
   ]

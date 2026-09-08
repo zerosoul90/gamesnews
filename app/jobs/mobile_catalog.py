@@ -25,12 +25,13 @@ from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.adapters.app_store.adapter import RATE_LIMIT as APP_STORE_RATE
 from app.adapters.app_store.adapter import (
+    CHART_LIMIT,
     AppStoreAdapter,
     Feed,
     with_international_name,
 )
+from app.adapters.app_store.adapter import RATE_LIMIT as APP_STORE_RATE
 from app.adapters.base import AdapterConfig, AdapterError, RedisTokenBucket
 from app.adapters.google_play.adapter import RATE_LIMIT as PLAY_RATE
 from app.adapters.google_play.adapter import GooglePlayAdapter
@@ -43,8 +44,9 @@ logger = logging.getLogger(__name__)
 
 Db = AsyncIOMotorDatabase[dict[str, Any]]
 
+# Bảng xếp hạng game của gian hàng VN. Chỉ endpoint RSS đời cũ lọc được theo
+# thể loại — xem adapter. Đây là nguồn phụ; nguồn chính là search theo từ khoá.
 FEEDS: tuple[Feed, ...] = ("top-free", "top-paid", "top-grossing")
-CHART_LIMIT = 200
 
 # Mỗi từ khoá lấy 30 kết quả. Con số nhỏ là có chủ ý: kết quả càng sâu càng
 # loãng, mà mỗi app còn tốn thêm hai request nữa ở bước lấy chi tiết.
@@ -96,26 +98,43 @@ async def sync_app_store(ctx: dict[str, Any]) -> dict[str, int]:
         clients.http,
     )
 
-    # Ba bảng có phần chồng nhau; gom theo id để mỗi game chỉ xử lý một lần.
-    discovered: dict[str, Game] = {}
+    # Bảng xếp hạng chỉ cho ~300 game, nên là nguồn phụ. Nguồn chính là search
+    # theo từ khoá — cùng danh sách từ khoá mà job Play dùng.
+    ids: dict[str, None] = {}
     for feed in FEEDS:
-        for game in await adapter.chart(feed, limit=CHART_LIMIT):
-            if game.external_ids.app_store:
-                discovered[game.external_ids.app_store] = game
+        try:
+            for store_id in await adapter.chart_ids(feed, limit=CHART_LIMIT):
+                ids[store_id] = None
+        except AdapterError as exc:
+            # Endpoint RSS này là đời cũ; Apple bỏ nó thì search vẫn chạy.
+            logger.warning(
+                "app store: bảng xếp hạng hỏng",
+                extra={"feed": feed, "error": repr(exc)},
+            )
 
-    ids = list(discovered)
-    logger.info("app store: xong bảng xếp hạng", extra={"games": len(ids)})
+    found: dict[str, Game] = {
+        game.external_ids.app_store: game
+        for game in await adapter.details(list(ids))
+        if game.external_ids.app_store is not None
+    }
+    logger.info("app store: xong bảng xếp hạng", extra={"apps": len(ids), "games": len(found)})
 
-    # `lookup` bồi thêm ảnh chụp màn hình và thể loại chi tiết; bảng xếp hạng
-    # không có. Gộp 200 id một lần nên cả nghìn game chỉ tốn vài request.
-    for game in await adapter.details(ids):
-        if game.external_ids.app_store:
-            discovered[game.external_ids.app_store] = game
+    for term in seed_terms():
+        try:
+            for game in await adapter.search(term):
+                if game.external_ids.app_store is not None:
+                    found.setdefault(game.external_ids.app_store, game)
+        except AdapterError as exc:
+            logger.warning("app store: tìm hỏng", extra={"term": term, "error": repr(exc)})
 
-    international = await adapter.international_names(ids)
+    entities = list(found.values())
+    game_ids = list(found)
+    logger.info("app store: xong bước tìm", extra={"games": len(game_ids)})
+
+    international = await adapter.international_names(game_ids)
     entities = [
-        with_international_name(game, international.get(store_id))
-        for store_id, game in discovered.items()
+        with_international_name(game, international.get(game.external_ids.app_store or ""))
+        for game in entities
     ]
 
     tally = await _store_all(db, entities, key="app_store")

@@ -1,33 +1,47 @@
 {
+  "_comment": "Ghi lại từ itunes.apple.com/vn/rss/topfreeapplications/limit=N/genre=6014/json ngày 2026-09-08. Đây là endpoint DUY NHẤT lọc được bảng xếp hạng theo thể loại game; API marketing v2 mới hơn chỉ có bảng apps và bảng đó không chứa game nào.",
   "feed": {
-    "title": "Top Free Apps",
-    "country": "vn",
-    "results": [
+    "entry": [
       {
-        "artistName": "GARENA ONLINE PRIVATE LIMITED",
-        "id": "1189041808",
-        "name": "Liên Quân Mobile",
-        "releaseDate": "2016-11-18",
-        "kind": "iosSoftware",
-        "artworkUrl100": "https://is1.example.test/aov/100x100.jpg",
-        "genres": [
-          { "genreId": "6014", "name": "Games" },
-          { "genreId": "7017", "name": "Action" },
-          { "genreId": "7014", "name": "Role Playing" }
-        ],
-        "url": "https://apps.apple.com/vn/app/id1189041808"
+        "im:name": {
+          "label": "Block Blast!"
+        },
+        "im:artist": {
+          "label": "Hungry Studio"
+        },
+        "id": {
+          "label": "https://apps.apple.com/vn/app/block-blast/id1617391485",
+          "attributes": {
+            "im:id": "1617391485",
+            "im:bundleId": "com.block.blast"
+          }
+        },
+        "category": {
+          "attributes": {
+            "im:id": "6014",
+            "label": "Games"
+          }
+        }
       },
       {
-        "artistName": "Zalo Group",
-        "id": "579523206",
-        "name": "Zalo",
-        "releaseDate": "2012-12-08",
-        "kind": "iosSoftware",
-        "artworkUrl100": "https://is1.example.test/zalo/100x100.jpg",
-        "genres": [
-          { "genreId": "6005", "name": "Social Networking" }
-        ],
-        "url": "https://apps.apple.com/vn/app/id579523206"
+        "im:name": {
+          "label": "Liên Quân Mobile"
+        },
+        "im:artist": {
+          "label": "GARENA ONLINE PRIVATE LIMITED"
+        },
+        "id": {
+          "label": "https://apps.apple.com/vn/app/id1189041808",
+          "attributes": {
+            "im:id": "1189041808"
+          }
+        },
+        "category": {
+          "attributes": {
+            "im:id": "6014",
+            "label": "Games"
+          }
+        }
       }
     ]
   }

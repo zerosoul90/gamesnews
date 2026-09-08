@@ -43,7 +43,9 @@ logger = logging.getLogger(__name__)
 RATE_LIMIT = RateLimit(capacity=1, per_seconds=1.0)
 
 # `genreId` của mọi thể loại game đều mở đầu bằng GAME. Đây là bộ lọc tin cậy
-# nhất để loại app không phải game ra khỏi kết quả `search`.
+# duy nhất, nhưng CHỈ payload của `app()` mới có trường này — kết quả `search`
+# chỉ có `genre` đã bản địa hoá ("Hành động"), không lọc được. Vì vậy phải gọi
+# `app()` cho cả app không phải game rồi mới loại được nó.
 GAME_GENRE_PREFIX = "GAME"
 
 # `released` của Play là chuỗi đã bản địa hoá theo `lang`, nên chỉ đọc được từ
@@ -148,7 +150,7 @@ class GooglePlayAdapter(BaseAdapter[list[dict[str, Any]], list[dict[str, Any]]])
                     lang=params["lang"],
                     country=self._country,
                 )
-                return [hit for hit in hits if is_game(hit)]
+                return list(hits)
         except Exception as exc:  # thư viện ném đủ loại lỗi mạng của riêng nó
             name = type(exc).__name__
             if name in ("NotFoundError", "ExtraHTTPError"):
@@ -161,11 +163,28 @@ class GooglePlayAdapter(BaseAdapter[list[dict[str, Any]], list[dict[str, Any]]])
         return raw
 
     async def search_games(self, query: str, *, limit: int = 30) -> list[str]:
-        """`appId` của các game khớp từ khoá, ở gian hàng VN."""
+        """`appId` của các app khớp từ khoá, ở gian hàng VN.
+
+        **Kết quả đầu bảng thường bị mất.** Play dựng thẻ kết quả đầu tiên khác
+        các thẻ còn lại, và thư viện không bóc được `appId` của nó — trả về
+        None (kiểm bằng tay ngày 2026-09-08: tìm "Liên Quân Mobile" thì 4/5 kết
+        quả có appId, riêng cái đầu thì không). Đây đúng là chỗ
+        `DATA-SOURCES.md` cảnh báo "dễ vỡ, cần giám sát", nên số hit rơi được
+        ghi log để còn thấy khi nó vỡ thêm.
+
+        Chưa lọc game ở đây: kết quả `search` không có `genreId`. Việc lọc nằm
+        ở `detail`.
+        """
         hits = await self.fetch(
             endpoint="search", op="search", query=query, limit=limit, lang="vi"
         )
-        return [str(hit["appId"]) for hit in hits if hit.get("appId")]
+        app_ids = [str(hit["appId"]) for hit in hits if hit.get("appId")]
+        if (dropped := len(hits) - len(app_ids)) > 0:
+            logger.info(
+                "play: bỏ hit không bóc được appId",
+                extra={"query": query, "dropped": dropped, "total": len(hits)},
+            )
+        return app_ids
 
     async def detail(self, app_id: str) -> Game | None:
         """Entity đầy đủ của một app. Trả None nếu app đó không phải game.

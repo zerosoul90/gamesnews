@@ -31,10 +31,10 @@ Db = AsyncIOMotorDatabase[dict[str, Any]]
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 CHART = json.loads((FIXTURES / "app_store_chart.json").read_text(encoding="utf-8"))
 LOOKUP = json.loads((FIXTURES / "app_store_lookup.json").read_text(encoding="utf-8"))
-PLAY_APPS = json.loads((FIXTURES / "google_play_apps.json").read_text(encoding="utf-8"))
+PLAY = json.loads((FIXTURES / "google_play_apps.json").read_text(encoding="utf-8"))
+PLAY_APPS = PLAY["apps"]
+PLAY_SEARCH = PLAY["search"]
 
-AOV_CHART = CHART["feed"]["results"][0]
-ZALO_CHART = CHART["feed"]["results"][1]
 AOV_LOOKUP = LOOKUP["results"][0]
 
 
@@ -56,17 +56,12 @@ def config() -> AdapterConfig:
 # --- ánh xạ App Store ------------------------------------------------------
 
 
-def test_app_store_doc_duoc_ca_hai_hinh_dang_payload() -> None:
-    """Bảng xếp hạng trả `id`/`name`, lookup trả `trackId`/`trackName` — cùng
-    một game, hai hình dạng. Đọc hụt một cái là mất nửa dữ liệu."""
-    from_chart = app_store_to_game(AOV_CHART)
-    from_lookup = app_store_to_game(AOV_LOOKUP)
+def test_app_store_map_du_anh_va_id() -> None:
+    game = app_store_to_game(AOV_LOOKUP)
 
-    assert from_chart.external_ids.app_store == from_lookup.external_ids.app_store == "1189041808"
-    assert from_chart.titles.primary == from_lookup.titles.primary == "Liên Quân Mobile"
-    # Chỉ lookup mới có ảnh chụp màn hình — đó là lý do phải gọi thêm bước này.
-    assert from_chart.media.screenshots == []
-    assert len(from_lookup.media.screenshots) == 2
+    assert game.external_ids.app_store == "1189041808"
+    assert game.titles.primary == "Liên Quân Mobile"
+    assert len(game.media.screenshots) == 2
 
 
 def test_app_store_bo_nhan_the_loai_o_du() -> None:
@@ -120,17 +115,45 @@ def app_store_adapter(handler: Any) -> AppStoreAdapter:
     return AppStoreAdapter(config(), http)
 
 
-async def test_bang_xep_hang_loai_app_khong_phai_game() -> None:
-    """Bảng xếp hạng chung có cả Zalo. Lọc ngay ở đây, trước khi tốn lookup."""
+async def test_bang_xep_hang_lay_id_tu_payload_rss_doi_cu() -> None:
+    """Endpoint RSS đời cũ là chỗ DUY NHẤT lọc được bảng xếp hạng theo thể loại
+    game; payload của nó có hình dạng riêng, không giống search/lookup."""
+    urls: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        assert "top-free" in str(request.url)
+        urls.append(str(request.url))
         return httpx.Response(200, json=CHART)
 
-    entities = await app_store_adapter(handler).chart("top-free", limit=200)
+    ids = await app_store_adapter(handler).chart_ids("top-free")
 
-    assert [game.titles.primary for game in entities] == ["Liên Quân Mobile"]
-    assert ZALO_CHART["name"] == "Zalo"  # vẫn có trong payload, chỉ là bị loại
+    assert ids == ["1617391485", "1189041808"]
+    # Tên bảng dễ đọc phải dịch sang tên thật của endpoint, kèm lọc thể loại.
+    assert "topfreeapplications" in urls[0]
+    assert "genre=6014" in urls[0]
+
+
+async def test_bang_xep_hang_khong_xin_qua_tran_da_kiem() -> None:
+    urls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        urls.append(str(request.url))
+        return httpx.Response(200, json=CHART)
+
+    await app_store_adapter(handler).chart_ids("top-free", limit=500)
+
+    assert "limit=100" in urls[0]
+
+
+async def test_lookup_loai_app_khong_phai_game() -> None:
+    """Bảng xếp hạng đã lọc sẵn, nhưng `search` thì không: `primaryGenreId` là
+    chỗ duy nhất biết được một record có phải game hay không."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=LOOKUP)
+
+    entities = await app_store_adapter(handler).details(["1189041808", "579523206"])
+
+    assert [game.titles.primary for game in entities] == ["Liên Quân Mobile", "Free Fire"]
 
 
 async def test_lookup_gop_200_id_moi_lan() -> None:
@@ -153,11 +176,11 @@ async def test_loi_5xx_duoc_retry_con_404_thi_khong() -> None:
         attempts["n"] += 1
         return httpx.Response(500 if attempts["n"] == 1 else 200, json=CHART)
 
-    await app_store_adapter(flaky).chart("top-free", limit=10)
+    await app_store_adapter(flaky).chart_ids("top-free", limit=10)
     assert attempts["n"] == 2
 
     with pytest.raises(PermanentError):
-        await app_store_adapter(lambda request: httpx.Response(404, text="no")).chart(
+        await app_store_adapter(lambda request: httpx.Response(404, text="no")).chart_ids(
             "top-free", limit=10
         )
 
@@ -202,18 +225,29 @@ def play_adapter() -> GooglePlayAdapter:
     def search_fetcher(
         query: str, n_hits: int = 30, lang: str = "vi", country: str = "vn"
     ) -> list[dict[str, Any]]:
-        return [PLAY_APPS[app_id]["en"] for app_id in PLAY_APPS if app_id != "_comment"]
+        hits: list[dict[str, Any]] = PLAY_SEARCH
+        return hits
 
     return GooglePlayAdapter(config(), app_fetcher=app_fetcher, search_fetcher=search_fetcher)
 
 
-async def test_play_tim_kiem_loai_app_khong_phai_game() -> None:
-    """`search` của Play trả về đủ loại app; `genreId` mở đầu bằng GAME là bộ
-    lọc tin cậy nhất."""
-    app_ids = await play_adapter().search_games("game hành động")
+async def test_play_bo_hit_khong_boc_duoc_app_id() -> None:
+    """Play dựng thẻ kết quả đầu bảng khác các thẻ còn lại và thư viện trả
+    `appId: None` cho nó — kiểm bằng tay 2026-09-08. Không bỏ thì bước sau gọi
+    `app(None)` và cả từ khoá đó hỏng."""
+    app_ids = await play_adapter().search_games("liên quân")
 
-    assert "com.zing.zalo" not in app_ids
-    assert set(app_ids) == {"com.garena.game.kgvn", "com.dts.freefireth"}
+    assert None not in app_ids
+    assert app_ids == ["com.dts.freefireth", "com.zing.zalo"]
+
+
+async def test_play_khong_loc_game_o_buoc_tim() -> None:
+    """Kết quả `search` không có `genreId`, nên Zalo vẫn lọt qua đây; chỗ loại
+    nó là `detail`, nơi payload `app()` có `genreId`."""
+    app_ids = await play_adapter().search_games("liên quân")
+
+    assert "com.zing.zalo" in app_ids
+    assert await play_adapter().detail("com.zing.zalo") is None
 
 
 async def test_play_lay_chi_tiet_tra_none_neu_khong_phai_game() -> None:
