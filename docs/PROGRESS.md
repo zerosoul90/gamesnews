@@ -53,7 +53,7 @@ là việc của người dùng, Phase 1 mới cần tới.
 - [x] Sinh `aliases_normalized` (bỏ dấu, lowercase, chuẩn hoá khoảng trắng)
 - [x] Bảng ID mapping + `find_game_by_external_id` — **khung** đã xong; dữ liệu
       thật phải chờ adapter
-- [ ] Bổ sung game mobile từ Google Play + App Store
+- [x] Bổ sung game mobile từ Google Play + App Store
 - [x] Index Meilisearch + cấu hình tiếng Việt
 - [x] API tìm kiếm + facet
 - [x] Trang admin xem/sửa entity
@@ -381,6 +381,85 @@ YAML.
 
 **Còn nợ của Phase 1:** mục 1 (adapter IGDB) vẫn chặn vì thiếu key Twitch, kéo
 theo checkpoint "catalog ≥ 50.000 game". Mục 5 (catalog mobile) chưa làm.
+
+### 2026-09-08 — Phase 1 mục 5: catalog mobile
+
+Hai adapter, hai job Arq tách biệt. **CI xanh, 233 test, 0 skip.**
+
+Điều đáng giá nhất của mục này không nằm trong code mà ở chỗ **chạy thử thật
+hai nguồn**: bốn lỗi dưới đây không test nào bắt được, vì fixture ban đầu do
+tôi tự dựng chứ không ghi lại từ payload thật. Bài học: fixture của nguồn ngoài
+phải chép từ phản hồi thật, đừng viết theo trí nhớ.
+
+**App Store — API marketing v2 không dùng được cho game.**
+
+| Thử | Kết quả thật |
+|---|---|
+| `limit=200` | 500 (chỉ 10/20/25/50/100 chạy) — mà 500 bị xếp là lỗi tạm thời nên còn bị retry ba lần |
+| `top-grossing`, `top-free-ipad`, `top-free-games` | 404, không tồn tại |
+| Lookup 100 mục đầu bảng "apps" VN | **0 game** — toàn Finance/Photo/Business |
+
+Bảng "apps" của v2 loại hẳn game, và v2 không có bảng games nào. Phải quay về
+endpoint RSS đời cũ `.../rss/{kind}/limit=N/genre=6014/json` — cái **duy nhất**
+lọc được theo thể loại. Chạy thật: 100 top-free + 98 top-paid + 100
+top-grossing, đầu bảng Block Blast!, Coin Master, Stardew Valley.
+
+**Nguồn khám phá chính là iTunes Search, không phải bảng xếp hạng.** Mỗi từ
+khoá trả ~150 kết quả, hầu hết là game, payload đủ dựng entity luôn. Đo thật:
+bảng xếp hạng + 6/28 từ khoá đã ra **1008 game duy nhất**, đúng thị trường VN
+(Liên Quân, Free Fire, Roblox VN, FC Mobile VN, Thiên Long Bát Bộ VNG).
+
+**Google Play — thư viện đang vỡ một phần**, đúng chỗ `DATA-SOURCES.md` cảnh
+báo "dễ vỡ, cần giám sát":
+
+- Kết quả `search` **không có `genreId`**, nên không lọc game ở bước tìm được.
+  Việc lọc dời xuống `detail`, nơi payload `app()` có trường đó — cái giá là
+  phải gọi `app()` cho cả app không phải game rồi mới loại được nó.
+- Hit **đầu bảng** của `search` trả `appId: None`: Play dựng thẻ đầu tiên khác
+  các thẻ còn lại và thư viện không bóc được. Tìm "Liên Quân Mobile" thì 4/5
+  kết quả có appId, riêng cái đầu thì không. Bỏ qua hit đó và **ghi log số hit
+  rơi**, để còn thấy khi nó vỡ thêm.
+- `app()` vẫn chạy đủ trường, kể cả `released` bản tiếng Anh parse được.
+- Thư viện đồng bộ nên mọi lời gọi đi qua `asyncio.to_thread`; hai hàm của nó
+  tiêm qua constructor để test không bao giờ ra Internet.
+
+**Quyết định phát sinh:**
+
+- **App Store dùng API chính thức của Apple, không dùng thư viện scraper** —
+  lệch khỏi `DATA-SOURCES.md`, đã hỏi và được duyệt. Search + lookup + RSS đều
+  miễn phí, không key, và lookup gộp được 200 id một lần gọi.
+- **Job store này không được ghi đè dữ liệu của store kia.** Đây là cái bẫy
+  chính. Một entity đã ghép từ hai store, tới lượt job Play chạy mà `$set` cả
+  document thì `external_ids.app_store`, platform `ios` và ảnh iOS biến mất —
+  rồi lượt sau job App Store ghi đè ngược. Hai job giẫm chân nhau vô tận mà lần
+  nào cũng báo "thành công". Vì vậy mọi lần ghi lại đều qua `merge_content` với
+  **bên mới làm bên giữ lại**: dữ liệu mới thắng ở chỗ nó có, entity cũ bù vào
+  chỗ trống. Có test riêng cho đúng kịch bản đó.
+- **Luật ghép entity hai store cố ý chặt**: phải khớp cả tên chuẩn hoá lẫn nhà
+  phát hành chuẩn hoá. Cặp bỏ sót thì nhìn thấy được và gộp tay bằng trang
+  admin của mục 8; cặp ghép nhầm thì im lặng và hỏng lâu dài. Nghiệm thu trên
+  dữ liệu thật: iOS và Play đều ghi "Garena Liên Quân Mobile" / "Garena Mobile
+  Private" → ghép đúng.
+- **Luật gộp chuyển từ `services/admin.py` sang `services/catalog.py`**, vì giờ
+  có hai đường cùng cần nó: người bấm nút gộp, và job mobile.
+- **Slug đi theo tên quốc tế.** Slug sinh từ tên tiếng Việt ra chuỗi không khớp
+  với nguồn nào khác. Trùng slug thì thêm hậu tố nền tảng rồi mới tới số đếm —
+  store mobile đầy game trùng tên ("Sudoku", "Ludo").
+- **`publishers` chứ không phải `developers`.** Cả hai store chỉ lộ tên tài
+  khoản bán, tức nhà phát hành; ai thật sự làm ra game thì store không nói.
+  Chép sang `developers` cho đầy là bịa.
+- **Thể loại lấy nguyên phân loại của store** (`slugify`), không ép về bộ thể
+  loại trong fixture. Khi có IGDB thì đó mới là nguồn thể loại chuẩn.
+
+**Chưa làm / hạn chế đã biết:**
+
+- Job chưa chạy thật hết một lượt vào Mongo: máy dev không có Docker. Từng mảnh
+  đã chạy thật với nguồn ngoài, phần ghi xuống Mongo thì CI kiểm.
+- `is_live_service` luôn False cho game mobile. Store không nói, mà đoán theo
+  IAP thì sai nhiều hơn đúng — để IGDB hoặc duyệt tay điền.
+- Ghép chéo hai store sẽ bỏ sót nhiều cặp, vì hai store hay ghi tên nhà phát
+  hành khác nhau ("Garena Mobile Private" so với "GARENA ONLINE PRIVATE
+  LIMITED"). Đây là lựa chọn có chủ ý, không phải lỗi.
 
 ---
 
