@@ -14,25 +14,42 @@ phase sau đều hỏng, và rất khó sửa về sau. Ưu tiên làm đúng h�
 
 ## Phạm vi
 
-**LÀM:** đồng bộ IGDB, entity `games`, alias, ID mapping, catalog mobile,
-Meilisearch, API tìm kiếm, admin xem/sửa entity.
+**LÀM:** đồng bộ Steam (thay IGDB), entity `games`, alias, ID mapping, catalog
+mobile, Meilisearch, API tìm kiếm, admin xem/sửa entity.
 
 **KHÔNG LÀM:** giá, tin tức, chỉ số hot, người dùng, Qdrant. Qdrant đã chạy
 trong compose nhưng chưa dùng ở phase này.
 
 ## Việc cần làm, theo thứ tự
 
-### 1. Adapter IGDB
+### 1. Adapter Steam — thay cho IGDB
 
-Qua tài khoản Twitch developer. Tôn trọng ~4 req/s. Xử lý phân trang cho toàn
-bộ catalog. Lấy: tên, alternative names, slug, platform, genre, developer,
-publisher, release date theo region, cover, screenshot, external id (đặc biệt
-là Steam AppID).
+**Đổi ngày 2026-09-08.** IGDB đòi tài khoản Twitch developer, mà console của
+Twitch bắt buộc 2FA bằng số điện thoại — tài khoản không làm được. Xem
+`DATA-SOURCES.md` và nhật ký `PROGRESS.md`.
+
+Hai endpoint, hai nhịp khác hẳn nhau nên phải tách hai job:
+
+- `IStoreService/GetAppList/v1` (**cần Steam Web API key**) — lọc tại nguồn
+  bằng `include_games=true`, lật trang bằng `last_appid`. Endpoint keyless cũ
+  `ISteamApps/GetAppList` đã bị Valve gỡ.
+- `store.steampowered.com/api/appdetails` (không key, ~200 req/5 phút mỗi IP)
+  — tên, type, genre, developer, publisher, ngày phát hành, ảnh, và `fullgame`
+  để nối DLC về game cha.
+
+Vì bồi chi tiết cho gần 185.000 app ở mức ~57.600 lượt/ngày mất vài ngày, danh
+sách app phải nằm trong một sổ công việc riêng (`steam_apps`), không đổ thẳng
+vào `games`. Chỉ entity đã xác minh `type` mới được vào catalog.
+
+Mất so với IGDB, phải bù bằng nguồn khác về sau: alternative names, và ngày
+phát hành tách theo region + platform.
 
 ### 2. Collection `games`
 
 Đúng theo `SCHEMA.md`. Index bắt buộc: `external_ids.steam_appid`,
-`external_ids.igdb`, `slug`, `aliases_normalized`.
+`external_ids.igdb`, `slug`, `aliases_normalized`. (Index `igdb` giữ nguyên dù
+chưa có nguồn nào điền — bỏ index đi rồi sau này thêm lại trên collection vài
+trăm nghìn document tốn hơn nhiều.)
 
 Chú ý ba chỗ dễ làm sai:
 
@@ -45,8 +62,11 @@ Chú ý ba chỗ dễ làm sai:
 Hàm `normalize_vi(text)`: lowercase, bỏ dấu tiếng Việt, chuẩn hoá khoảng trắng
 liên tiếp thành một, bỏ ký tự đặc biệt. Sinh `aliases_normalized` từ `aliases`.
 
-Nguồn alias ban đầu: tên chính, alternative names của IGDB, tên không dấu, tên
-viết liền (bỏ hết khoảng trắng), tên tiếng Nhật/Trung nếu có.
+Nguồn alias ban đầu: tên chính, tên không dấu, tên viết liền (bỏ hết khoảng
+trắng), tên tiếng Nhật/Trung nếu có, và tên gian hàng VN của hai store mobile.
+
+(Kế hoạch cũ lấy alternative names của IGDB. Bỏ IGDB là mất nguồn này — đây là
+thiệt hại lớn nhất của việc đổi nguồn, cần bù ở phase sau.)
 
 Viết test cho hàm này trước khi dùng. Ít nhất 20 case, gồm tên có dấu, tên
 Nhật, tên có ký tự La Mã (II, III), tên có dấu hai chấm.
@@ -58,11 +78,10 @@ Trong `external_ids`. Steam AppID là khoá cầu nối chính. Viết sẵn hà
 
 ### 5. Catalog mobile
 
-Bổ sung game mobile từ Google Play và App Store bằng thư viện scraper open
-source. IGDB phủ mảng này rất kém mà đây lại là mảng quan trọng nhất với thị
-trường VN.
+Bổ sung game mobile từ Google Play và App Store. Steam — và cả IGDB trước đó —
+phủ mảng này rất kém, mà đây lại là mảng quan trọng nhất với thị trường VN.
 
-Chạy tách job, có thể lỗi mà không làm hỏng job IGDB.
+Chạy tách job, có thể lỗi mà không làm hỏng job Steam.
 
 ### 6. Meilisearch
 
@@ -84,7 +103,7 @@ Chức năng gộp phải cập nhật cả `external_ids` và `aliases`.
 
 ## DỪNG LẠI ĐỂ REVIEW
 
-Sau mục 2 (schema thực tế sau khi đã thấy dữ liệu IGDB thật) và sau mục 6
+Sau mục 2 (schema thực tế sau khi đã thấy dữ liệu nguồn thật) và sau mục 6
 (cấu hình Meilisearch). Đây là hai chỗ khó sửa nhất về sau.
 
 ## Checkpoint nghiệm thu

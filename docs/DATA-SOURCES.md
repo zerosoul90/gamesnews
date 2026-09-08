@@ -9,12 +9,32 @@ thay thế được.
 
 | Nguồn | Endpoint / cách dùng | Auth | Giới hạn |
 |---|---|---|---|
-| IGDB | API IGDB qua tài khoản Twitch developer | Client ID + token | ~4 req/s |
-| Steam app list | `ISteamApps/GetAppList` | không | — |
-| Google Play / App Store | thư viện scraper open source | không | dễ vỡ, cần giám sát |
+| Steam app list | `IStoreService/GetAppList/v1` | **Steam Web API key** | 100k lượt/ngày mỗi key |
+| Steam chi tiết app | `store.steampowered.com/api/appdetails` | không | ~200 req/5 phút mỗi IP |
+| App Store | `itunes.apple.com/search` + `/lookup` + RSS `genre=6014` | không | ~20 req/phút |
+| Google Play | thư viện `google-play-scraper` | không | dễ vỡ, cần giám sát |
+| ~~IGDB~~ | ~~API IGDB qua tài khoản Twitch developer~~ | **không lấy được key** | — |
 
-IGDB là xương sống catalog. Điểm yếu: phủ mobile/gacha kém → phải bù bằng
-scraper store mobile. Đây lại đúng là mảng quan trọng nhất với thị trường VN.
+**Steam là xương sống catalog** (đổi từ IGDB, 2026-09-08). Console developer
+của Twitch bắt buộc bật 2FA bằng số điện thoại; tài khoản không làm được nên
+IGDB mất hẳn. Steam phủ PC dày hơn IGDB — `include_games=true` cho 184.981
+game — nhưng mất hai thứ IGDB có: alternative names (nguồn alias đã tính
+trước) và ngày phát hành theo từng region/platform.
+
+Điểm yếu chung với IGDB: phủ mobile/gacha kém → bù bằng hai store mobile.
+Đây lại đúng là mảng quan trọng nhất với thị trường VN.
+
+Ba chốt đã kiểm bằng tay ngày 2026-09-08, ghi lại vì tài liệu trên mạng còn
+đầy hướng dẫn cũ:
+
+- `ISteamApps/GetAppList` **đã bị Valve gỡ** — trả "Method 'GetAppList' not
+  found in interface 'ISteamApps'". Trong 27 interface không cần key cũng
+  không còn method nào liệt kê app. Muốn danh sách app thì bắt buộc có key.
+- `appdetails` trả `success: false` kèm **HTTP 200** cho app đã gỡ, app không
+  bán ở VN, hoặc khi bị bóp tốc độ. Đây không phải lỗi.
+- App Store: API marketing v2 của Apple chỉ có bảng "apps" và bảng đó **loại
+  hẳn game**. Bảng xếp hạng game chỉ lấy được qua endpoint RSS đời cũ có
+  `genre=6014`.
 
 ### Giá & Deal
 

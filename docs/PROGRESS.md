@@ -48,7 +48,8 @@ là việc của người dùng, Phase 1 mới cần tới.
 **Checkpoint:** `elden ring` / `elden` / `erden ring` / `vong elden` đều ra
 đúng game ở vị trí đầu. Catalog ≥ 50.000 game.
 
-- [ ] Adapter IGDB + job đồng bộ ban đầu — **chặn**: chưa có key Twitch
+- [x] ~~Adapter IGDB~~ → **Adapter Steam** + hai job đồng bộ. IGDB bỏ hẳn:
+      Twitch bắt 2FA bằng số điện thoại, tài khoản không làm được
 - [x] Collection `games` theo `SCHEMA.md`, index đầy đủ
 - [x] Sinh `aliases_normalized` (bỏ dấu, lowercase, chuẩn hoá khoảng trắng)
 - [x] Bảng ID mapping + `find_game_by_external_id` — **khung** đã xong; dữ liệu
@@ -461,17 +462,87 @@ báo "dễ vỡ, cần giám sát":
   hành khác nhau ("Garena Mobile Private" so với "GARENA ONLINE PRIVATE
   LIMITED"). Đây là lựa chọn có chủ ý, không phải lỗi.
 
+### 2026-09-08 — Bỏ IGDB, Steam làm xương sống catalog
+
+**Quyết định lớn nhất của phase này, và không phải do kỹ thuật.** Console
+developer của Twitch bắt buộc bật 2FA bằng số điện thoại mới cho tạo app; tài
+khoản không làm được, nên IGDB mất hẳn — không có đường vòng nào.
+
+Đã khảo sát và **kiểm thật** bốn nguồn thay thế trước khi chọn:
+
+| Nguồn | Key | Kết quả đo thật |
+|---|---|---|
+| `ISteamApps/GetAppList` (keyless, có trong DATA-SOURCES) | không | **đã bị Valve gỡ** — "Method 'GetAppList' not found" |
+| `IStoreService/GetAppList/v1` | Steam Web API key | **184.981 game**, lọc sẵn tại nguồn |
+| Wikidata SPARQL | không | 128.407 game có sẵn Steam AppID |
+| SteamSpy | không | 1.000 game/trang |
+| Steam `featuredcategories` | không | chỉ 66 app — quá nhỏ |
+
+Chọn Steam có key. Người dùng lấy được key (Steam chỉ đòi tài khoản đã mua ≥ 5
+USD, không đòi 2FA điện thoại), và nó mở luôn Phase 3.
+
+**Ba chốt đã kiểm bằng tay, ghi lại vì tài liệu trên mạng còn đầy hướng dẫn cũ:**
+
+1. Endpoint keyless liệt kê app **không còn tồn tại**. Trong 27 interface không
+   cần key cũng không còn method nào làm việc đó.
+2. `appdetails` trả `success: false` kèm **HTTP 200** — với app đã gỡ, app
+   không bán ở VN, hoặc khi bị bóp tốc độ (gặp thật lúc ghi fixture: gọi vài
+   lần liên tiếp là mọi appid đều false, chờ 60 giây thì bình thường lại). Coi
+   nó là lỗi thì job dừng ngay ở app thứ mấy chục.
+3. `fullgame.appid` của DLC là **chuỗi**, không phải số. Quên ép kiểu thì tra
+   ngược game cha trượt hết mà không báo lỗi gì.
+
+**Quyết định phát sinh:**
+
+- **Sổ công việc `steam_apps` riêng, không đổ 185k app thô vào `games`.** Ở
+  bước danh sách chưa biết mục nào thật sự là game — chỉ `appdetails` mới nói
+  được `type`. Đổ thẳng thì catalog có 185k entity chưa xác minh và `type` mặc
+  định thành "game" cho cả nhạc nền; đúng cái sai mà `PHASE-1.md` cảnh báo là
+  "sai ở đây thì mọi phase sau đều hỏng".
+- **Hai job tách nhau vì nhịp khác hẳn.** Lấy danh sách xong trong một phút;
+  bồi chi tiết 185k app ở mức ~57.600 lượt/ngày mất **vài ngày**. Job thứ hai
+  chạy từng lô 200 (đúng trần 5 phút) và nối tiếp được sau khi worker restart —
+  nên trạng thái phải nằm trong Mongo, không trong bộ nhớ tiến trình.
+- **Hai bucket rate limit riêng** cho GetAppList và appdetails: job catalog
+  không được ăn mất quota appdetails mà Phase 2 cần để lấy giá.
+- **windows/mac/linux gộp thành `pc`.** Cả ba là cùng một bản PC và người dùng
+  lọc theo "PC", không lọc theo hệ điều hành.
+- `services/mobile_catalog.py` đổi tên thành `services/ingest.py` — giờ Steam
+  cũng đi qua đúng đường ghi đó.
+
+**Mất gì khi bỏ IGDB** (phải bù ở phase sau, đã ghi vào `PHASE-1.md`):
+
+- **alternative names** — nguồn alias đã tính trước trong kế hoạch. Đây là
+  thiệt hại lớn nhất, vì chất lượng tìm kiếm phụ thuộc vào alias.
+- **ngày phát hành tách theo region + platform** — Steam chỉ có một ngày.
+
+**Nghiệm thu thật qua httpx với key thật:** lật trang đúng (50.000 mục/trang,
+cursor `last_appid`), ELDEN RING / Counter-Strike 2 / Dota 2 / Stardew Valley
+map đủ trường, DLC Shadow of the Erdtree nhận đúng `type=dlc` và nối được về
+game cha. **CI xanh.**
+
+**Chưa chạy hết một lượt thật vào Mongo** — máy dev không có Docker. Checkpoint
+"catalog ≥ 50.000 game" vì vậy vẫn chưa đóng được, dù nguồn đã chứng minh có
+184.981 game: còn thiếu đúng một lượt chạy job trên máy có Docker.
+
 ---
 
 ## Đang chặn
 
-**Key ngoài — việc của người dùng.** Đây là mục 7 còn nợ của Phase 0, và giờ nó
-đang chặn thật:
+**Không còn gì chặn Phase 1.** Steam Web API key đã có (2026-09-08), thay chỗ
+IGDB. Bảng dưới là hiện trạng key ngoài:
 
-| Biến | Đăng ký ở | Chặn cái gì |
+| Biến | Trạng thái | Dùng cho |
 |---|---|---|
-| `TWITCH_CLIENT_ID` + `TWITCH_CLIENT_SECRET` | <https://dev.twitch.tv/console/apps> | Phase 1 mục 1 — adapter IGDB, và qua đó là checkpoint "catalog ≥ 50.000 game" |
-| `STEAM_API_KEY` | <https://steamcommunity.com/dev/apikey> | Phase 2 (giá) và Phase 3 (thư viện người dùng) |
+| `STEAM_API_KEY` | **đã có** | `IStoreService/GetAppList` — danh sách 184.981 game. Phase 3 (thư viện người dùng) cũng dùng key này |
+| `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` | **lấy không được** | IGDB (đã bỏ) và **Phase 7 — streamer Twitch, phần này vẫn chặn** |
 
-Cùng cặp key Twitch dùng luôn cho IGDB. Luồng client-credentials không dùng tới
-OAuth Redirect URL, điền `http://localhost` là được.
+Console developer của Twitch bắt buộc bật 2FA bằng số điện thoại. Không có
+đường vòng, nên tới Phase 7 phải quyết định lại: hoặc chấp nhận bật 2FA, hoặc
+bỏ mảng streamer Twitch và chỉ làm YouTube.
+
+`appdetails`, iTunes API và Google Play đều **không cần key**.
+
+> **Việc cần làm của người dùng:** key Steam đã bị dán vào hội thoại nên coi
+> như lộ. Vào <https://steamcommunity.com/dev/apikey>, bấm *Revoke* rồi tạo
+> key mới, và cập nhật `STEAM_API_KEY` trong `.env`.

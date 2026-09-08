@@ -72,9 +72,10 @@ trạng thái xanh của cả 4 dịch vụ phụ thuộc.
 
 ### Phase 1 — Catalog + Search · 3–4 tuần
 
-- Đồng bộ IGDB (qua tài khoản Twitch developer)
+- Đồng bộ Steam (`IStoreService/GetAppList` + `appdetails`) — thay IGDB từ
+  2026-09-08, xem `DATA-SOURCES.md`
 - Entity `game` với alias đa ngôn ngữ + bảng ID mapping
-  (IGDB / Steam AppID / Epic slug / CheapShark)
+  (Steam AppID / Google Play / App Store / Epic slug / CheapShark)
 - Bổ sung game mobile từ Google Play + App Store (thư viện scraper open source)
 - Index Meilisearch, cấu hình normalize tiếng Việt
 - API tìm kiếm + facet (nền tảng, thể loại, năm)
