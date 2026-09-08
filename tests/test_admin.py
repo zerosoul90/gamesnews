@@ -233,9 +233,12 @@ async def test_gop_tro_lai_parent_game_cua_dlc(mongo_db: Db) -> None:
     lại, không thì nó thành mồ côi — trỏ tới một _id không còn tồn tại."""
     await ensure_indexes(mongo_db)
     keep_id = await insert(mongo_db, make_game())
+    # Bên bị gộp phải mang ID của NGUỒN KHÁC: hai igdb id khác nhau là xung
+    # đột, và test này kiểm chuyện khác — DLC có bị mồ côi không.
     drop_id = await insert(
         mongo_db,
-        make_game(slug="elden-ring-2", external_ids={"igdb": 222}),
+        make_game(slug="elden-ring-2", external_ids={"google_play": "com.fromsoft.er"}),
+        key="google_play",
     )
     dlc_id = await insert(
         mongo_db,
@@ -399,7 +402,11 @@ async def test_gop_qua_api_go_ben_bi_gop_khoi_index(
 
 async def test_gop_xung_dot_tra_409(client: httpx.AsyncClient, mongo_db: Db) -> None:
     await ensure_indexes(mongo_db)
-    keep_id = await insert(mongo_db, make_game(external_ids={"steam_appid": 1245620}))
+    keep_id = await insert(
+        mongo_db,
+        make_game(external_ids={"steam_appid": 1245620}),
+        key="steam_appid",
+    )
     drop_id = await insert(
         mongo_db,
         make_game(slug="khac", external_ids={"steam_appid": 999999}),
