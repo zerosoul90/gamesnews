@@ -37,7 +37,7 @@ from app.adapters.google_play.adapter import RATE_LIMIT as PLAY_RATE
 from app.adapters.google_play.adapter import GooglePlayAdapter
 from app.models.game import Game
 from app.services.catalog import games
-from app.services.mobile_catalog import StoreOutcome, store_game
+from app.services.ingest import StoreOutcome, store_game
 from app.services.search_index import reindex
 
 logger = logging.getLogger(__name__)

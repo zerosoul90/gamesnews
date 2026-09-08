@@ -1,6 +1,7 @@
 """Worker Arq. Chạy bằng: arq app.jobs.worker.WorkerSettings
 
-`ping` là job nghiệm thu từ Phase 0. Phase 1 thêm hai job nạp catalog mobile.
+`ping` là job nghiệm thu từ Phase 0. Phase 1 thêm bốn job nạp catalog: hai
+cho store mobile, hai cho Steam.
 
 Client Mongo/Redis/HTTP mở một lần trong `startup` và nằm trong `ctx`, đúng
 cách API làm với lifespan: mỗi job tự mở client thì một lượt chạy nghìn app sẽ
@@ -19,6 +20,7 @@ from app.core.config import get_settings
 from app.core.db import close_clients, create_clients
 from app.core.logging import new_request_id, request_id_var, setup_logging
 from app.jobs.mobile_catalog import sync_app_store, sync_google_play
+from app.jobs.steam_catalog import sync_steam_app_list, sync_steam_details
 from app.search.meili import MeiliIndex
 
 logger = logging.getLogger(__name__)
@@ -59,6 +61,8 @@ class WorkerSettings:
         ping,
         sync_app_store,
         sync_google_play,
+        sync_steam_app_list,
+        sync_steam_details,
     ]
     on_startup = startup
     on_shutdown = shutdown

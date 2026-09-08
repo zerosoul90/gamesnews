@@ -24,7 +24,7 @@ from app.adapters.google_play.adapter import to_game as play_to_game
 from app.jobs.mobile_catalog import _titles_to_probe, seed_terms
 from app.models.game import ExternalIds, Game, Titles
 from app.services.catalog import ensure_indexes, games, unique_slug, upsert_game
-from app.services.mobile_catalog import find_link_candidate, is_same_game, store_game
+from app.services.ingest import find_link_candidate, is_same_game, store_game
 
 Db = AsyncIOMotorDatabase[dict[str, Any]]
 

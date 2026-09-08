@@ -1,8 +1,8 @@
-"""Đưa một game từ store mobile vào catalog — `docs/PHASE-1.md` mục 5.
+"""Đường ghi chung cho mọi nguồn catalog — `docs/PHASE-1.md` mục 4, 5.
 
-Module này **không biết** dữ liệu đến từ Google Play hay App Store: nó nhận
-`Game` đã chuẩn hoá và một `key` trỏ vào `external_ids`. Đúng ranh giới mà
-`CLAUDE.md` yêu cầu, và nhờ vậy hai job store dùng chung một đường ghi.
+Module này **không biết** dữ liệu đến từ Google Play, App Store hay Steam: nó
+nhận `Game` đã chuẩn hoá và một `key` trỏ vào `external_ids`. Đúng ranh giới
+`CLAUDE.md` yêu cầu, và nhờ vậy mọi job đồng bộ dùng chung một đường ghi.
 
 Hai chuyện phải làm cho đúng, cả hai đều dễ làm hỏng dữ liệu:
 
@@ -44,8 +44,8 @@ Db = AsyncIOMotorDatabase[dict[str, Any]]
 # được nhập về một entity, thay vì nằm hai chỗ.
 StoreOutcome = Literal["inserted", "updated", "unchanged", "linked"]
 
-# Hậu tố slug theo store, dùng khi hai game khác nhau trùng tên.
-_SLUG_SUFFIX = {"google_play": "android", "app_store": "ios"}
+# Hậu tố slug theo nguồn, dùng khi hai game khác nhau trùng tên.
+_SLUG_SUFFIX = {"google_play": "android", "app_store": "ios", "steam_appid": "pc"}
 
 
 def _titles_normalized(game: Game) -> set[str]:
@@ -99,7 +99,7 @@ async def find_link_candidate(db: Db, game: Game, *, key: str) -> dict[str, Any]
 
 
 async def store_game(db: Db, game: Game, *, key: str) -> StoreOutcome:
-    """Ghi một game từ store mobile. Chạy lại được, không sinh entity trùng."""
+    """Ghi một game từ một nguồn. Chạy lại được, không sinh entity trùng."""
     if key not in EXTERNAL_ID_FIELDS:
         raise ValueError(f"{key!r} không phải field của external_ids")
 
@@ -131,7 +131,7 @@ async def store_game(db: Db, game: Game, *, key: str) -> StoreOutcome:
 
 
 async def _refresh(db: Db, existing_doc: dict[str, Any], incoming: Game) -> StoreOutcome:
-    """Trộn dữ liệu mới vào một entity đã có, không làm mất phần của store kia.
+    """Trộn dữ liệu mới vào một entity đã có, không làm mất phần của nguồn kia.
 
     `merge_content` với bên **mới** làm bên giữ lại: dữ liệu vừa lấy về thắng ở
     chỗ nó có, còn entity cũ bù vào chỗ trống — nhờ vậy `external_ids` của store

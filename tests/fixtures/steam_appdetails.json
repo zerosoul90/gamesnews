@@ -1,0 +1,104 @@
+{
+  "_comment": "Ghi lại từ store.steampowered.com/api/appdetails?cc=vn&l=english ngày 2026-09-08, đã cắt bớt cho gọn nhưng KHÔNG sửa hình dạng. 1245620 là game; 2778580 là DLC, có fullgame trỏ về game cha; 1245621 là appid không tồn tại nên trả success=false — trường hợp thứ ba rất phổ biến và không phải lỗi.",
+  "1245620": {
+    "success": true,
+    "data": {
+      "type": "game",
+      "name": "ELDEN RING",
+      "steam_appid": 1245620,
+      "developers": [
+        "FromSoftware, Inc."
+      ],
+      "publishers": [
+        "FromSoftware, Inc.",
+        "Bandai Namco Entertainment"
+      ],
+      "genres": [
+        {
+          "id": "1",
+          "description": "Action"
+        },
+        {
+          "id": "3",
+          "description": "RPG"
+        }
+      ],
+      "release_date": {
+        "coming_soon": false,
+        "date": "24 Feb, 2022"
+      },
+      "platforms": {
+        "windows": true,
+        "mac": false,
+        "linux": false
+      },
+      "header_image": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1245620/header.jpg?t=1787868578",
+      "screenshots": [
+        {
+          "id": 0,
+          "path_thumbnail": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1245620/ss_943bf6fe62352757d9070c1d33e50b92fe8539f1.600x338.jpg?t=1787868578",
+          "path_full": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1245620/ss_943bf6fe62352757d9070c1d33e50b92fe8539f1.1920x1080.jpg?t=1787868578"
+        },
+        {
+          "id": 1,
+          "path_thumbnail": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1245620/ss_dcdac9e4b26ac0ee5248bfd2967d764fd00cdb42.600x338.jpg?t=1787868578",
+          "path_full": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1245620/ss_dcdac9e4b26ac0ee5248bfd2967d764fd00cdb42.1920x1080.jpg?t=1787868578"
+        }
+      ]
+    }
+  },
+  "2778580": {
+    "success": true,
+    "data": {
+      "type": "dlc",
+      "name": "ELDEN RING Shadow of the Erdtree",
+      "steam_appid": 2778580,
+      "fullgame": {
+        "appid": "1245620",
+        "name": "ELDEN RING"
+      },
+      "developers": [
+        "FromSoftware, Inc."
+      ],
+      "publishers": [
+        "FromSoftware, Inc.",
+        "Bandai Namco Entertainment"
+      ],
+      "genres": [
+        {
+          "id": "1",
+          "description": "Action"
+        },
+        {
+          "id": "3",
+          "description": "RPG"
+        }
+      ],
+      "release_date": {
+        "coming_soon": false,
+        "date": "20 Jun, 2024"
+      },
+      "platforms": {
+        "windows": true,
+        "mac": false,
+        "linux": false
+      },
+      "header_image": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2778580/header.jpg?t=1787586064",
+      "screenshots": [
+        {
+          "id": 0,
+          "path_thumbnail": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2778580/ss_c97bcad291f4f45d4be4594f34bd78921d961099.600x338.jpg?t=1787586064",
+          "path_full": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2778580/ss_c97bcad291f4f45d4be4594f34bd78921d961099.1920x1080.jpg?t=1787586064"
+        },
+        {
+          "id": 1,
+          "path_thumbnail": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2778580/ss_9769407281276d7fd76d6221fe83c05defb0b998.600x338.jpg?t=1787586064",
+          "path_full": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2778580/ss_9769407281276d7fd76d6221fe83c05defb0b998.1920x1080.jpg?t=1787586064"
+        }
+      ]
+    }
+  },
+  "1245621": {
+    "success": false
+  }
+}

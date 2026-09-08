@@ -1,0 +1,27 @@
+{
+  "_comment": "Hình dạng thật của IStoreService/GetAppList/v1 (kiểm ngày 2026-09-08 với key thật): 50.000 mục mỗi trang, have_more_results + last_appid để lật trang. Ở đây chỉ giữ 3 mục. Với include_games=true và mọi include_* khác false thì toàn bộ là 184.981 game.",
+  "response": {
+    "apps": [
+      {
+        "appid": 10,
+        "name": "Counter-Strike",
+        "last_modified": 1745368830,
+        "price_change_number": 24565728
+      },
+      {
+        "appid": 20,
+        "name": "Team Fortress Classic",
+        "last_modified": 1745368830,
+        "price_change_number": 24565728
+      },
+      {
+        "appid": 1245620,
+        "name": "ELDEN RING",
+        "last_modified": 1751443200,
+        "price_change_number": 24565728
+      }
+    ],
+    "have_more_results": true,
+    "last_appid": 1245620
+  }
+}
