@@ -97,10 +97,9 @@ jobs:
           uv run pytest 2>&1 | tee pytest.log
 
       # Hai kênh, vì hai loại người đọc khác nhau:
-      # - Summary: cho người đã đăng nhập, đọc thoải mái.
-      # - Annotation: đọc được qua REST API **không cần token**
-      #   (/check-runs/{id}/annotations). Đây là đường duy nhất để biết CI hỏng
-      #   ở đâu từ một máy không đăng nhập được GitHub.
+      # - Summary: cho người đã đăng nhập.
+      # - Annotation: REST API trả về **không cần token**, nên đọc được từ một
+      #   máy không đăng nhập GitHub. Xem .github/scripts/annotate_pytest.py.
       - name: Đăng phần thất bại ra Summary và annotation
         if: failure()
         run: |
@@ -110,17 +109,7 @@ jobs:
             tail -c 40000 pytest.log
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-
-          python3 - <<'EOF'
-          import pathlib
-
-          log = pathlib.Path("pytest.log").read_text(errors="replace")[-8000:]
-          # Annotation là một dòng: xuống dòng và dấu % phải mã hoá, nếu không
-          # chỉ dòng đầu tiên lọt ra.
-          escaped = log.replace("%", "%25").replace("", "%0D").replace("
-", "%0A")
-          print(f"::error title=pytest::{escaped}")
-          EOF
+          python3 .github/scripts/annotate_pytest.py pytest.log
 
   compose:
     runs-on: ubuntu-latest
