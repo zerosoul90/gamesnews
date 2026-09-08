@@ -87,8 +87,24 @@ jobs:
       - name: mypy
         run: uv run mypy app tests
 
+      # Log của Actions chỉ xem được khi đã đăng nhập, còn trang Summary thì
+      # công khai. Máy dev hiện không chạy được Mongo/Meilisearch nên CI là nơi
+      # duy nhất một phần test được chạy thật — phải đọc được nó hỏng ở đâu mà
+      # không cần mở log.
       - name: pytest
-        run: uv run pytest
+        run: |
+          set -o pipefail
+          uv run pytest 2>&1 | tee pytest.log
+
+      - name: Đăng phần thất bại vào Summary
+        if: failure()
+        run: |
+          {
+            echo '### pytest thất bại'
+            echo '```'
+            tail -c 40000 pytest.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   compose:
     runs-on: ubuntu-latest

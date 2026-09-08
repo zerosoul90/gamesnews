@@ -1,7 +1,7 @@
 # PROGRESS.md — Tiến độ
 
 **Phase hiện tại:** Phase 1 — Catalog + Search
-**Cập nhật lần cuối:** 2026-09-07
+**Cập nhật lần cuối:** 2026-09-08
 
 Phase 0 đã đạt toàn bộ checkpoint nghiệm thu. Chỉ còn mục 7 (đăng ký key ngoài)
 là việc của người dùng, Phase 1 mới cần tới.
@@ -56,7 +56,7 @@ là việc của người dùng, Phase 1 mới cần tới.
 - [ ] Bổ sung game mobile từ Google Play + App Store
 - [x] Index Meilisearch + cấu hình tiếng Việt
 - [x] API tìm kiếm + facet
-- [ ] Trang admin xem/sửa entity
+- [x] Trang admin xem/sửa entity
 
 ---
 
@@ -302,6 +302,62 @@ cấu hình service, đáng ghi vì dễ gặp lại:
 
 Điều đáng nhớ: `docker compose config` hợp lệ và compose chạy được ở máy dev
 **không** bảo đảm cùng lệnh đó chạy được trong service container của CI.
+
+### 2026-09-08 — Phase 1 mục 8: admin entity
+
+Làm mục 8 trước mục 5 dù tài liệu đánh số ngược lại. Lý do: mục 5 sẽ đẩy vào
+catalog những entity mobile định danh bằng `google_play`/`app_store`, và chính
+chúng sau này trùng với entity IGDB của cùng một game. Có công cụ gộp trước thì
+lúc đó dọn được; làm ngược lại thì nợ chồng lên.
+
+**Quyết định phát sinh:**
+
+- **Trang HTML server-render bằng Jinja2, không phải Angular.** Phase 4 mới tới
+  web; dựng SPA chỉ để sửa alias là vượt phạm vi. Hai mặt cùng một nghiệp vụ:
+  `/admin/api/...` trả JSON (script và test dùng), `/admin/...` là trang bấm
+  được.
+- **Gộp phải mang theo `external_ids`.** Đây là nửa quan trọng nhất của thao
+  tác. Sau khi gộp, job đồng bộ của nguồn bên bị gộp vẫn chạy với ID cũ của nó.
+  ID đó không nằm trên entity còn lại thì `upsert_game` không tìm thấy gì và
+  insert lại đúng entity vừa xoá — công gộp tay mất sạch sau một đêm. Có test
+  đúng kịch bản đó.
+- **Hai ID khác nhau ở cùng một nguồn thì TỪ CHỐI gộp (409).** Hai Steam AppID
+  khác nhau gần như luôn là hai sản phẩm khác nhau. Gộp bừa thì Phase 2 lấy giá
+  game này gắn cho game kia — sai kiểu rất khó phát hiện.
+- **Xoá bên bị gộp trước, ghi bên giữ lại sau.** Index unique một phần trên
+  `external_ids` chặn ngay nếu gán ID của bên bị gộp cho bên giữ lại trong khi
+  document cũ còn đó. Mongo standalone không có transaction, nên bước ghi hỏng
+  thì insert lại document vừa xoá.
+- **DLC không được thành mồ côi.** Gộp xong phải trỏ lại `parent_game` của mọi
+  DLC đang trỏ vào entity bị xoá.
+- **Alias sửa tay là THÊM, không phải THAY**, và đi qua đúng `with_aliases` mà
+  job đồng bộ dùng. Nhờ vậy `aliases_normalized` không bao giờ lệch pha với
+  `aliases`, và admin xoá sạch ô nhập cũng không mất tên chính của game.
+- **Sửa alias y hệt thì không đụng `updated_at`** — cùng lý lẽ với
+  `content_hash`: `updated_at` nhảy vô cớ là job reindex delta phải đẩy lại một
+  entity không đổi gì.
+- **Tìm entity trong admin truy thẳng Mongo, không qua Meilisearch.** Lý do hay
+  phải mở trang admin nhất lại chính là "game này tìm không ra"; dùng Meili ở
+  đây thì đúng lúc cần nhất nó lại không giúp được.
+- **Mọi thao tác ghi đẩy sang Meilisearch ngay trong request**, không đợi job
+  delta. Admin sửa xong tìm lại thấy dữ liệu cũ sẽ tưởng lần đầu không ăn và
+  sửa thêm lần nữa.
+- **`/admin` mặc định ĐÓNG khi thiếu `ADMIN_TOKEN`** (503). Một trang sửa được
+  cả catalog mà không có mật khẩu còn tệ hơn nhiều so với việc admin tạm thời
+  không vào được. Token đi vào cookie `HttpOnly` + `SameSite=Strict` qua form
+  đăng nhập, **không** qua query string — query string vào log của mọi proxy
+  trên đường và vào lịch sử trình duyệt.
+- Thêm hai phụ thuộc: `jinja2` và `python-multipart` (FastAPI cần nó để đọc
+  form HTML).
+
+**Chưa nghiệm thu tại máy dev:** máy đang dùng không có Docker, nên 32 test
+mới cần Mongo đều skip ở local. Chỉ chạy thật trên CI (`REQUIRE_MONGO=1`).
+Kiểm bù được ở local: render cả bốn template ngoài HTTP (autoescape chặn
+`<script>` trong tên game), OpenAPI dựng đủ 10 route `/admin`, ruff + mypy
+--strict sạch.
+
+**Còn nợ của Phase 1:** mục 1 (adapter IGDB) vẫn chặn vì thiếu key Twitch, kéo
+theo checkpoint "catalog ≥ 50.000 game". Mục 5 (catalog mobile) chưa làm.
 
 ---
 
