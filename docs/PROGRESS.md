@@ -350,11 +350,34 @@ lúc đó dọn được; làm ngược lại thì nợ chồng lên.
 - Thêm hai phụ thuộc: `jinja2` và `python-multipart` (FastAPI cần nó để đọc
   form HTML).
 
-**Chưa nghiệm thu tại máy dev:** máy đang dùng không có Docker, nên 32 test
-mới cần Mongo đều skip ở local. Chỉ chạy thật trên CI (`REQUIRE_MONGO=1`).
-Kiểm bù được ở local: render cả bốn template ngoài HTTP (autoescape chặn
+**Đã nghiệm thu: CI xanh, 204 test, 0 skip.** Máy dev hiện tại không có Docker
+nên 32 test mới cần Mongo đều skip ở local — CI là nơi duy nhất chúng chạy
+thật. Kiểm bù được ở local: render cả bốn template ngoài HTTP (autoescape chặn
 `<script>` trong tên game), OpenAPI dựng đủ 10 route `/admin`, ruff + mypy
 --strict sạch.
+
+Hai lần CI đỏ đầu đều là lỗi **trong test**, không phải trong code — và đáng
+ghi vì cùng một kiểu: test tự mâu thuẫn với chính luật mà nó đang kiểm.
+
+1. Test "DLC không mồ côi" dựng hai entity cùng có `igdb` id khác nhau, tức là
+   rơi đúng vào luật từ chối gộp, chết trước khi tới phần cần kiểm.
+2. Test xung đột 409 gọi `insert()` với key mặc định `igdb` trong khi game chỉ
+   có `steam_appid`, nên `upsert_game` ném `ValueError` trước cả khi chạm API.
+
+**Đọc được CI hỏng ở đâu mà không đăng nhập GitHub.** Máy dev không đăng nhập
+được GitHub, mà log của Actions thì đòi đăng nhập — kể cả với repo public, và
+trang Summary cũng vậy. Đường đi được: `::error::` sinh ra annotation, và
+`/repos/{owner}/{repo}/check-runs/{id}/annotations` trả về **không cần token**.
+CI giờ đăng phần cuối output pytest ra cả Summary lẫn annotation
+(`.github/scripts/annotate_pytest.py`), chia mẩu 2500 ký tự vì GitHub cắt bớt
+message dài.
+
+Một cái bẫy nữa, mất một lượt CI: nhúng heredoc Python vào block scalar YAML
+của `ci.yml`. Ký tự xuống dòng trong chuỗi thành xuống dòng thật, block scalar
+đứt, YAML không parse được — **workflow không chạy job nào nhưng run vẫn hiện
+là `failure`**, nhìn qua tưởng test đỏ. Dấu hiệu nhận ra: `/jobs` trả
+`total_count: 0`. Vì vậy script annotate nằm ở file riêng, không nhúng vào
+YAML.
 
 **Còn nợ của Phase 1:** mục 1 (adapter IGDB) vẫn chặn vì thiếu key Twitch, kéo
 theo checkpoint "catalog ≥ 50.000 game". Mục 5 (catalog mobile) chưa làm.
