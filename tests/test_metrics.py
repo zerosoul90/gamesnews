@@ -192,16 +192,24 @@ async def test_kenh_don_vi_khac_nhau_khong_nuot_lan_nhau(mongo_db: Db) -> None:
 async def test_bang_dang_tang_manh_khong_bi_game_top_thuong_truc_chiem_cho(
     mongo_db: Db,
 ) -> None:
-    """Đúng checkpoint của PHASE-7: game luôn ở đỉnh thì momentum ~0, còn game
-    vừa bật lên mới là thứ bảng này cần nêu."""
+    """Đúng checkpoint của PHASE-7.
+
+    Momentum tính trên **percentile**, tức trên thứ hạng chứ không trên số
+    tuyệt đối. Nên bài test phải có một quần thể thật để có thứ hạng mà đổi:
+    hai game thì hạng luôn là {0.5, 1.0} dù giá trị nhảy bao nhiêu lần.
+    """
     await ensure_metrics_collection(mongo_db)
     for day in range(1, 30):
         ts = NOW - dt.timedelta(days=day)
-        # Luôn đứng đầu, không đổi.
+        # Nền: mười game đứng yên, trải đều để có thang bậc.
+        for i in range(1, 11):
+            await record(mongo_db, f"nen_{i}", "steam_ccu", i * 1_000, ts=ts)
+        # Luôn đứng đầu, không đổi -> momentum phải bằng 0.
         await record(mongo_db, "thuong_truc", "steam_ccu", 900_000, ts=ts)
-        # Bật lên trong tuần gần nhất.
+        # Nằm đáy suốt, chỉ bật lên trong ba ngày gần nhất. Cửa sổ so sánh
+        # (lùi 7 ngày) không chạm tới ba ngày đó.
         await record(
-            mongo_db, "vua_bat_len", "steam_ccu", 800_000 if day <= 7 else 10, ts=ts
+            mongo_db, "vua_bat_len", "steam_ccu", 500_000 if day <= 3 else 10, ts=ts
         )
     await rollup_time_series(mongo_db, now=NOW)
 
@@ -209,9 +217,12 @@ async def test_bang_dang_tang_manh_khong_bi_game_top_thuong_truc_chiem_cho(
 
     momentum = await top_games(mongo_db, by="score_momentum")
     assert momentum[0]["game_id"] == "vua_bat_len"
+
     thuong_truc = await hotness_of(mongo_db, "thuong_truc")
     assert thuong_truc is not None
     assert thuong_truc["score_momentum"] == 0.0
+    # Vẫn đứng đầu bảng "Phổ biến nhất" — hai bảng đo hai thứ khác nhau.
+    assert thuong_truc["score_absolute"] == 1.0
 
 
 async def test_khong_co_du_lieu_thi_khong_ghi_gi(mongo_db: Db) -> None:

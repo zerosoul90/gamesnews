@@ -24,6 +24,12 @@ không được bị game top thường trực chiếm chỗ:
 - `score_momentum` — chênh lệch percentile so với 7 ngày trước, cho bảng
   **Đang tăng mạnh**. Dota 2 luôn ở percentile ~0.99 nên momentum của nó luôn
   quanh 0; một game nhỏ nhảy từ 0.3 lên 0.8 mới là thứ bảng này cần nêu.
+
+Hệ quả cần biết của việc momentum tính trên percentile: nó đo **đổi thứ hạng**,
+không đo tăng trưởng tuyệt đối. Một game tăng gấp trăm lần mà cả quần thể cũng
+tăng chừng đó thì momentum vẫn bằng 0 — và đó là điều đúng, vì bảng này để trả
+lời "game nào đang nổi lên so với phần còn lại", không phải "game nào có con
+số tăng nhiều nhất".
 """
 
 from __future__ import annotations
