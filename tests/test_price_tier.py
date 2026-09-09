@@ -180,6 +180,41 @@ async def test_chua_xep_tang_lan_nao_van_duoc_kiem(mongo_db: Db) -> None:
     assert len(await price_tier.due_for_check(mongo_db, 10)) == 1
 
 
+async def test_chua_xep_tang_nhung_vua_kiem_thi_khong_toi_han(mongo_db: Db) -> None:
+    """Nhánh "chưa xếp tầng" cũng phải có trần thời gian như ba tầng kia.
+
+    Thiếu trần thì game chưa xếp tầng luôn tới hạn, `due_for_check` không bao
+    giờ rỗng, và job giá chạy đủ MAX_BATCHES mỗi lượt dù chẳng có việc thật.
+    Đo trên dữ liệu thật trước khi sửa: 214 game sinh 1000 request Steam, mỗi
+    game 10 lần đọc giá cách nhau vài giây — phần dư đó lấy thẳng từ hạn mức
+    dùng chung với job bồi catalog.
+
+    Cố ý KHÔNG gọi `recompute_tiers`: mọi test cũ đều gọi, nên nhánh này chưa
+    bao giờ được kiểm cùng với một `price_checked_at` mới.
+    """
+    await ensure_indexes(mongo_db)
+    game_id = await add_game(mongo_db, "chua-tang-vua-kiem", 908)
+    await games(mongo_db).update_one(
+        {"_id": game_id}, {"$set": {"price_checked_at": dt.datetime.now(dt.UTC)}}
+    )
+
+    assert await price_tier.due_for_check(mongo_db, 10) == []
+
+
+async def test_chua_xep_tang_va_kiem_da_lau_thi_toi_han(mongo_db: Db) -> None:
+    """Chiều ngược lại: trần thời gian không được biến lưới an toàn thành vô
+    dụng. Quá chu kỳ thì game chưa xếp tầng vẫn phải được kiểm lại, kể cả khi
+    job xếp tầng hỏng nhiều ngày liền."""
+    await ensure_indexes(mongo_db)
+    game_id = await add_game(mongo_db, "chua-tang-kiem-lau", 909)
+    qua_han = dt.datetime.now(dt.UTC) - price_tier.UNTIERED_INTERVAL - dt.timedelta(minutes=1)
+    await games(mongo_db).update_one(
+        {"_id": game_id}, {"$set": {"price_checked_at": qua_han}}
+    )
+
+    assert [d["_id"] for d in await price_tier.due_for_check(mongo_db, 10)] == [game_id]
+
+
 async def test_vua_kiem_xong_thi_chua_toi_han_lai(mongo_db: Db) -> None:
     await ensure_indexes(mongo_db)
     game_id = await add_game(mongo_db, "vua-kiem", 903)

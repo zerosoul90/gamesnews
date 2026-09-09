@@ -844,6 +844,52 @@ Meilisearch *sống* — nó chỉ chưa có index.
 và worker đều có `meili_games: 1`; xoá index rồi gọi lại thì đúng 503, không
 traceback. 441 test xanh (+6 mới), ruff + mypy sạch.
 
+### 2026-09-09 — Catalog Steam chạy thật, và một lỗi quota chỉ lộ khi chạy thật
+
+Có `STEAM_API_KEY`. Lần đầu gọi API Steam thật thay vì fixture.
+
+- `sync_steam_app_list`: **185.231 app**, 4 trang.
+- `sync_steam_details`: một lô 200 → 197 xong, 3 lỗi. Catalog lên 214 → 407 game
+  có `steam_appid` sau vài lượt cron.
+- `sync_steam_prices`: **196 game có giá VND thật**, có game giảm 80%
+  (165.000₫ → 33.000₫). Tìm kiếm trên dữ liệu Steam mới đều đúng.
+
+**Trở ngại hạ tầng, không phải lỗi code:** ISP (VNPT) chặn
+`store.steampowered.com` ở tầng DNS — resolver trả `127.0.0.1`.
+`api.steampowered.com` vẫn bình thường, nên chỉ `appdetails` (toàn bộ giá VND)
+chết. Đã vá bằng `dns: ["8.8.8.8","8.8.4.4"]` cho `app` và `worker` trong
+`docker-compose.override.yml` (gitignored — chuyện của máy này, không phải của
+dự án). **Không dùng 1.1.1.1**: Cloudflare trả IP Akamai `23.15.142.182` bị chặn
+tiếp ở tầng mạng; Google DNS trả `171.236.62.121`, cache Steam đặt tại VN.
+
+#### Lỗi: game chưa xếp tầng thì "tới hạn" vĩnh viễn
+
+`due_for_check` thêm nhánh `{"price_tier": None}` **không kèm điều kiện thời
+gian**, trong khi ba nhánh tầng kia đều có. Hệ quả đo được trên dữ liệu thật:
+
+| | Trước | Sau |
+|---|---|---|
+| Game tới hạn / 407 game | **407 (100%)** | 143 (35%) |
+| Lượt chạy đầu, 214 game | `checked: 1000` (~4,7× dư) | — |
+| `observations` mỗi game | 10 lần đọc cách nhau vài giây | 1 |
+
+Nguy hiểm hơn con số: `due_for_check` **không bao giờ trả về rỗng**, nên job giá
+chạy đủ `MAX_BATCHES` mỗi 15 phút bất kể có việc thật hay không — mà nó dùng
+chung hạn mức 200 req/5 phút với `sync_steam_details`. Đúng điều `CLAUDE.md`
+cấm: *"không được để một job làm cạn quota của job khác"*. Với 185.231 app đang
+xếp hàng, job bồi catalog sẽ bị bỏ đói lâu dài.
+
+Sửa: nhánh chưa xếp tầng nhận `UNTIERED_INTERVAL = TIER_INTERVALS["hot"]` (4
+giờ) — game mới nạp vẫn được ưu tiên có giá sớm, nhưng có trần.
+
+**Vì sao 448 test không bắt được:** mọi test của `due_for_check` đều gọi
+`recompute_tiers` trước, nên nhánh "chưa xếp tầng" chưa bao giờ được kiểm cùng
+một `price_checked_at` mới. Đã thêm hai test cho cả hai chiều, và đã xác minh
+chúng **đỏ khi gỡ fix ra**.
+
+**Còn nợ:** `recompute_price_tiers` chưa chạy lượt nào trên dữ liệu thật (mọi
+game vẫn `price_tier: null`); catalog mới bồi 407/185.231 app.
+
 ### 2026-09-09 — `JWT_SECRET` mặc định không còn ra được khỏi máy dev
 
 Phát hiện khi đối chiếu `.env` với `.env.example`: `jwt_secret` mặc định là

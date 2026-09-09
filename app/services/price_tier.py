@@ -59,6 +59,11 @@ TIER_INTERVALS: dict[Tier, dt.timedelta] = {
     "cold": dt.timedelta(days=7),
 }
 
+# Chu kỳ cho game CHƯA được xếp tầng lần nào. Lấy bằng tầng hot: game mới nạp
+# chưa biết nóng hay nguội nên ưu tiên có giá sớm, nhưng vẫn phải có trần —
+# không có trần thì nhánh này khiến game luôn "tới hạn", xem `due_for_check`.
+UNTIERED_INTERVAL = TIER_INTERVALS["hot"]
+
 # Bài viết trong bao lâu thì coi là game còn được quan tâm.
 WARM_ARTICLE_DAYS = 30
 # Game mới ra mắt luôn biến động giá, kể cả khi chưa ai theo dõi.
@@ -187,7 +192,23 @@ async def due_for_check(db: Db, limit: int) -> list[dict[str, Any]]:
         )
     # Game chưa được xếp tầng lần nào cũng phải được kiểm, đừng để nó rơi ra
     # ngoài mọi nhánh chỉ vì job xếp tầng chưa chạy lượt đầu.
-    branches.append({"price_tier": None})
+    #
+    # Nhánh này BẮT BUỘC phải có điều kiện thời gian như ba nhánh trên. Thiếu nó
+    # thì mọi game chưa xếp tầng luôn "tới hạn", `due_for_check` không bao giờ
+    # trả về rỗng, và job giá chạy đủ MAX_BATCHES mỗi lượt bất kể có việc thật
+    # hay không. Đo trên dữ liệu thật: 214 game sinh ra 1000 request Steam
+    # (~4,7 lần dư), mỗi game 10 lần đọc giá cách nhau vài giây. Hạn mức Steam
+    # dùng chung với job bồi catalog, nên phần dư đó lấy thẳng từ miếng ăn của
+    # `sync_steam_details`.
+    branches.append(
+        {
+            "price_tier": None,
+            "$or": [
+                {"price_checked_at": {"$lt": now - UNTIERED_INTERVAL}},
+                {"price_checked_at": None},
+            ],
+        }
+    )
 
     cursor = (
         games(db)
