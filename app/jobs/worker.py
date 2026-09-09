@@ -19,7 +19,7 @@ from arq.connections import RedisSettings
 from app.core.config import get_settings
 from app.core.db import close_clients, create_clients
 from app.core.logging import new_request_id, request_id_var, setup_logging
-from app.jobs.metrics import job_fetch_steam_ccu, job_rollup_metrics
+from app.jobs.metrics import job_compute_hotness, job_fetch_steam_ccu, job_rollup_metrics
 from app.jobs.mobile_catalog import sync_app_store, sync_google_play
 from app.jobs.notification_digest import send_notification_digest
 from app.jobs.steam_catalog import sync_steam_app_list, sync_steam_details
@@ -74,6 +74,7 @@ class WorkerSettings:
         send_notification_digest,
         job_rollup_metrics,
         job_fetch_steam_ccu,
+        job_compute_hotness,
         job_sync_streamers,
         job_renew_youtube_websub,
     ]
