@@ -844,6 +844,35 @@ Meilisearch *sống* — nó chỉ chưa có index.
 và worker đều có `meili_games: 1`; xoá index rồi gọi lại thì đúng 503, không
 traceback. 441 test xanh (+6 mới), ruff + mypy sạch.
 
+### 2026-09-09 — `JWT_SECRET` mặc định không còn ra được khỏi máy dev
+
+Phát hiện khi đối chiếu `.env` với `.env.example`: `jwt_secret` mặc định là
+chuỗi `"changeme_for_production"` viết cứng trong `core/config.py`, và **không
+có gì chặn nó chạy ở môi trường thật**. Nó ký session token ở
+`services/auth.py`, nên deploy mà quên đặt biến này thì bất kỳ ai đọc repo cũng
+ký được token hợp lệ cho bất kỳ tài khoản nào, kể cả admin.
+
+Loại lỗi này không có triệu chứng: app chạy ngon lành, đăng nhập bình thường,
+không dòng log nào bất thường — cho tới lúc đã bị lợi dụng.
+
+- Thêm validator trong `Settings`: `APP_ENV` khác `dev` mà `jwt_secret` vẫn là
+  giá trị mặc định thì **app từ chối khởi động**. Chết ồn ào lúc khởi động là có
+  chủ ý — nó là thứ duy nhất buộc người deploy phải nhìn thấy.
+- Chặn cả `staging`, không riêng `prod`: staging cũng là máy thật, dữ liệu thật,
+  mở ra mạng.
+- `dev` vẫn chạy được với giá trị mặc định — bắt đặt biến này ở dev thì mỗi lần
+  clone repo lại vướng một bước không giúp gì cho an toàn.
+- Nghiệm thu ngay trong container: `APP_ENV=prod` + secret mặc định → từ chối
+  khởi động kèm hướng dẫn sinh giá trị; có secret riêng → chạy bình thường.
+
+`.env` của máy dev cũng đã đồng bộ lại theo `.env.example` (13 biến mới của
+Phase 2-8 chưa có), giữ nguyên mọi giá trị đã điền.
+
+**Còn nợ:** `STEAM_API_KEY` vẫn trống, nên luồng catalog Steam mới chỉ chạy trên
+fixture chứ chưa lần nào gọi API thật.
+
+---
+
 **Đáng ghi vì đây là lần thứ ba cùng một dạng lỗi.** Trước đó: `docker compose
 config` hợp lệ không suy ra service container CI chạy được; `ensure_indexes` có
 test nhưng chưa ai gọi ở môi trường thật. Lần này `core/bootstrap.py` đã sinh ra

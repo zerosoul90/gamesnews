@@ -3,8 +3,16 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Giá trị mặc định của `jwt_secret`. Nằm trong mã nguồn nên ai đọc repo cũng
+# biết — dùng nó ở môi trường thật thì bất kỳ ai cũng ký được token hợp lệ cho
+# bất kỳ tài khoản nào. Xem `_chan_secret_mac_dinh`.
+# S105: ruff thấy một chuỗi trông như mật khẩu và cảnh báo — đúng bản chất,
+# nhưng đây chính là giá trị canh gác để TỪ CHỐI, không phải một secret đang
+# dùng. Giấu nó đi thì mất luôn chốt chặn.
+DEFAULT_JWT_SECRET = "changeme_for_production"  # noqa: S105
 
 
 class Settings(BaseSettings):
@@ -45,7 +53,7 @@ class Settings(BaseSettings):
     admin_token: SecretStr = SecretStr("")
 
     # --- Auth ---
-    jwt_secret: SecretStr = SecretStr("changeme_for_production")
+    jwt_secret: SecretStr = SecretStr(DEFAULT_JWT_SECRET)
     frontend_url: str = "http://localhost:3000"
 
     # Origin được phép gọi API từ trình duyệt, phân tách bằng dấu phẩy.
@@ -80,6 +88,28 @@ class Settings(BaseSettings):
     public_base_url: str = ""
     gemini_api_key: SecretStr = SecretStr("")
     youtube_api_key: SecretStr = SecretStr("")
+
+    @model_validator(mode="after")
+    def _chan_secret_mac_dinh(self) -> "Settings":
+        """Ngoài `dev` thì không được chạy với `jwt_secret` mặc định.
+
+        `jwt_secret` ký session token của người dùng. Giá trị mặc định nằm ngay
+        trong mã nguồn, nên deploy mà quên đặt biến này thì bất kỳ ai đọc repo
+        cũng ký được token hợp lệ cho bất kỳ tài khoản nào — kể cả admin.
+
+        Chết lúc khởi động là có chủ ý. Một biến thiếu thì hỏng ngay và hỏng ồn
+        ào, còn hơn chạy ngon lành suốt nhiều tháng với auth chỉ là hình thức:
+        loại lỗi này không có triệu chứng nào cho tới lúc đã bị lợi dụng.
+
+        Chặn cả `staging` chứ không riêng `prod`: staging cũng là máy thật, có
+        dữ liệu thật và mở ra mạng.
+        """
+        if self.app_env != "dev" and self.jwt_secret.get_secret_value() == DEFAULT_JWT_SECRET:
+            raise ValueError(
+                f"JWT_SECRET còn là giá trị mặc định trong khi APP_ENV={self.app_env}. "
+                "Đặt một giá trị riêng, sinh bằng: openssl rand -base64 32"
+            )
+        return self
 
 
 @lru_cache(maxsize=1)
