@@ -18,7 +18,7 @@ router = APIRouter(tags=["health"])
 # Phụ thuộc bắt buộc: hỏng thì /health trả 503.
 # Qdrant chạy từ Phase 0 nhưng không ai đọc tới Phase 6.
 # >>> BẮT ĐẦU PHASE 6: thêm "qdrant" vào tập này. <<<
-REQUIRED: frozenset[str] = frozenset({"mongo", "redis", "meilisearch"})
+REQUIRED: frozenset[str] = frozenset({"mongo", "redis", "meilisearch", "qdrant"})
 
 
 class DependencyStatus(BaseModel):

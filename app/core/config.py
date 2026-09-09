@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     # việc admin tạm thời không dùng được.
     admin_token: SecretStr = SecretStr("")
 
+    # --- Auth ---
+    jwt_secret: SecretStr = SecretStr("changeme_for_production")
+    frontend_url: str = "http://localhost:3000"
+
     # --- Key ngoài. Phase 0 chưa gọi API nào nên để trống vẫn chạy được. ---
     steam_api_key: SecretStr = SecretStr("")
     twitch_client_id: str = ""

@@ -20,7 +20,9 @@ from app.core.config import get_settings
 from app.core.db import close_clients, create_clients
 from app.core.logging import new_request_id, request_id_var, setup_logging
 from app.jobs.mobile_catalog import sync_app_store, sync_google_play
+from app.jobs.notification_digest import send_notification_digest
 from app.jobs.steam_catalog import sync_steam_app_list, sync_steam_details
+from app.jobs.steam_pricing import sync_steam_prices
 from app.search.meili import MeiliIndex
 
 logger = logging.getLogger(__name__)
@@ -63,6 +65,8 @@ class WorkerSettings:
         sync_google_play,
         sync_steam_app_list,
         sync_steam_details,
+        sync_steam_prices,
+        send_notification_digest,
     ]
     on_startup = startup
     on_shutdown = shutdown

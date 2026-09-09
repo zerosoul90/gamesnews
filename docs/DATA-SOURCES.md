@@ -40,14 +40,13 @@ Ba chốt đã kiểm bằng tay ngày 2026-09-08, ghi lại vì tài liệu tr�
 
 | Nguồn | Endpoint | Auth | Giới hạn |
 |---|---|---|---|
-| Steam | `store.steampowered.com/api/appdetails?appids={id}&cc=vn&filters=price_overview` | không | **~200 req/5 phút mỗi IP; 1 appid + 1 quốc gia mỗi request** |
+| Steam | `store.steampowered.com/api/appdetails?appids={id1},{id2}&cc=vn&filters=price_overview` | không | **~200 req/5 phút mỗi IP; tối đa 50 appid + 1 quốc gia mỗi request** (đo ngày 2026-09-08) |
 | Epic (free games) | `store-site-backend-static-ipv4.ak.epicgames.com/freeGamesPromotions` | không | ổn định, REST |
 | Epic (catalog/giá) | `www.epicgames.com/graphql` → `Catalog.searchStore`, có `promotions` / `upcomingPromotionalOffers` | không | có bot protection, thỉnh thoảng 403 |
 | CheapShark | API công khai, 35+ store PC | không | miễn phí hoàn toàn |
 
 **Ràng buộc quan trọng nhất của cả hệ thống** là giới hạn 200 req/5 phút của
-Steam ≈ 57.000 request/ngày mỗi IP. Không đủ để quét toàn catalog → bắt buộc
-phân tầng tần suất.
+Steam, nhưng với 50 appid mỗi request, ta có thể quét tới 10.000 game/5 phút ≈ 2,88 triệu lượt/ngày mỗi IP (đo ngày 2026-09-08). Dư sức quét toàn bộ catalog nhiều lần một ngày, nhưng vẫn cần phân tầng tần suất để lịch sự và dành quota cho Phase 7.
 
 Giá VND chỉ lấy được bằng `cc=vn` từ Steam. CheapShark và ITAD đều thiên về
 USD/EUR. Đây chính là khác biệt của sản phẩm.

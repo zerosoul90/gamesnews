@@ -17,10 +17,9 @@ API trả JSON là đủ.
 
 ## Ràng buộc quyết định toàn bộ thiết kế
 
-Steam `appdetails` giới hạn **~200 request mỗi 5 phút trên mỗi IP**, và mỗi
-request chỉ nhận **một appid với một mã quốc gia**. Tức khoảng 57.000
-request/ngày. Không đủ để quét toàn catalog. Mọi thiết kế phải xuất phát từ
-con số này.
+Steam `appdetails` với `filters=price_overview` giới hạn **~200 request mỗi 5 phút trên mỗi IP**, và mỗi
+request nhận được **tối đa 50 appid với một mã quốc gia** (đo thật ngày 2026-09-08, gửi lố 50 bị cắt im lặng). Tức khoảng 10.000 game mỗi 5 phút ≈ 2,88 triệu lượt/ngày. 
+Dư sức để quét toàn catalog nhiều lần một ngày, nhưng mọi thiết kế vẫn nên phân tầng để lịch sự và dành quota chia sẻ với các tính năng khác (như Phase 7).
 
 Đây cũng là endpoint **không chính thức** — Valve có thể đổi bất cứ lúc nào.
 Phải có đường lùi, không được để nó thành điểm chết duy nhất.

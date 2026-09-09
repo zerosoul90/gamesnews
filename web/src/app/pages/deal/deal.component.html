@@ -1,0 +1,60 @@
+<div class="container mx-auto px-4 py-8">
+  <div class="flex justify-between items-end mb-8">
+    <div>
+      <h1 class="text-3xl font-bold text-white mb-2">Deal Game Hot Nhất</h1>
+      <p class="text-slate-400">Những tựa game đang giảm giá sâu, chạm đáy lịch sử từ Steam và Epic Games.</p>
+    </div>
+    
+    <div class="flex gap-2">
+      <select class="bg-slate-800 border border-slate-700 text-white rounded px-3 py-2 outline-none">
+        <option>Sắp xếp: Khuyến mãi tốt nhất</option>
+        <option>Sắp xếp: Giá thấp nhất</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
+    <!-- Thẻ Game Deal -->
+    <a href="/game/cyberpunk-2077" class="bg-slate-800 rounded-lg overflow-hidden border border-slate-700 hover:border-blue-500 transition-colors group block relative">
+      <div class="absolute top-0 right-0 bg-red-600 text-white font-bold px-3 py-1 rounded-bl-lg z-10">
+        -50%
+      </div>
+      <div class="absolute top-0 left-0 bg-yellow-500 text-black font-bold px-2 py-1 text-xs rounded-br-lg z-10">
+        Đáy lịch sử
+      </div>
+      <div class="aspect-video bg-slate-700 relative overflow-hidden">
+        <img src="https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1091500/header.jpg" alt="Cyberpunk 2077" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+      </div>
+      <div class="p-4">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="bg-slate-700 text-slate-300 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider">Steam</span>
+        </div>
+        <h3 class="font-bold text-white mb-1 group-hover:text-blue-400 truncate text-lg">Cyberpunk 2077</h3>
+        <div class="flex items-end gap-2 mt-4">
+          <span class="text-xl font-bold text-green-400">495.000₫</span>
+          <span class="text-sm text-slate-500 line-through mb-0.5">990.000₫</span>
+        </div>
+      </div>
+    </a>
+    
+    <!-- MOCK Thêm thẻ deal (Trong thực tế sẽ dùng *ngFor) -->
+    <a href="/game/red-dead-redemption-2" class="bg-slate-800 rounded-lg overflow-hidden border border-slate-700 hover:border-blue-500 transition-colors group block relative">
+      <div class="absolute top-0 right-0 bg-red-600 text-white font-bold px-3 py-1 rounded-bl-lg z-10">
+        -67%
+      </div>
+      <div class="aspect-video bg-slate-700 relative overflow-hidden">
+        <img src="https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1174180/header.jpg" alt="Red Dead Redemption 2" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+      </div>
+      <div class="p-4">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="bg-slate-700 text-slate-300 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider">Epic Games</span>
+        </div>
+        <h3 class="font-bold text-white mb-1 group-hover:text-blue-400 truncate text-lg">Red Dead Redemption 2</h3>
+        <div class="flex items-end gap-2 mt-4">
+          <span class="text-xl font-bold text-green-400">330.000₫</span>
+          <span class="text-sm text-slate-500 line-through mb-0.5">1.000.000₫</span>
+        </div>
+      </div>
+    </a>
+  </div>
+</div>
