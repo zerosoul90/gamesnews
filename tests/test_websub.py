@@ -114,8 +114,14 @@ async def test_chi_nhan_kenh_da_co_trong_danh_sach(mongo_db: Db) -> None:
 
     doc = await mongo_db[STREAMERS].find_one({"channel_id": CHANNEL})
     assert doc is not None
-    assert doc["is_live"] is True
     assert doc["last_video_id"] == "dQw4w9WgXcQ"
+    # `is_live` KHÔNG được cắm ở đây nữa. Thân notification của WebSub giống
+    # hệt nhau cho một video mới đăng và một buổi live vừa mở, nên bản trước
+    # cắm cờ cho mọi notification: streamer đăng một clip cắt là bảng "đang
+    # live" ghi tên họ tới khi job dọn cờ chạy, 12 giờ sau. Người gọi phải tự
+    # xác định trạng thái (`YouTubeAdapter.is_video_live`) rồi truyền vào —
+    # xem `tests/test_streamers.py`.
+    assert "is_live" not in doc
 
 
 async def test_kenh_chua_dang_ky_lan_nao_thi_can_gia_han(mongo_db: Db) -> None:

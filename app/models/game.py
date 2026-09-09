@@ -44,6 +44,40 @@ PyObjectId = Annotated[
 ]
 
 
+def mongo_document(model: BaseModel, *, by_alias: bool = True, **dump: Any) -> dict[str, Any]:
+    """`model_dump` nhưng giữ `ObjectId` là `ObjectId`.
+
+    **Cái bẫy, và nó đã cắn thật.** `PlainSerializer` ở trên có
+    `when_used="always"`, nên nó chạy cả ở `mode="python"`, không riêng
+    `mode="json"`. Tức là `model_dump()` trần biến mọi `PyObjectId` thành
+    **chuỗi** — rồi document đó được ghi thẳng vào Mongo, trong khi mọi truy
+    vấn đọc nó lại tra bằng `ObjectId`. Không bên nào lỗi, chúng chỉ đơn giản
+    không bao giờ khớp nhau:
+
+    - `price_alerts.game_id` là chuỗi -> `_check_price_alerts_batch` tra bằng
+      `{"$in": [ObjectId, ...]}` -> **cảnh báo giá không bao giờ bắn**, đúng
+      checkpoint chính của Phase 3;
+    - `user_follows.target_id` là chuỗi -> `notify_stream_live` không tìm ra ai
+      -> **push streamer live không tới người nào**;
+    - `user_reviews.game_id` là chuỗi -> `calculate_game_score` gộp ra rỗng ->
+      **điểm game luôn bị ẩn**;
+    - `user_badges.user_id` là chuỗi -> `award_badge` trao lại badge mỗi lần.
+
+    `models/price.py` và `storage_document` thoát được vì chúng gán tay
+    `doc["game_id"] = self.game_id` sau khi dump. Hàm này làm đúng việc đó, một
+    lần, cho mọi model — để lần thêm model mới không phải nhớ lại cái bẫy này.
+    """
+    doc = model.model_dump(by_alias=by_alias, **dump)
+    for name, field in type(model).model_fields.items():
+        value = getattr(model, name, None)
+        if not isinstance(value, ObjectId):
+            continue
+        key = (field.alias or name) if by_alias else name
+        if key in doc:
+            doc[key] = value
+    return doc
+
+
 # `type` phân biệt game với DLC/demo/bundle. PHASE-1.md mục 2 xếp đây vào ba
 # chỗ dễ làm sai, và mục 6 yêu cầu game chính phải xếp trên DLC khi tìm kiếm.
 GameType = Literal["game", "dlc", "demo", "bundle"]
@@ -174,8 +208,8 @@ class Game(BaseModel):
 
         Dump ở chế độ json để `ReleaseDate.date` ra chuỗi, rồi trả `parent_game`
         về ObjectId — nó là tham chiếu thật tới _id, để dạng chuỗi thì không
-        join ngược được.
+        join ngược được. `mongo_document` lo bước trả về đó cho mọi model, thay
+        vì mỗi model tự nhớ (xem chú thích của nó: bốn model quên và bốn tính
+        năng chết lặng).
         """
-        doc = self.model_dump(mode="json")
-        doc["parent_game"] = self.parent_game
-        return doc
+        return mongo_document(self, by_alias=False, mode="json")

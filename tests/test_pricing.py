@@ -14,6 +14,7 @@ from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.models.price import PriceCurrent
+from app.models.user import ConditionType, PriceAlert
 from app.services.pricing import mark_region_locked, record_prices
 
 Db = AsyncIOMotorDatabase[dict[str, Any]]
@@ -144,3 +145,69 @@ async def test_danh_dau_khoa_vung(mongo_db: Db) -> None:
     doc = await mongo_db.games.find_one({"_id": ids[0]})
     assert doc is not None
     assert doc["region_locked_vn"] is True
+
+
+# --- Cảnh báo giá ----------------------------------------------------------
+#
+# Checkpoint chính của Phase 3: "push đến trong 15 phút khi giá chạm ngưỡng".
+# Đường đi này từng ĐỨT ở chỗ không ai ngờ: `PriceAlert.to_mongo()` ghi
+# `game_id` xuống dạng chuỗi (xem `tests/test_mongo_document.py`), còn
+# `_check_price_alerts_batch` tra bằng `{"$in": [ObjectId, ...]}`. Không bên
+# nào lỗi, chúng chỉ không bao giờ khớp — nên cảnh báo chưa từng bắn lần nào,
+# và không có log nào nói ra điều đó.
+
+
+async def setup_alert(
+    db: Db, game_id: ObjectId, condition: ConditionType, value: int | None = None
+) -> ObjectId:
+    """Đặt một cảnh báo ĐI QUA `PriceAlert.to_mongo()`, đúng đường API thật đi."""
+    user_id = ObjectId()
+    await db.users.insert_one({"_id": user_id, "notification_settings": {}})
+    alert = PriceAlert(
+        user_id=user_id,
+        game_id=game_id,
+        condition=condition,
+        value=value,
+    )
+    await db.price_alerts.insert_one(alert.to_mongo())
+    return user_id
+
+
+async def test_canh_bao_below_price_ban_that(mongo_db: Db, game_id: ObjectId) -> None:
+    user_id = await setup_alert(mongo_db, game_id, "below_price", 300_000)
+
+    await record_prices(mongo_db, [price(game_id, 500_000)])
+    await record_prices(mongo_db, [price(game_id, 250_000, discount=50)])
+
+    # Không có http client nên thông báo nằm ở hàng đợi digest — vẫn chứng minh
+    # được là nó ĐÃ được kích hoạt.
+    assert await mongo_db.notification_queue.count_documents({"user_id": user_id}) == 1
+
+
+async def test_chua_cham_nguong_thi_khong_ban(mongo_db: Db, game_id: ObjectId) -> None:
+    await setup_alert(mongo_db, game_id, "below_price", 100_000)
+
+    await record_prices(mongo_db, [price(game_id, 500_000)])
+    await record_prices(mongo_db, [price(game_id, 250_000, discount=50)])
+
+    assert await mongo_db.notification_queue.count_documents({}) == 0
+
+
+async def test_canh_bao_discount_pct(mongo_db: Db, game_id: ObjectId) -> None:
+    user_id = await setup_alert(mongo_db, game_id, "discount_pct", 50)
+
+    await record_prices(mongo_db, [price(game_id, 500_000, discount=10)])
+    await record_prices(mongo_db, [price(game_id, 200_000, discount=60)])
+
+    assert await mongo_db.notification_queue.count_documents({"user_id": user_id}) == 1
+
+
+async def test_ghi_lai_moc_da_kich_hoat(mongo_db: Db, game_id: ObjectId) -> None:
+    await setup_alert(mongo_db, game_id, "below_price", 300_000)
+
+    await record_prices(mongo_db, [price(game_id, 500_000)])
+    await record_prices(mongo_db, [price(game_id, 250_000)])
+
+    doc = await mongo_db.price_alerts.find_one({"game_id": game_id})
+    assert doc is not None, "alert phải tra được bằng ObjectId, không phải bằng chuỗi"
+    assert doc["triggered_at"] is not None

@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from app.models.game import PyObjectId
+from app.models.game import PyObjectId, mongo_document
 
 StoreType = Literal["steam", "epic"]
 TargetType = Literal["game", "series", "developer", "streamer"]
@@ -37,8 +37,7 @@ class User(BaseModel):
     notification_settings: NotificationSettings = NotificationSettings()
 
     def to_mongo(self) -> dict[str, Any]:
-        doc = self.model_dump(by_alias=True, exclude_none=True)
-        return doc
+        return mongo_document(self, exclude_none=True)
 
 
 class UserLibrary(BaseModel):
@@ -50,8 +49,7 @@ class UserLibrary(BaseModel):
     synced_at: str
 
     def to_mongo(self) -> dict[str, Any]:
-        doc = self.model_dump(by_alias=True)
-        return doc
+        return mongo_document(self)
 
 
 class UserFollow(BaseModel):
@@ -61,8 +59,7 @@ class UserFollow(BaseModel):
     target_id: PyObjectId | str # Có thể là ID MongoDB hoặc string như slug series
 
     def to_mongo(self) -> dict[str, Any]:
-        doc = self.model_dump(by_alias=True)
-        return doc
+        return mongo_document(self)
 
 
 class PriceAlert(BaseModel):
@@ -75,5 +72,4 @@ class PriceAlert(BaseModel):
     triggered_at: str | None = None
 
     def to_mongo(self) -> dict[str, Any]:
-        doc = self.model_dump(by_alias=True)
-        return doc
+        return mongo_document(self)

@@ -3,7 +3,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.models.game import PyObjectId
+from app.models.game import PyObjectId, mongo_document
 
 
 class UserReview(BaseModel):
@@ -15,7 +15,7 @@ class UserReview(BaseModel):
     created_at: str = Field(default_factory=lambda: dt.datetime.now(dt.UTC).isoformat())
 
     def to_mongo(self) -> dict[str, Any]:
-        return self.model_dump(by_alias=True)
+        return mongo_document(self)
 
 class UserBadge(BaseModel):
     """Danh hiệu người dùng (badge)"""
@@ -24,4 +24,4 @@ class UserBadge(BaseModel):
     earned_at: str = Field(default_factory=lambda: dt.datetime.now(dt.UTC).isoformat())
 
     def to_mongo(self) -> dict[str, Any]:
-        return self.model_dump(by_alias=True)
+        return mongo_document(self)
