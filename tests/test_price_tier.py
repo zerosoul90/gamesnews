@@ -162,12 +162,14 @@ async def test_game_chua_tung_kiem_gia_luon_toi_han(mongo_db: Db) -> None:
     """Cái bẫy chính: `$lt` với một mốc thời gian KHÔNG khớp document thiếu
     trường. Quên chỗ này thì game mới nạp về không bao giờ có giá."""
     await ensure_indexes(mongo_db)
-    await add_game(mongo_db, "game-moi-toanh", 901)
+    game_id = await add_game(mongo_db, "game-moi-toanh", 901)
     await price_tier.recompute_tiers(mongo_db)
 
     due = await price_tier.due_for_check(mongo_db, 10)
 
-    assert [d["slug"] for d in due] == ["game-moi-toanh"] or len(due) == 1
+    # `due_for_check` chỉ chiếu ra thứ job cần (appid, genres, tầng), không có
+    # slug — nên so bằng _id.
+    assert [d["_id"] for d in due] == [game_id]
 
 
 async def test_chua_xep_tang_lan_nao_van_duoc_kiem(mongo_db: Db) -> None:
