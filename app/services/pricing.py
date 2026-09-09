@@ -1,6 +1,7 @@
 import datetime as dt
 from typing import Any
 
+import httpx
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import InsertOne, UpdateOne
 
@@ -12,6 +13,8 @@ from app.services.notification import NotificationPayload, process_notification
 async def record_prices(
     db: AsyncIOMotorDatabase[dict[str, Any]],
     prices_data: list[PriceCurrent],
+    *,
+    http: httpx.AsyncClient | None = None,
 ) -> dict[str, int]:
     """Ghi nhận giá của một lô game.
 
@@ -105,13 +108,16 @@ async def record_prices(
 
     # Trigger Push Notification / Cảnh báo giá
     if dropped_prices:
-        await _check_price_alerts_batch(db, dropped_prices)
+        await _check_price_alerts_batch(db, dropped_prices, http=http)
 
     return {"updated": len(current_ops), "history_added": len(history_ops)}
 
 
 async def _check_price_alerts_batch(
-    db: AsyncIOMotorDatabase[dict[str, Any]], dropped_prices: list[PriceCurrent]
+    db: AsyncIOMotorDatabase[dict[str, Any]],
+    dropped_prices: list[PriceCurrent],
+    *,
+    http: httpx.AsyncClient | None = None,
 ) -> None:
     """Quét các price_alert khớp với lô giá vừa giảm."""
     game_ids = [p.game_id for p in dropped_prices]
@@ -154,7 +160,7 @@ async def _check_price_alerts_batch(
             # thì bộ thu gom rác có quyền dọn nó giữa chừng và thông báo biến
             # mất không dấu vết. Số alert mỗi lần giá đổi vốn nhỏ, nên cái giá
             # của việc await là không đáng kể so với việc mất thông báo.
-            await process_notification(db, payload)
+            await process_notification(db, payload, http=http)
 
             # Cập nhật triggered_at
             await db.price_alerts.update_one(

@@ -2,6 +2,7 @@ import datetime as dt
 import logging
 from typing import Any
 
+import httpx
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
@@ -57,7 +58,7 @@ async def sync_steam_prices(ctx: dict[str, Any]) -> dict[str, int]:
         if not games:
             break
         try:
-            result = await _check_batch(db, adapter, games)
+            result = await _check_batch(db, adapter, games, http=ctx["clients"].http)
         except RateLimitedError as exc:
             logger.info(
                 "bucket steam cạn, dừng lượt giá tại đây",
@@ -73,7 +74,11 @@ async def sync_steam_prices(ctx: dict[str, Any]) -> dict[str, int]:
 
 
 async def _check_batch(
-    db: Db, adapter: SteamCatalogAdapter, games: list[dict[str, Any]]
+    db: Db,
+    adapter: SteamCatalogAdapter,
+    games: list[dict[str, Any]],
+    *,
+    http: httpx.AsyncClient,
 ) -> dict[str, int]:
     appids = [int(g["external_ids"]["steam_appid"]) for g in games]
     game_map = {int(g["external_ids"]["steam_appid"]): g for g in games}
@@ -130,7 +135,7 @@ async def _check_batch(
         )
 
     # Ghi nhận giá
-    res = await record_prices(db, current_prices)
+    res = await record_prices(db, current_prices, http=http)
     if locked_game_ids:
         await mark_region_locked(db, locked_game_ids)
 

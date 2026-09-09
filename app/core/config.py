@@ -53,6 +53,15 @@ class Settings(BaseSettings):
     # Bí mật ta gửi kèm khi đăng ký WebSub, dùng kiểm `X-Hub-Signature` của
     # mỗi notification. Để trống thì endpoint YouTube từ chối phục vụ.
     youtube_websub_secret: SecretStr = SecretStr("")
+
+    # --- Firebase Cloud Messaging (push) ---
+    #
+    # Ba giá trị này lấy từ file JSON service account của Firebase. Thiếu bất
+    # kỳ giá trị nào thì `send_push_notification` ghi log lỗi và trả về 0 —
+    # KHÔNG im lặng coi như đã gửi.
+    fcm_project_id: str = ""
+    fcm_client_email: str = ""
+    fcm_private_key: SecretStr = SecretStr("")
     # URL công khai của chính ta, để hub biết đẩy notification về đâu.
     public_base_url: str = ""
     gemini_api_key: SecretStr = SecretStr("")

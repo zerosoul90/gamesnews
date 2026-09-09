@@ -42,14 +42,21 @@ async def send_notification_digest(ctx: dict[str, Any]) -> dict[str, int]:
         if count > 1:
             body += f" và {count - 1} tin khác."
 
-        # Mock gửi FCM
-        await send_push_notification(user_id, title, body, {"type": "digest"})
+        delivered = await send_push_notification(
+            db, ctx["clients"].http, user_id, title, body, {"type": "digest"}
+        )
+        if delivered == 0:
+            # Gửi không tới thì GIỮ LẠI hàng đợi của user này để lượt sau thử
+            # lại. Xoá đi là mất hẳn thông báo mà không ai biết.
+            logger.warning("digest không gửi được, giữ hàng đợi", extra={"user_id": str(user_id)})
+            continue
+
+        # Chỉ xoá đúng phần vừa gửi của user này. Bản trước xoá `{}` — cả hàng
+        # đợi, kể cả thông báo của user khác chưa gửi và thông báo vừa được
+        # chèn vào sau lúc aggregate chạy.
+        await db.notification_queue.delete_many({"user_id": user_id})
         notifications_sent += count
         users_processed += 1
-
-    # Xoá queue sau khi gửi thành công
-    if users_processed > 0:
-        await db.notification_queue.delete_many({})
 
     logger.info(
         "Hoàn thành Notification Digest",
