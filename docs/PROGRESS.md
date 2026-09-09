@@ -887,8 +887,51 @@ giờ) — game mới nạp vẫn được ưu tiên có giá sớm, nhưng có 
 một `price_checked_at` mới. Đã thêm hai test cho cả hai chiều, và đã xác minh
 chúng **đỏ khi gỡ fix ra**.
 
-**Còn nợ:** `recompute_price_tiers` chưa chạy lượt nào trên dữ liệu thật (mọi
-game vẫn `price_tier: null`); catalog mới bồi 407/185.231 app.
+#### Kiểm chứng trên dữ liệu thật, sau khi sửa
+
+| Hạng mục | Kết quả |
+|---|---|
+| Đối chiếu tay 20 game với Steam sống (`cc=vn`) | **20/20 khớp từng đồng** (33.000₫–385.000₫) |
+| Checkpoint "không có dòng history trùng" | **0 nhóm trùng** |
+| Dedup "chỉ ghi khi giá đổi" | 10 lần đọc dư → vẫn đúng 1 dòng history/game |
+| `recompute_price_tiers` chạy thật | hot 0, warm 1, cold 406 |
+| Bảng xếp hạng VN (`featuredcategories`) | Gọi được; 10 mục nhưng chỉ **7 appid duy nhất** |
+| `/deals` | 20 deal thật, giảm 85–90%, kèm tên + ảnh bìa; chéo lại Steam khớp |
+
+Ghi chú: `featuredcategories` trả trùng lặp (Steam liệt kê "Steam Machine" — vốn
+là **phần cứng**, không phải game — bốn lần). Không phải lỗi parse; `hot_extra`
+là `set` nên vô hại. Nhưng đừng tin "10 mục" là 10 game.
+
+#### Hệ luỵ dữ liệu của lỗi quota, và cách đã dọn
+
+Lỗi "tới hạn vĩnh viễn" không chỉ tốn quota — nó **vô hiệu hoá chốt
+`MIN_OBSERVATIONS_FOR_LOW = 2`** trong `services/pricing.py`. 10 lần đọc giá
+cách nhau vài giây bị đếm là 10 lần quan sát, nên chốt bị vượt và **189/196
+game bị gắn cờ "đang ở đáy lịch sử"** — đúng thảm hoạ mà chú thích ngay tại đó
+cảnh báo: *"nói với cả triệu người rằng mọi game đều đang ở đáy thì không"*.
+
+Bằng chứng fix chạy đúng, đo trên cùng một database:
+
+| | Trước fix | Sau fix |
+|---|---|---|
+| Bản ghi | 196 | 126 |
+| `observations` trung bình | 9,3 | **1** |
+| Gắn cờ đáy lịch sử | 189 | **0** |
+
+Đã dọn 196 bản ghi cũ: đặt lại `observations=1`, `is_historical_low=false`. Giá
+và `price_history` giữ nguyên vì đã đối chiếu đúng. Sau dọn: 322 bản ghi,
+`observations` toàn 1, **0 cờ đáy** — đúng sự thật, vì hệ thống mới theo dõi
+giá được vài chục phút nên chưa có lịch sử để khẳng định bất cứ điều gì.
+
+**Bài học:** một lỗi về quota hoá ra là lỗi về **tính đúng đắn của dữ liệu**.
+Phần dư thừa không chỉ tốn request — nó bơm vào đúng biến mà một chốt an toàn
+đang dựa vào. Khi sửa loại lỗi "làm nhiều lần hơn cần", phải soi xem có bộ đếm
+nào bị thổi theo không.
+
+**Còn nợ:** catalog mới bồi 407/185.231 app; tầng hot đang rỗng (chưa có
+`price_alerts`/`user_follows` thật, và top-sellers VN không giao với 400 appid
+đầu tiên); `lowest_ever` mới chỉ là "đáy kể từ lúc ta bắt đầu theo dõi" — đáy
+thật trước đó cần `adapters/cheapshark`, chưa đấu vào.
 
 ### 2026-09-09 — `JWT_SECRET` mặc định không còn ra được khỏi máy dev
 
