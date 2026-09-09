@@ -146,14 +146,15 @@ async def _window_start(
     oldest = await db[collection].find_one({}, {ts_field: 1}, sort=[(ts_field, ASCENDING)])
     if not oldest:
         return default
-    value = oldest
+
+    # `ts_field` có thể lồng ("_id.bucket"), nên đi xuống từng tầng.
+    value: Any = oldest
     for part in ts_field.split("."):
-        value = value.get(part) if isinstance(value, dict) else None
-        if value is None:
+        if not isinstance(value, dict):
             return default
-    if not isinstance(value, dt.datetime):
-        return default
-    return min(default, value)
+        value = value.get(part)
+
+    return min(default, value) if isinstance(value, dt.datetime) else default
 
 
 async def rollup_time_series(db: Db, *, now: dt.datetime | None = None) -> dict[str, int]:
