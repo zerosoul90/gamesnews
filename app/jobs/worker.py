@@ -23,7 +23,7 @@ from app.jobs.metrics import job_fetch_steam_ccu, job_rollup_metrics
 from app.jobs.mobile_catalog import sync_app_store, sync_google_play
 from app.jobs.notification_digest import send_notification_digest
 from app.jobs.steam_catalog import sync_steam_app_list, sync_steam_details
-from app.jobs.steam_pricing import sync_steam_prices
+from app.jobs.steam_pricing import recompute_price_tiers, sync_steam_prices
 from app.jobs.streamer import job_renew_youtube_websub, job_sync_streamers
 from app.search.meili import MeiliIndex
 
@@ -70,6 +70,7 @@ class WorkerSettings:
         sync_steam_app_list,
         sync_steam_details,
         sync_steam_prices,
+        recompute_price_tiers,
         send_notification_digest,
         job_rollup_metrics,
         job_fetch_steam_ccu,
