@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     # mỗi notification. Để trống thì webhook Twitch từ chối phục vụ — thà không
     # nhận còn hơn nhận rồi tin vào một chữ ký ai cũng ký được.
     twitch_webhook_secret: SecretStr = SecretStr("")
+    # Bí mật ta gửi kèm khi đăng ký WebSub, dùng kiểm `X-Hub-Signature` của
+    # mỗi notification. Để trống thì endpoint YouTube từ chối phục vụ.
+    youtube_websub_secret: SecretStr = SecretStr("")
+    # URL công khai của chính ta, để hub biết đẩy notification về đâu.
+    public_base_url: str = ""
     gemini_api_key: SecretStr = SecretStr("")
     youtube_api_key: SecretStr = SecretStr("")
 

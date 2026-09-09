@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Thân notification mà hub PubSubHubbub POST về khi kênh đăng video hoặc mở
+  live. Đây là hình dạng theo tài liệu của YouTube, KHÔNG phải payload chụp
+  lại: muốn chụp thật thì phải đã đăng ký subscription và có endpoint HTTPS
+  công khai nhận được cú POST đó.
+
+  Khác với feed tĩnh ở youtube.com/xml/feeds/videos.xml (feed đó trả về rỗng
+  khi gọi trực tiếp), thân này luôn có đúng một <entry>.
+-->
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015"
+      xmlns="http://www.w3.org/2005/Atom">
+  <link rel="hub" href="https://pubsubhubbub.appspot.com"/>
+  <link rel="self" href="https://www.youtube.com/xml/feeds/videos.xml?channel_id=UC_x5XG1OV2P6uZZ5FSM9Ttw"/>
+  <title>YouTube video feed</title>
+  <updated>2026-09-09T10:05:24.552394234+00:00</updated>
+  <entry>
+    <id>yt:video:dQw4w9WgXcQ</id>
+    <yt:videoId>dQw4w9WgXcQ</yt:videoId>
+    <yt:channelId>UC_x5XG1OV2P6uZZ5FSM9Ttw</yt:channelId>
+    <title>Elden Ring Nightreign - Livestream ra mắt</title>
+    <link rel="alternate" href="https://www.youtube.com/watch?v=dQw4w9WgXcQ"/>
+    <author>
+      <name>Kênh Game Việt</name>
+      <uri>https://www.youtube.com/channel/UC_x5XG1OV2P6uZZ5FSM9Ttw</uri>
+    </author>
+    <published>2026-09-09T10:00:00+00:00</published>
+    <updated>2026-09-09T10:05:24.552394234+00:00</updated>
+  </entry>
+</feed>

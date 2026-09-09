@@ -1,12 +1,19 @@
 import logging
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 
 from app.adapters.twitch.adapter import TwitchAdapter
 from app.core.config import Settings, get_settings
 from app.core.deps import MongoDep
+from app.services.websub import (
+    mark_subscribed,
+    parse_notification,
+    record_notification,
+    verify_signature,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,30 +87,62 @@ async def twitch_eventsub(
 
 @router.get("/youtube")
 async def youtube_websub_verify(
-    request: Request,
-    hub_mode: str | None = None,
-    hub_challenge: str | None = None,
-    hub_topic: str | None = None,
+    db: MongoDep,
+    hub_mode: str | None = Query(None, alias="hub.mode"),
+    hub_challenge: str | None = Query(None, alias="hub.challenge"),
+    hub_topic: str | None = Query(None, alias="hub.topic"),
+    hub_lease_seconds: int | None = Query(None, alias="hub.lease_seconds"),
 ) -> Response:
+    """Xác minh challenge của hub, và ghi lại hạn lease.
+
+    Tên tham số của WebSub có dấu chấm (`hub.mode`), không phải gạch dưới, nên
+    bắt buộc phải khai `alias`. Bản trước nhận `hub_mode` nên **không bao giờ
+    khớp** tham số thật hub gửi, và mọi lần đăng ký đều trả 400 — subscription
+    chưa từng thành lập được.
+
+    Ghi hạn lease ngay ở đây: đó là chỗ duy nhất hub nói cho ta biết
+    subscription sống được bao lâu.
     """
-    Webhook xác minh Challenge từ YouTube PubSubHubbub.
-    """
-    if hub_mode in ("subscribe", "unsubscribe") and hub_challenge:
-        return Response(content=hub_challenge, media_type="text/plain")
-    raise HTTPException(status_code=400, detail="Invalid request")
+    if hub_mode not in ("subscribe", "unsubscribe") or not hub_challenge:
+        raise HTTPException(status_code=400, detail="Invalid request")
+
+    if hub_mode == "subscribe" and hub_topic and hub_lease_seconds:
+        channel_id = parse_qs(urlparse(hub_topic).query).get("channel_id", [""])[0]
+        if channel_id:
+            await mark_subscribed(db, channel_id, hub_lease_seconds)
+
+    return Response(content=hub_challenge, media_type="text/plain")
 
 
 @router.post("/youtube")
 async def youtube_websub_notification(
     request: Request,
     db: MongoDep,
+    settings: Settings = Depends(get_settings),
+    signature: str | None = Header(None, alias="X-Hub-Signature"),
 ) -> Response:
+    """Nhận notification video mới / mở live từ hub PubSubHubbub.
+
+    Trả 204 kể cả khi không xử lý được gì: hub coi mọi mã 2xx là đã nhận, còn
+    mã lỗi thì nó gửi lại nhiều lần rồi cuối cùng huỷ subscription. Một payload
+    lạ không đáng để mất cả subscription.
     """
-    Webhook nhận notification từ YouTube PubSubHubbub (XML Feed).
-    """
-    # Vẫn phải đọc hết body trước khi trả lời, nếu không phía gửi có thể coi
-    # là kết nối bị cắt giữa chừng và gửi lại.
     body = await request.body()
-    # CHƯA LÀM: parse XML feed để lấy video mới / livestream.
-    logger.info("nhận WebSub YouTube nhưng chưa xử lý", extra={"bytes": len(body)})
+
+    secret = settings.youtube_websub_secret.get_secret_value()
+    if not secret:
+        logger.error("YOUTUBE_WEBSUB_SECRET chưa cấu hình, từ chối webhook")
+        raise HTTPException(status_code=503, detail="Webhook chưa được cấu hình")
+
+    if not verify_signature(body, signature, secret):
+        # 403 chứ không phải 204: đây là kẻ lạ, không phải hub.
+        logger.warning("chữ ký WebSub không hợp lệ")
+        raise HTTPException(status_code=403, detail="Invalid signature")
+
+    recorded = 0
+    for entry in parse_notification(body):
+        if await record_notification(db, entry):
+            recorded += 1
+
+    logger.info("nhận WebSub YouTube", extra={"bytes": len(body), "recorded": recorded})
     return Response(status_code=204)
