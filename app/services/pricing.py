@@ -14,7 +14,7 @@ async def record_prices(
     prices_data: list[PriceCurrent],
 ) -> dict[str, int]:
     """Ghi nhận giá của một lô game.
-    
+
     Cập nhật `price_current` và thêm vào `price_history` NẾU giá thay đổi.
     Trả về số lượng giá được cập nhật và số lượng thay đổi giá (history).
     """
@@ -22,12 +22,9 @@ async def record_prices(
         return {"updated": 0, "history_added": 0}
 
     now = dt.datetime.now(dt.UTC).isoformat()
-    
+
     # Lấy giá hiện tại của toàn bộ lô để tính delta và lowest_ever
-    conditions = [
-        {"game_id": p.game_id, "store": p.store, "region": p.region}
-        for p in prices_data
-    ]
+    conditions = [{"game_id": p.game_id, "store": p.store, "region": p.region} for p in prices_data]
     current_cursor = db.price_current.find({"$or": conditions})
     current_map = {}
     async for doc in current_cursor:
@@ -36,7 +33,7 @@ async def record_prices(
 
     current_ops = []
     history_ops = []
-    
+
     # Danh sách các game giảm giá để check alert
     dropped_prices: list[PriceCurrent] = []
 
@@ -51,11 +48,14 @@ async def record_prices(
         if old_price:
             prev_final = old_price.get("price_final")
             prev_lowest = old_price.get("lowest_ever")
-            
+
             # Chỉ ghi lịch sử khi giá (hoặc %) thực sự đổi
-            if prev_final == new_price.price_final and old_price.get("discount_percent") == new_price.discount_percent:
+            if (
+                prev_final == new_price.price_final
+                and old_price.get("discount_percent") == new_price.discount_percent
+            ):
                 price_changed = False
-            
+
             # Tính lại lowest_ever
             if prev_lowest is not None and prev_lowest <= new_price.price_final:
                 lowest_ever = prev_lowest
@@ -63,14 +63,20 @@ async def record_prices(
 
         new_price.lowest_ever = lowest_ever
         new_price.lowest_ever_date = lowest_ever_date
-        new_price.is_historical_low = (new_price.price_final <= lowest_ever and new_price.price_final > 0)
+        new_price.is_historical_low = (
+            new_price.price_final <= lowest_ever and new_price.price_final > 0
+        )
         new_price.checked_at = now
 
         current_ops.append(
             UpdateOne(
-                {"game_id": new_price.game_id, "store": new_price.store, "region": new_price.region},
+                {
+                    "game_id": new_price.game_id,
+                    "store": new_price.store,
+                    "region": new_price.region,
+                },
                 {"$set": new_price.to_mongo()},
-                upsert=True
+                upsert=True,
             )
         )
 
@@ -84,9 +90,9 @@ async def record_prices(
                 changed_at=now,
             )
             history_ops.append(InsertOne(history.to_mongo()))
-            
+
             # Nếu giá giảm, đưa vào danh sách kiểm tra cảnh báo
-            if old_price and new_price.price_final < old_price.get("price_final", float('inf')):
+            if old_price and new_price.price_final < old_price.get("price_final", float("inf")):
                 dropped_prices.append(new_price)
             elif not old_price and new_price.discount_percent > 0:
                 # Game mới hoàn toàn nhưng đang có giảm giá
@@ -104,46 +110,56 @@ async def record_prices(
     return {"updated": len(current_ops), "history_added": len(history_ops)}
 
 
-async def _check_price_alerts_batch(db: AsyncIOMotorDatabase[dict[str, Any]], dropped_prices: list[PriceCurrent]) -> None:
+async def _check_price_alerts_batch(
+    db: AsyncIOMotorDatabase[dict[str, Any]], dropped_prices: list[PriceCurrent]
+) -> None:
     """Quét các price_alert khớp với lô giá vừa giảm."""
     game_ids = [p.game_id for p in dropped_prices]
     price_map = {p.game_id: p for p in dropped_prices}
-    
+
     # Tìm tất cả alert của các game này
     cursor = db.price_alerts.find({"game_id": {"$in": game_ids}})
-    
+
     async for alert in cursor:
         game_id = alert["game_id"]
         price = price_map[game_id]
-        
+
         condition = alert.get("condition")
         value = alert.get("value")
         triggered = False
-        
-        if condition == "below_price" and value is not None and price.price_final <= value:
+
+        if (
+            (condition == "below_price" and value is not None and price.price_final <= value)
+            or (
+                condition == "discount_pct"
+                and value is not None
+                and price.discount_percent >= value
+            )
+            or (condition == "historical_low" and price.is_historical_low)
+        ):
             triggered = True
-        elif condition == "discount_pct" and value is not None and price.discount_percent >= value:
-            triggered = True
-        elif condition == "historical_low" and price.is_historical_low:
-            triggered = True
-            
+
         if triggered:
             payload = NotificationPayload(
                 user_id=alert["user_id"],
                 type="price_alert",
                 title="Cảnh báo giảm giá!",
-                body=f"Game bạn theo dõi đã giảm xuống còn {price.price_final} {price.currency} (-{price.discount_percent}%)",
-                data={"game_id": str(game_id), "store": price.store}
+                body=(
+                    f"Game bạn theo dõi đã giảm xuống còn {price.price_final} "
+                    f"{price.currency} (-{price.discount_percent}%)"
+                ),
+                data={"game_id": str(game_id), "store": price.store},
             )
-            # Không await trực tiếp nếu batch lớn để tránh nghẽn, nhưng vì số lượng alert thường nhỏ so với DB 
-            # nên trong MVP có thể await trực tiếp, hoặc ném vào background task
-            import asyncio
-            asyncio.create_task(process_notification(db, payload))
-            
+            # Await thẳng, không create_task. Task không được giữ tham chiếu
+            # thì bộ thu gom rác có quyền dọn nó giữa chừng và thông báo biến
+            # mất không dấu vết. Số alert mỗi lần giá đổi vốn nhỏ, nên cái giá
+            # của việc await là không đáng kể so với việc mất thông báo.
+            await process_notification(db, payload)
+
             # Cập nhật triggered_at
             await db.price_alerts.update_one(
                 {"_id": alert["_id"]},
-                {"$set": {"triggered_at": dt.datetime.now(dt.UTC).isoformat()}}
+                {"$set": {"triggered_at": dt.datetime.now(dt.UTC).isoformat()}},
             )
 
 
@@ -155,7 +171,6 @@ async def mark_region_locked(
     if not game_ids:
         return 0
     result = await db.games.update_many(
-        {"_id": {"$in": game_ids}},
-        {"$set": {"region_locked_vn": True}}
+        {"_id": {"$in": game_ids}}, {"$set": {"region_locked_vn": True}}
     )
     return result.modified_count

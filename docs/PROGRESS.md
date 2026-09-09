@@ -124,8 +124,8 @@ trong 2 giờ.
 - [x] Quản lý nguồn + 10–15 RSS
 - [x] Khử trùng lặp simhash
 - [x] Gắn entity 3 tầng + hàng đợi duyệt
-- [ ] Vòng phản hồi sinh alias từ mỗi lần duyệt tay
-- [ ] LLM adapter tóm tắt + dịch
+- [x] Vòng phản hồi sinh alias từ mỗi lần duyệt tay
+- [x] LLM adapter tóm tắt + dịch
 
 ---
 
@@ -134,21 +134,21 @@ trong 2 giờ.
 **Checkpoint:** bảng "Đang tăng mạnh" không bị game top thường trực chiếm chỗ;
 push streamer live trong 60 giây.
 
-- [ ] Thu thập CCU, most played, top sellers cc=vn, reviews
-- [ ] Twitch Get Streams + EventSub
-- [ ] YouTube WebSub + job gia hạn subscription
-- [ ] Chuẩn hoá percentile, hai bảng hot/rising
-- [ ] Rollup time-series
-- [ ] Danh sách streamer Việt (curate tay)
+- [x] Thu thập CCU, most played, top sellers cc=vn, reviews
+- [x] Twitch Get Streams + EventSub
+- [x] YouTube WebSub + job gia hạn subscription
+- [x] Chuẩn hoá percentile, hai bảng hot/rising
+- [x] Rollup time-series
+- [x] Danh sách streamer Việt (curate tay)
 
 ---
 
 ## Phase 8 — Cộng đồng & Giftcode
 
-- [ ] Đánh giá + điểm người dùng (ẩn dưới 20 lượt), chống review bombing
-- [ ] Giftcode + lịch banner mobile
-- [ ] Mở hàng đợi duyệt cho cộng đồng, badge
-- [ ] Thống kê thư viện + tổng kết cuối năm
+- [x] Đánh giá + điểm người dùng (ẩn dưới 20 lượt), chống review bombing
+- [x] Giftcode + lịch banner mobile
+- [x] Mở hàng đợi duyệt cho cộng đồng, badge
+- [x] Thống kê thư viện + tổng kết cuối năm
 
 ---
 

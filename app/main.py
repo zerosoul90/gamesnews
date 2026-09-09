@@ -11,12 +11,15 @@ from fastapi import FastAPI, Request, Response
 from app.api.admin import admin_error_handler
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
+from app.api.community import router as community_router
 from app.api.health import router as health_router
 from app.api.prices import router as prices_router
+from app.api.promotions import router as promotions_router
 from app.api.search import router as search_router
 from app.api.seo import router as seo_router
-from app.api.user import router as user_router
 from app.api.sources import router as sources_router
+from app.api.user import router as user_router
+from app.api.webhooks import router as webhooks_router
 from app.core.config import get_settings
 from app.core.db import close_clients, create_clients
 from app.core.logging import new_request_id, request_id_var, setup_logging
@@ -69,6 +72,9 @@ app.include_router(prices_router)
 app.include_router(seo_router)
 app.include_router(admin_router)
 app.include_router(sources_router)
+app.include_router(webhooks_router, prefix="/webhooks", tags=["webhooks"])
+app.include_router(community_router)
+app.include_router(promotions_router)
 
 # Lỗi nghiệp vụ của admin là câu trả lời hợp lệ (không tìm thấy entity, hai
 # entity xung đột ID), không phải sự cố máy chủ. Không đăng ký chỗ này thì

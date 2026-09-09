@@ -1,8 +1,10 @@
-import feedparser
-import logging
 import datetime as dt
-from app.models.source import Source
+import logging
+
+import feedparser
+
 from app.models.article import NewsArticle
+from app.models.source import Source
 from app.services.dedup import compute_simhash
 
 logger = logging.getLogger(__name__)
@@ -10,14 +12,14 @@ logger = logging.getLogger(__name__)
 async def crawl_rss(source: Source) -> list[NewsArticle]:
     """Kéo dữ liệu RSS từ một nguồn và trả về danh sách các bài báo thô."""
     logger.info(f"Đang kéo dữ liệu từ {source.url}...")
-    
-    # feedparser.parse() là hàm đồng bộ, nhưng chạy khá nhanh. 
+
+    # feedparser.parse() là hàm đồng bộ, nhưng chạy khá nhanh.
     # Nếu tải nặng cần đẩy vào threadpool, tạm thời cứ gọi trực tiếp.
     feed = feedparser.parse(source.url)
-    
+
     articles = []
     now = dt.datetime.now(dt.UTC).isoformat()
-    
+
     if feed.bozo:
         logger.error(f"Lỗi cú pháp RSS từ {source.name}: {feed.bozo_exception}")
         return []
@@ -29,16 +31,23 @@ async def crawl_rss(source: Source) -> list[NewsArticle]:
             content = entry.content[0].value
         elif hasattr(entry, 'summary'):
             content = entry.summary
-            
+
         if not content:
             continue
-            
+
         simhash_val = compute_simhash(content)
-        
+
         # Bóc tách ngày tháng
         published_at = now
         if hasattr(entry, 'published_parsed') and entry.published_parsed:
-            published_at = dt.datetime(*entry.published_parsed[:6], tzinfo=dt.UTC).isoformat()
+            parsed = entry.published_parsed
+            published_at = (
+                # Tách rời việc gắn tzinfo: truyền tzinfo cùng *args thì kiểm
+                # tra kiểu không biết được slice có đúng 6 phần tử hay không.
+                dt.datetime(*parsed[:6])
+                .replace(tzinfo=dt.UTC)
+                .isoformat()
+            )
 
         article = NewsArticle(
             source_id=source.name, # Tạm dùng tên nguồn làm ID
@@ -50,6 +59,6 @@ async def crawl_rss(source: Source) -> list[NewsArticle]:
             created_at=now
         )
         articles.append(article)
-        
+
     logger.info(f"Kéo thành công {len(articles)} bài từ {source.name}")
     return articles

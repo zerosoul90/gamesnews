@@ -19,10 +19,12 @@ from arq.connections import RedisSettings
 from app.core.config import get_settings
 from app.core.db import close_clients, create_clients
 from app.core.logging import new_request_id, request_id_var, setup_logging
+from app.jobs.metrics import job_fetch_steam_ccu, job_rollup_metrics
 from app.jobs.mobile_catalog import sync_app_store, sync_google_play
 from app.jobs.notification_digest import send_notification_digest
 from app.jobs.steam_catalog import sync_steam_app_list, sync_steam_details
 from app.jobs.steam_pricing import sync_steam_prices
+from app.jobs.streamer import job_renew_youtube_websub, job_sync_streamers
 from app.search.meili import MeiliIndex
 
 logger = logging.getLogger(__name__)
@@ -44,6 +46,8 @@ async def startup(ctx: dict[str, Any]) -> None:
     ctx["meili"] = MeiliIndex(
         clients.http, settings.meili_url, settings.meili_master_key.get_secret_value()
     )
+    # Gắn DB vào ctx cho metrics job
+    ctx["db"] = clients.mongo
     logger.info("worker đã khởi động", extra={"app_env": settings.app_env})
 
 
@@ -67,6 +71,10 @@ class WorkerSettings:
         sync_steam_details,
         sync_steam_prices,
         send_notification_digest,
+        job_rollup_metrics,
+        job_fetch_steam_ccu,
+        job_sync_streamers,
+        job_renew_youtube_websub,
     ]
     on_startup = startup
     on_shutdown = shutdown

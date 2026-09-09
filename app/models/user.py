@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import datetime as dt
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -15,7 +14,7 @@ ConditionType = Literal["below_price", "discount_pct", "historical_low"]
 class QuietHours(BaseModel):
     from_time: str = Field(alias="from") # "22:00"
     to_time: str = Field(alias="to")   # "07:00"
-    
+
     class Config:
         populate_by_name = True
 
@@ -60,7 +59,7 @@ class UserFollow(BaseModel):
     user_id: PyObjectId
     target_type: TargetType
     target_id: PyObjectId | str # Có thể là ID MongoDB hoặc string như slug series
-    
+
     def to_mongo(self) -> dict[str, Any]:
         doc = self.model_dump(by_alias=True)
         return doc

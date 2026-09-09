@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 from app.core.deps import MeiliDep, MongoDep, SettingsDep
 from app.search.meili import MeiliIndex
 from app.services import admin as service
+from app.services import articles as article_service
 from app.services.admin import EntityNotFoundError
 from app.services.catalog import MergeConflictError
 from app.services.search_index import drop_game, sync_game
@@ -120,6 +121,10 @@ class MergeRequest(BaseModel):
     keep_id: str
     drop_id: str
 
+class ArticleApproveRequest(BaseModel):
+    game_id: str
+    alias: str | None = None
+
 
 def _public(doc: dict[str, Any]) -> dict[str, Any]:
     """Document Mongo -> JSON.
@@ -184,6 +189,40 @@ async def api_merge(db: MongoDep, index: MeiliDep, payload: MergeRequest) -> dic
     # một kết quả còn hơn trả về một entity đã không còn trong Mongo.
     await drop_game(index, drop_id)
     await _reindex_one(db, index, keep_id)
+    return _public(doc)
+
+@router.get("/admin/api/articles/pending", dependencies=[AdminAuth])
+async def api_get_pending_articles(
+    db: MongoDep,
+    page: Annotated[int, Query(ge=1)] = 1,
+    per_page: Annotated[int, Query(ge=1, le=MAX_PER_PAGE)] = DEFAULT_PER_PAGE,
+) -> dict[str, Any]:
+    docs, total = await article_service.get_pending_articles(
+        db, limit=per_page, offset=(page - 1) * per_page
+    )
+    return {
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "items": [_public(doc) for doc in docs],
+    }
+
+@router.post("/admin/api/articles/{article_id}/approve", dependencies=[AdminAuth])
+async def api_approve_article(
+    db: MongoDep,
+    index: MeiliDep,
+    article_id: str,
+    payload: ArticleApproveRequest
+) -> dict[str, Any]:
+    object_id = service.to_object_id(article_id)
+    game_id = service.to_object_id(payload.game_id)
+
+    doc = await article_service.approve_article(db, object_id, game_id, payload.alias)
+
+    # Reindex game because alias might have been added
+    if payload.alias:
+        await _reindex_one(db, index, game_id)
+
     return _public(doc)
 
 

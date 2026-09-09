@@ -18,7 +18,7 @@ class PrivateProfileError(Exception):
 
 class SteamUserAdapter(BaseAdapter[dict[str, Any], dict[str, Any]]):
     """Adapter lấy dữ liệu người dùng từ Steam (Thư viện & Wishlist)."""
-    
+
     source = "steam_user"
 
     def __init__(self, config: AdapterConfig, http: httpx.AsyncClient, api_key: str) -> None:
@@ -43,7 +43,8 @@ class SteamUserAdapter(BaseAdapter[dict[str, Any], dict[str, Any]]):
                     },
                 )
                 resp.raise_for_status()
-                return resp.json()
+                payload: dict[str, Any] = resp.json()
+                return payload
             except httpx.HTTPError as exc:
                 raise TransientError(f"Lỗi gọi Steam GetOwnedGames: {exc!r}") from exc
 
@@ -57,10 +58,11 @@ class SteamUserAdapter(BaseAdapter[dict[str, Any], dict[str, Any]]):
                     },
                 )
                 resp.raise_for_status()
-                return resp.json()
+                wishlist: dict[str, Any] = resp.json()
+                return wishlist
             except httpx.HTTPError as exc:
                 raise TransientError(f"Lỗi gọi Steam GetWishlist: {exc!r}") from exc
-                
+
         raise ValueError(f"Unknown operation: {operation}")
 
     def normalize(self, raw: dict[str, Any]) -> dict[str, Any]:
@@ -71,23 +73,23 @@ class SteamUserAdapter(BaseAdapter[dict[str, Any], dict[str, Any]]):
         """Lấy danh sách game đã sở hữu. Bắn PrivateProfileError nếu profile đóng."""
         data = await self.fetch(steam_id64=steam_id64, op="owned_games")
         response = data.get("response", {})
-        
-        # Nếu response trống rỗng, tức là profile đóng. 
+
+        # Nếu response trống rỗng, tức là profile đóng.
         # (Nếu public nhưng chưa mua game nào thì có game_count = 0)
         if not response and "game_count" not in response:
             raise PrivateProfileError("Steam profile is private")
-            
-        games = response.get("games", [])
+
+        games: list[dict[str, Any]] = response.get("games", [])
         return games
 
     async def get_wishlist(self, steam_id64: str) -> list[dict[str, Any]]:
         """Lấy wishlist."""
         data = await self.fetch(steam_id64=steam_id64, op="wishlist")
         response = data.get("response", {})
-        
+
         if not response and "items" not in response:
             # wishlist cũng bị ảnh hưởng bởi game details privacy
             raise PrivateProfileError("Steam profile is private")
-            
-        items = response.get("items", [])
+
+        items: list[dict[str, Any]] = response.get("items", [])
         return items

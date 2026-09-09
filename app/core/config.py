@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     steam_api_key: SecretStr = SecretStr("")
     twitch_client_id: str = ""
     twitch_client_secret: SecretStr = SecretStr("")
+    # Chuỗi bí mật ta tự đặt khi đăng ký EventSub, dùng để kiểm chữ ký HMAC của
+    # mỗi notification. Để trống thì webhook Twitch từ chối phục vụ — thà không
+    # nhận còn hơn nhận rồi tin vào một chữ ký ai cũng ký được.
+    twitch_webhook_secret: SecretStr = SecretStr("")
+    gemini_api_key: SecretStr = SecretStr("")
+    youtube_api_key: SecretStr = SecretStr("")
 
 
 @lru_cache(maxsize=1)

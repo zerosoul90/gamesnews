@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import datetime as dt
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from app.models.game import PyObjectId
 

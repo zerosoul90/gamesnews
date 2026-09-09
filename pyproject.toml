@@ -21,6 +21,10 @@ dependencies = [
     "pyjwt>=2.13.0",
     "feedparser>=6.0.14",
     "simhash>=2.1.2",
+    # Sinh ảnh thẻ chia sẻ phía server (PHASE-4 checkpoint). `api/seo.py`
+    # bọc import trong try/except nên thiếu nó thì app vẫn chạy nhưng tính
+    # năng lặng lẽ không bao giờ hoạt động.
+    "pillow>=11.0",
     "beautifulsoup4>=4.15.0",
 ]
 
@@ -59,6 +63,12 @@ select = [
     "RUF",
 ]
 
+[tool.ruff.lint.flake8-bugbear]
+# `Depends(...)`/`Security(...)` trong giá trị mặc định là đúng idiom của
+# FastAPI: framework gọi chúng một lần lúc dựng route chứ không phải mỗi
+# request, nên cảnh báo "mutable default" của B008 không áp dụng ở đây.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Security"]
+
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]  # assert là chuyện bình thường trong test
 # Ký tự "nhập nhằng" (fullwidth, nháy cong) chính là thứ đang được kiểm.
@@ -75,7 +85,9 @@ plugins = ["pydantic.mypy"]
 [[tool.mypy.overrides]]
 # google_play_scraper không kèm type stub — adapter của ta bọc nó lại và tự
 # khai kiểu ở biên, nên phần bên trong không cần mypy soi.
-module = ["motor.*", "arq.*", "google_play_scraper.*"]
+# Ba thư viện này không kèm type stub. Adapter/service của ta tự khai kiểu ở
+# biên, nên phần bên trong không cần mypy soi.
+module = ["motor.*", "arq.*", "google_play_scraper.*", "feedparser.*", "simhash.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------- pytest

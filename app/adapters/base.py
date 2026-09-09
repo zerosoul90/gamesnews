@@ -20,6 +20,7 @@ import logging
 import random
 import time
 from abc import ABC, abstractmethod
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Protocol
@@ -195,6 +196,58 @@ class RedisTokenBucket:
                 )
             await asyncio.sleep(wait)
             waited += wait
+
+
+class SlidingWindowRateLimiter:
+    """Cửa sổ trượt, **nằm trong bộ nhớ tiến trình**. Bảo đảm yếu hơn hẳn
+    `RedisTokenBucket` — đọc kỹ đoạn này trước khi dùng.
+
+    Mỗi tiến trình có cửa sổ riêng. Chạy hai worker là tổng số request gấp đôi
+    con số `limit` ghi ở đây. Vì vậy nó **không dùng được** cho hạn mức tính
+    theo IP như `appdetails` của Steam (~200 req/5 phút) — chỗ đó bắt buộc
+    `RedisTokenBucket`, nếu không mỗi worker lại tưởng mình còn nguyên quota.
+
+    Chỉ dùng khi cả ba điều sau đều đúng:
+
+    1. hạn mức tính theo key hoặc theo tài khoản, không theo IP;
+    2. trần rộng so với lưu lượng thật (Steam Web API: 100.000 lượt/ngày mỗi
+       key), nên vượt một chút không bị chặn;
+    3. lời gọi do người dùng bấm mà sinh ra, không phải job nền quét hàng loạt.
+
+    `GetOwnedGames` ở `services/user_library.py` thoả cả ba: nó chỉ chặn một
+    người bấm đồng bộ liên tục, chứ không phải công cụ chia quota giữa các job.
+    """
+
+    def __init__(self, limit: int, window_size: float) -> None:
+        if limit < 1:
+            raise ValueError("limit phải >= 1")
+        if window_size <= 0:
+            raise ValueError("window_size phải > 0")
+        self._limit = limit
+        self._window = window_size
+        self._hits: deque[float] = deque()
+        # Không có lock thì hai coroutine cùng thấy cửa sổ còn chỗ và cùng đi
+        # tiếp — đúng lỗi mà chính script Lua ở trên sinh ra để tránh.
+        self._lock = asyncio.Lock()
+
+    async def acquire(self, tokens: int = 1) -> None:
+        if tokens > self._limit:
+            raise PermanentError(
+                f"xin {tokens} lượt nhưng cửa sổ chỉ chứa tối đa {self._limit}"
+            )
+        async with self._lock:
+            while True:
+                now = time.monotonic()
+                # Đồng hồ monotonic, không phải wall clock: đổi giờ hệ thống
+                # không được phép mở toang cửa sổ.
+                while self._hits and now - self._hits[0] >= self._window:
+                    self._hits.popleft()
+
+                if len(self._hits) + tokens <= self._limit:
+                    self._hits.extend([now] * tokens)
+                    return
+
+                await asyncio.sleep(self._window - (now - self._hits[0]))
 
 
 # --------------------------------------------------------------- retry

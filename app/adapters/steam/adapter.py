@@ -80,7 +80,7 @@ class SteamAppRef:
 
 
 def _release_iso(release: dict[str, Any] | None) -> str | None:
-    """"24 Feb, 2022" -> "2022-02-24". Trả None nếu chưa ra mắt hoặc chỉ có năm.
+    """ "24 Feb, 2022" -> "2022-02-24". Trả None nếu chưa ra mắt hoặc chỉ có năm.
 
     Steam ghi ngày sắp ra mắt đủ kiểu ("Q4 2026", "Coming soon"), nên parse
     không được thì để trống — đoán bừa còn tệ hơn.
@@ -249,10 +249,14 @@ class SteamCatalogAdapter(BaseAdapter[dict[str, Any], dict[str, Any]]):
             appids = params["appids"]
             if len(appids) > 50:
                 raise ValueError("Steam prices endpoint chỉ nhận tối đa 50 appids mỗi lượt")
-            
+
             payload = await self._get_json(
                 APP_DETAILS_URL,
-                {"appids": ",".join(str(i) for i in appids), "cc": self._country, "filters": "price_overview"}
+                {
+                    "appids": ",".join(str(i) for i in appids),
+                    "cc": self._country,
+                    "filters": "price_overview",
+                },
             )
             return payload or {}
 
@@ -291,12 +295,12 @@ class SteamCatalogAdapter(BaseAdapter[dict[str, Any], dict[str, Any]]):
 
     async def prices(self, appids: list[int]) -> dict[int, dict[str, Any] | None]:
         """Lấy giá cho một lô appids (tối đa 50).
-        
+
         Trả về dict map appid với payload của Steam (hoặc None nếu success=false hoặc thiếu data).
         """
         if not appids:
             return {}
-        
+
         payload = await self.fetch(endpoint="appdetails", op="prices", appids=appids)
         result: dict[int, dict[str, Any] | None] = {}
         for appid in appids:

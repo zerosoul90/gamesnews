@@ -1,4 +1,3 @@
-import datetime as dt
 import logging
 from typing import Any, ClassVar
 
@@ -25,7 +24,8 @@ class EpicFreeGamesAdapter(BaseAdapter[dict[str, Any], list[dict[str, Any]]]):
             # Epic promotions endpoint không giới hạn rate limit chặt, không cần key
             response = await self._http.get(EPIC_FREE_PROMO_URL)
             response.raise_for_status()
-            return response.json()
+            payload: dict[str, Any] = response.json()
+            return payload
         except httpx.HTTPError as exc:
             raise TransientError(f"Không thể lấy danh sách free games Epic: {exc!r}") from exc
 
@@ -63,5 +63,10 @@ class EpicFreeGamesAdapter(BaseAdapter[dict[str, Any], list[dict[str, Any]]]):
         return free_games
 
     async def fetch_free_games(self) -> list[dict[str, Any]]:
-        raw = await self.fetch()
-        return self.normalize(raw)
+        """Danh sách game đang miễn phí.
+
+        `BaseAdapter.fetch()` đã gọi `normalize` bên trong rồi, nên bản trước
+        gọi thêm một lần nữa lên chính kết quả đã chuẩn hoá — `normalize` nhận
+        một dict nhưng bị đưa cho một list, và mọi lần chạy đều hỏng.
+        """
+        return await self.fetch(endpoint="freeGamesPromotions")

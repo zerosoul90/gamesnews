@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 from typing import Any
+
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
@@ -27,7 +28,7 @@ async def update_source_status(db: Db, source_id: str, status: str) -> bool:
         {"_id": ObjectId(source_id)},
         {"$set": {"status": status}}
     )
-    return result.modified_count > 0
+    return bool(result.modified_count > 0)
 
 async def update_last_crawled(db: Db, source_id: ObjectId) -> None:
     now = dt.datetime.now(dt.UTC).isoformat()

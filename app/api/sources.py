@@ -1,8 +1,10 @@
+from typing import Any
+
 from fastapi import APIRouter
+
 from app.core.deps import MongoDep
 from app.models.source import Source
 from app.services import sources as service
-from typing import Any
 
 router = APIRouter(tags=["sources"], prefix="/admin/api/sources")
 
