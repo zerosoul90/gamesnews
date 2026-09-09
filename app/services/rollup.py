@@ -130,6 +130,32 @@ def _pipeline(
     ]
 
 
+async def _window_start(
+    db: Db, collection: str, ts_field: str, default: dt.datetime
+) -> dt.datetime:
+    """Mốc bắt đầu gộp, nới rộng ra nếu có dữ liệu cũ hơn cửa sổ mặc định.
+
+    Cần chốt này vì bước xoá dùng mốc "quá hạn giữ", còn bước gộp dùng cửa sổ
+    gần đây. Hai mốc lệch nhau thì có một khoảng ở giữa **bị xoá mà chưa từng
+    được gộp** — mất hẳn dữ liệu, không có đường lấy lại. Xảy ra ở hai tình
+    huống rất thật: nạp bù dữ liệu cũ, và job chết lâu hơn khoảng gối đầu.
+
+    Một truy vấn `find_one` có index; ở trạng thái bình thường nó trả về mốc
+    nằm trong cửa sổ và không nới gì cả.
+    """
+    oldest = await db[collection].find_one({}, {ts_field: 1}, sort=[(ts_field, ASCENDING)])
+    if not oldest:
+        return default
+    value = oldest
+    for part in ts_field.split("."):
+        value = value.get(part) if isinstance(value, dict) else None
+        if value is None:
+            return default
+    if not isinstance(value, dt.datetime):
+        return default
+    return min(default, value)
+
+
 async def rollup_time_series(db: Db, *, now: dt.datetime | None = None) -> dict[str, int]:
     """Gộp raw -> giờ -> ngày, rồi xoá phần đã quá hạn giữ.
 
@@ -141,13 +167,17 @@ async def rollup_time_series(db: Db, *, now: dt.datetime | None = None) -> dict[
     await ensure_indexes(db)
 
     # raw -> giờ
-    await db[RAW].aggregate(
-        _pipeline("ts", "hour", now - RAW_RETENTION - OVERLAP["hour"], HOURLY)
-    ).to_list(None)
+    raw_since = await _window_start(
+        db, RAW, "ts", now - RAW_RETENTION - OVERLAP["hour"]
+    )
+    await db[RAW].aggregate(_pipeline("ts", "hour", raw_since, HOURLY)).to_list(None)
 
     # giờ -> ngày
+    hourly_since = await _window_start(
+        db, HOURLY, "_id.bucket", now - HOURLY_RETENTION - OVERLAP["day"]
+    )
     await db[HOURLY].aggregate(
-        _pipeline("_id.bucket", "day", now - HOURLY_RETENTION - OVERLAP["day"], DAILY)
+        _pipeline("_id.bucket", "day", hourly_since, DAILY)
     ).to_list(None)
 
     raw_deleted = await db[RAW].delete_many({"ts": {"$lt": now - RAW_RETENTION}})
