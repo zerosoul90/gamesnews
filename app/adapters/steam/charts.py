@@ -34,22 +34,38 @@ class SteamChartsAdapter:
             raise PermanentError(f"{url} trả về không phải JSON: {exc}") from exc
 
     async def get_top_sellers_vn(self) -> list[int]:
+        """Top sellers của gian hàng VN. Trả về danh sách appid.
+
+        `getappsincategory?category=topsellers&cc=vn` — endpoint mà
+        `PHASE-7.md` nêu — trả `{"status": 1}` **rỗng, không có items** (kiểm
+        tay 2026-09-09). Nó không lỗi, chỉ là không còn dữ liệu, nên bản trước
+        trả `[]` mãi mà không có gì đỏ lên.
+
+        `featuredcategories` là thứ thay thế duy nhất còn sống, và nó trả giá
+        VND thật. Nhược điểm phải biết trước khi tin vào con số này: nó chỉ cho
+        **10 mục**, không phải cả bảng xếp hạng. Đủ để bơm vào tầng hot của
+        `price_tier` (đó là toàn bộ chỗ đang dùng nó), **không** đủ để dựng một
+        trang "bán chạy nhất".
         """
-        Lấy Top Sellers từ Store API với cc=vn.
-        API không chính thức nhưng được dùng rộng rãi:
-        /api/getappsincategory/?category=topsellers&cc=vn
-        Trả về danh sách appid.
-        """
-        url = f"{STORE_API_URL}/getappsincategory/"
-        params = {"category": "topsellers", "cc": self._country, "l": "english"}
+        url = f"{STORE_API_URL}/featuredcategories/"
+        params = {"cc": self._country, "l": "english"}
         data = await self._get_json(url, params)
 
-        # Cấu trúc: {"status": 1, "topsellers": {"items": [{"id": 12345}, ...]}}
+        # Cấu trúc: data["top_sellers"]["items"] = [{"id": 12345}, ...]
         if data.get("status") != 1:
-            logger.warning("Steam không trả về status 1 cho topsellers")
+            logger.warning("Steam không trả về status 1 cho featuredcategories")
             return []
 
-        items = data.get("topsellers", {}).get("items", [])
+        top_sellers_category = data.get("top_sellers", {})
+        if not top_sellers_category:
+            # Khoá đổi tên thì còn `id` để nhận ra. Không tìm thấy cũng không
+            # sao: trả rỗng, tầng hot vẫn còn hai nguồn tín hiệu kia.
+            for value in data.values():
+                if isinstance(value, dict) and value.get("id") == "cat_topsellers":
+                    top_sellers_category = value
+                    break
+
+        items = top_sellers_category.get("items", [])
         appids = []
         for item in items:
             appid = item.get("id")

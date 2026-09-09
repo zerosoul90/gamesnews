@@ -10,11 +10,16 @@ logger = logging.getLogger(__name__)
 
 Db = AsyncIOMotorDatabase[dict[str, Any]]
 
+# Dưới ngưỡng này thì điểm chưa nói lên gì, và một nhóm nhỏ dìm được cả game.
+MIN_REVIEWS_TO_SHOW = 20
+
 
 async def calculate_game_score(db: Db, game_id: str) -> dict[str, Any] | None:
-    """
-    Tính điểm trung bình của game từ collection reviews.
-    Luật: Ẩn điểm (không trả về hoặc trả về cờ is_hidden=True) nếu dưới 20 lượt review.
+    """Điểm trung bình của game, ẩn khi chưa đủ lượt đánh giá.
+
+    Luôn trả về dict, không bao giờ None: người gọi phân biệt bằng cờ
+    `is_hidden`, và khi ẩn thì `average_score` là None chứ không phải một con
+    số bị đánh dấu.
     """
     pipeline: list[dict[str, Any]] = [
         {"$match": {"game_id": ObjectId(game_id)}},
@@ -30,16 +35,27 @@ async def calculate_game_score(db: Db, game_id: str) -> dict[str, Any] | None:
     cursor = db.user_reviews.aggregate(pipeline)
     result = await cursor.to_list(length=1)
 
-    if not result:
-        return {"average_score": 0.0, "review_count": 0, "is_hidden": True}
+    count = 0
+    avg = 0.0
+    if result:
+        stats = result[0]
+        count = int(stats.get("review_count") or 0)
+        avg = float(stats.get("average_score") or 0.0)
 
-    stats = result[0]
-    count = stats.get("review_count", 0)
-    avg = stats.get("average_score", 0.0)
+    # `PHASE-8.md`: ẩn điểm dưới 20 lượt, để chống review bombing. "Ẩn" nghĩa là
+    # KHÔNG có con số trong payload — bản trước vẫn kèm `average_score` cạnh cờ
+    # `is_hidden`, tức là điểm bị giấu trên giao diện nhưng ai mở tab Network
+    # cũng đọc được, và bất kỳ client nào cũng vẽ nó ra được. Ẩn kiểu đó không
+    # phải là ẩn.
+    if count < MIN_REVIEWS_TO_SHOW:
+        return {
+            "average_score": None,
+            "review_count": count,
+            "is_hidden": True,
+            "min_reviews": MIN_REVIEWS_TO_SHOW,
+        }
 
-    is_hidden = count < 20
-
-    return {"average_score": round(avg, 1), "review_count": count, "is_hidden": is_hidden}
+    return {"average_score": round(avg, 1), "review_count": count, "is_hidden": False}
 
 
 async def award_badge(db: Db, user_id: str, badge_type: str) -> bool:

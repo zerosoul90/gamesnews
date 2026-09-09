@@ -42,6 +42,14 @@ class Settings(BaseSettings):
     jwt_secret: SecretStr = SecretStr("changeme_for_production")
     frontend_url: str = "http://localhost:3000"
 
+    # Origin được phép gọi API từ trình duyệt, phân tách bằng dấu phẩy.
+    # Mặc định là hai cổng dev của Angular (`ng serve` và bản SSR).
+    cors_origins: str = "http://localhost:4200,http://localhost:4000"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
     # --- Key ngoài. Phase 0 chưa gọi API nào nên để trống vẫn chạy được. ---
     steam_api_key: SecretStr = SecretStr("")
     twitch_client_id: str = ""

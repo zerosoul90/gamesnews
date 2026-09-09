@@ -28,6 +28,11 @@ dependencies = [
     # năng lặng lẽ không bao giờ hoạt động.
     "pillow>=11.0",
     "beautifulsoup4>=4.15.0",
+    # Qdrant cho tầng 3 gắn entity (`services/embeddings.py`). Gemini thì gọi
+    # thẳng bằng httpx, không qua SDK `google-genai`: mọi adapter khác trong dự
+    # án đi qua `classify_http_status` để phân biệt lỗi tạm thời với lỗi vĩnh
+    # viễn, mà SDK gói tất cả lại thành một `APIError` duy nhất.
+    "qdrant-client>=1.19.0",
 ]
 
 [dependency-groups]

@@ -138,7 +138,15 @@ async def upsert_game(
 
     await collection.update_one(
         query,
-        {"$set": document, "$setOnInsert": {"created_at": now}},
+        {
+            "$set": document,
+            "$setOnInsert": {"created_at": now},
+            # Nội dung đổi thì vector cũ nói về một cái tên không còn nữa. Gỡ
+            # mốc để `jobs/embeddings.sync_game_embeddings` nhặt lại entity này
+            # ở lượt sau. Không gỡ thì entity đổi tên giữ vector cũ vĩnh viễn,
+            # và tầng 3 khớp bài mới vào cái tên cũ.
+            "$unset": {"embedding_hash": ""},
+        },
         upsert=True,
     )
     return "updated" if existing is not None else "inserted"

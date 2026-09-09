@@ -1,14 +1,18 @@
+import datetime as dt
 import logging
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 
+from app.adapters.base import AdapterError
 from app.adapters.twitch.adapter import TwitchAdapter
+from app.adapters.youtube.adapter import YouTubeAdapter
 from app.core.config import Settings, get_settings
 from app.core.deps import MongoDep
+from app.services.streamers import notify_stream_live
 from app.services.websub import (
+    is_curated_channel,
     mark_subscribed,
     parse_notification,
     record_notification,
@@ -49,8 +53,12 @@ async def twitch_eventsub(
         logger.error("TWITCH_WEBHOOK_SECRET chưa cấu hình, từ chối webhook")
         raise HTTPException(status_code=503, detail="Webhook chưa được cấu hình")
 
+    # Dùng client dùng chung của app, KHÔNG mở `httpx.AsyncClient()` mới ở
+    # đây: mỗi request webhook sẽ mở một client rồi không bao giờ đóng, và
+    # Twitch đẩy notification liên tục — connection và socket rò đều tay cho
+    # tới khi tiến trình hết file descriptor.
     adapter = TwitchAdapter(
-        httpx.AsyncClient(),
+        request.app.state.clients.http,
         client_id=settings.twitch_client_id,
         client_secret=settings.twitch_client_secret.get_secret_value(),
         webhook_secret=webhook_secret,
@@ -75,12 +83,28 @@ async def twitch_eventsub(
         type_ = event.get("type")  # "live"
 
         # Cập nhật DB
-        if type_ == "live":
+        if type_ == "live" and broadcaster_id:
             await db.streamers.update_one(
-                {"channel_id": broadcaster_id, "platform": "twitch"}, {"$set": {"is_live": True}}
+                {"channel_id": broadcaster_id, "platform": "twitch"},
+                {
+                    "$set": {
+                        "is_live": True,
+                        "last_notified_at": dt.datetime.now(dt.UTC),
+                    }
+                },
             )
-            # Todo: Push Notification tới FCM cho User
-            logger.info(f"Streamer {broadcaster_id} is live!")
+            # `stream_id` là định danh của buổi phát. EventSub gửi lại cùng một
+            # notification khi ta trả lỗi hoặc trả chậm, nên phải chống trùng
+            # theo buổi phát chứ không theo kênh.
+            await notify_stream_live(
+                db,
+                platform="twitch",
+                channel_id=str(broadcaster_id),
+                stream_key=str(event.get("id") or broadcaster_id),
+                title="Đang phát trực tiếp",
+                url=f"https://twitch.tv/{event.get('broadcaster_user_login') or ''}",
+                http=request.app.state.clients.http,
+            )
 
     return {"status": "ok"}
 
@@ -139,10 +163,57 @@ async def youtube_websub_notification(
         logger.warning("chữ ký WebSub không hợp lệ")
         raise HTTPException(status_code=403, detail="Invalid signature")
 
-    recorded = 0
-    for entry in parse_notification(body):
-        if await record_notification(db, entry):
-            recorded += 1
+    youtube = YouTubeAdapter(
+        request.app.state.clients.http, settings.youtube_api_key.get_secret_value()
+    )
 
-    logger.info("nhận WebSub YouTube", extra={"bytes": len(body), "recorded": recorded})
+    recorded = 0
+    notified = 0
+    for entry in parse_notification(body):
+        # Loại kênh lạ TRƯỚC khi tiêu quota YouTube: endpoint này công khai.
+        if not await is_curated_channel(db, entry.channel_id):
+            continue
+
+        # Notification của WebSub KHÔNG phân biệt video mới đăng với buổi live
+        # vừa mở — cùng một thân Atom. Không hỏi lại thì mỗi clip cắt streamer
+        # đăng lên sẽ đánh thức toàn bộ người theo dõi bằng một thông báo nói
+        # rằng họ "đang live".
+        try:
+            live = await youtube.is_video_live(entry.video_id)
+        except AdapterError as exc:
+            # Ghi nhận video thì vẫn ghi — chỉ phần "có live không" là không
+            # biết. Mất một lần push còn hơn mất cả dòng dữ liệu.
+            logger.warning(
+                "không kiểm được video có live không, bỏ qua push",
+                extra={"video_id": entry.video_id, "error": repr(exc)},
+            )
+            live = None
+
+        if live is None and not settings.youtube_api_key.get_secret_value():
+            # Thiếu YOUTUBE_API_KEY thì không đời nào phân biệt được live với
+            # video thường. Báo to, để lý do "sao không thấy push nào" hiện ra
+            # trong log thay vì phải đoán.
+            logger.warning("YOUTUBE_API_KEY chưa cấu hình: ghi nhận video nhưng không push")
+
+        recorded += int(await record_notification(db, entry, is_live=bool(live)))
+
+        if not live:
+            continue
+
+        # Chốt "push streamer live trong 60 giây" của `PHASE-7.md` nằm ở đúng
+        # dòng này: hub đẩy về là gửi ngay, không đợi job nào cả.
+        notified += await notify_stream_live(
+            db,
+            platform="youtube",
+            channel_id=entry.channel_id,
+            stream_key=entry.video_id,
+            title=entry.title,
+            url=entry.link,
+            http=request.app.state.clients.http,
+        )
+
+    logger.info(
+        "nhận WebSub YouTube",
+        extra={"bytes": len(body), "recorded": recorded, "notified": notified},
+    )
     return Response(status_code=204)

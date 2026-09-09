@@ -1,3 +1,4 @@
+import asyncio
 import datetime as dt
 import logging
 
@@ -13,9 +14,11 @@ async def crawl_rss(source: Source) -> list[NewsArticle]:
     """Kéo dữ liệu RSS từ một nguồn và trả về danh sách các bài báo thô."""
     logger.info(f"Đang kéo dữ liệu từ {source.url}...")
 
-    # feedparser.parse() là hàm đồng bộ, nhưng chạy khá nhanh.
-    # Nếu tải nặng cần đẩy vào threadpool, tạm thời cứ gọi trực tiếp.
-    feed = feedparser.parse(source.url)
+    # `feedparser.parse(url)` **tải cả feed qua mạng** một cách đồng bộ, không
+    # phải chỉ parse một chuỗi có sẵn. Gọi thẳng trong hàm async thì nó khoá
+    # event loop suốt thời gian chờ mạng — với 15 nguồn RSS, worker đứng im
+    # từng lượt một và mọi job khác trên cùng tiến trình cũng đứng theo.
+    feed = await asyncio.to_thread(feedparser.parse, source.url)
 
     articles = []
     now = dt.datetime.now(dt.UTC).isoformat()

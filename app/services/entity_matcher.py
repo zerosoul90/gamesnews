@@ -13,7 +13,7 @@ Ba tầng, tin cậy giảm dần:
 
 1. **Exact** — có link store trong bài, tra ngược ra entity. Chắc chắn nhất.
 2. **Alias** — một cụm từ trong tiêu đề trùng khít một alias đã chuẩn hoá.
-3. **Embedding** — Qdrant. **Chưa bật**, xem `embedding_match`.
+3. **Embedding** — vector tên game trong Qdrant (`services/embeddings.py`).
 
 Không tầng nào đủ tin cậy thì trả `manual`, và người gọi có nghĩa vụ đẩy bài
 vào `entity_review_queue` (xem `services/entity_review.py`). Không đoán bừa.
@@ -28,7 +28,11 @@ from typing import Any, Literal
 
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from qdrant_client import AsyncQdrantClient
 
+from app.adapters.base import AdapterError
+from app.adapters.llm.gemini import GeminiAdapter
+from app.services import embeddings
 from app.services.catalog import find_game_by_external_id, games
 from app.services.normalize import normalize_vi
 
@@ -50,6 +54,19 @@ MIN_SINGLE_WORD_CHARS = 8
 # Khớp alias là khớp CHÍNH XÁC trên chuỗi đã chuẩn hoá, nên độ tin cậy cao;
 # nhưng vẫn dưới 1.0 để tầng exact luôn thắng khi cả hai cùng khớp.
 ALIAS_CONFIDENCE = 0.95
+
+# Ngưỡng cosine của tầng 3.
+#
+# 0.82 là con số **khởi điểm, chưa đo trên dữ liệu thật** — và phải nói thẳng ra
+# thay vì để nó trông như một hằng số đã hiệu chỉnh. Cách hiệu chỉnh đúng: chạy
+# một đợt tin thật, đọc `entity_review_queue` (bỏ sót) và đối chiếu các bài đã
+# gắn ở tầng embedding (gắn sai), rồi kéo ngưỡng theo nguyên tắc đầu file —
+# thà bỏ sót còn hơn gắn sai, tức là **nghi ngờ thì kéo LÊN**.
+EMBEDDING_THRESHOLD = 0.82
+
+# Khoảng cách tối thiểu giữa ứng viên nhất và nhì. Sát nhau thì vector không
+# phân biệt được hai entity, và chọn bừa là gắn sai 50% số lần.
+EMBEDDING_MARGIN = 0.03
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,20 +223,70 @@ async def match_by_alias(db: Db, title: str) -> EntityMatch | None:
 # --- Tầng 3: embedding -----------------------------------------------------
 
 
-async def embedding_match(content: str, qdrant_client: Any) -> EntityMatch | None:
-    """Tầng 3 — **chưa bật**, và cố ý không giả vờ là đã bật.
+async def embedding_match(
+    title: str,
+    qdrant_client: AsyncQdrantClient | None,
+    gemini: GeminiAdapter | None,
+) -> EntityMatch | None:
+    """Tầng 3 — so vector tiêu đề bài với vector tên game trong Qdrant.
 
-    Muốn chạy được cần ba thứ chưa có, không thứ nào là việc của riêng file
-    này:
+    Nhận **tiêu đề**, không phải toàn văn bài. Vector của cả bài trôi về phía
+    chủ đề chung của bài chứ không về phía cái tên trong đó; mà thứ ta đang tìm
+    là một cái tên. Đây cũng đúng thứ `embedding_text` bên `services/embeddings`
+    nạp vào, nên hai bên so cùng một loại nội dung.
 
-    1. một backend sinh vector (`adapters/llm/`) và quyết định dùng model nào;
-    2. một collection Qdrant cùng đợt nạp vector cho toàn bộ catalog;
-    3. ngưỡng tin cậy đo trên dữ liệu thật, không đặt bằng cảm tính.
-
-    Tới lúc đó, `PHASE-6.md` yêu cầu chuyển Qdrant sang nhóm phụ thuộc bắt buộc
-    của `/health` — hiện `api/health.py` cố ý chưa làm vì chưa ai đọc Qdrant.
+    Thiếu Qdrant hoặc thiếu key Gemini thì trả None, **không** ném lỗi: tầng 3
+    hỏng chỉ nên làm giảm tỉ lệ tự động, còn bài thì đã có sẵn đường đi tiếp là
+    hàng đợi duyệt tay.
     """
-    return None
+    if qdrant_client is None or gemini is None or not gemini.configured:
+        return None
+
+    text = title.strip()
+    if not text:
+        return None
+
+    try:
+        vectors = await gemini.embed([text])
+    except AdapterError as exc:
+        logger.warning("không sinh được vector cho tiêu đề", extra={"error": repr(exc)})
+        return None
+    if not vectors or not vectors[0]:
+        return None
+
+    try:
+        hits = await embeddings.search(
+            qdrant_client, vectors[0], threshold=EMBEDDING_THRESHOLD, limit=2
+        )
+    except Exception as exc:
+        # Bắt rộng có chủ ý: client Qdrant ném cả lỗi mạng (httpx), lỗi API
+        # (`UnexpectedResponse`) lẫn `ValueError` khi collection chưa tồn tại.
+        # Không cái nào đáng để làm hỏng một lượt crawl — bài rớt xuống hàng
+        # đợi duyệt tay là đúng hành vi cần có.
+        logger.warning("không truy vấn được Qdrant", extra={"error": repr(exc)})
+        return None
+
+    if not hits:
+        return None
+
+    # Hai ứng viên sát điểm nhau nghĩa là vector không phân biệt được chúng —
+    # thường là hai phần của cùng một series ("Persona 3" và "Persona 5"). Gắn
+    # bừa một trong hai đúng vào kiểu sai mà `PHASE-6.md` bảo phải tránh, nên
+    # đẩy sang duyệt tay.
+    if len(hits) > 1 and (hits[0][1] - hits[1][1]) < EMBEDDING_MARGIN:
+        logger.info(
+            "hai entity sát điểm nhau ở tầng embedding, chuyển duyệt tay",
+            extra={"title": title[:120], "top": hits[0][1], "second": hits[1][1]},
+        )
+        return None
+
+    game_id, score = hits[0]
+    return EntityMatch(
+        game_id=game_id,
+        tier="embedding",
+        confidence=score,
+        matched_on=f"cosine={score:.3f}",
+    )
 
 
 # --- Ghép ba tầng ----------------------------------------------------------
@@ -229,7 +296,8 @@ async def match_entity(
     db: Db,
     article_title: str,
     article_content: str,
-    qdrant_client: Any = None,
+    qdrant_client: AsyncQdrantClient | None = None,
+    gemini: GeminiAdapter | None = None,
 ) -> EntityMatch:
     """Chạy lần lượt ba tầng, dừng ở tầng đầu tiên đủ tin cậy."""
     if (exact := await match_by_store_link(db, article_content)) is not None:
@@ -246,7 +314,11 @@ async def match_entity(
         )
         return alias
 
-    if (embed := await embedding_match(article_content, qdrant_client)) is not None:
+    if (embed := await embedding_match(article_title, qdrant_client, gemini)) is not None:
+        logger.info(
+            "gắn entity qua embedding",
+            extra={"game_id": str(embed.game_id), "matched_on": embed.matched_on},
+        )
         return embed
 
     logger.info("không gắn được entity, chuyển duyệt tay", extra={"title": article_title[:120]})

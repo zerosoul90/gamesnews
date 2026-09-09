@@ -17,17 +17,19 @@ router = APIRouter(tags=["health"])
 
 # Phụ thuộc bắt buộc: hỏng thì /health trả 503.
 #
-# Qdrant **không** nằm trong tập này, dù Phase 6 đã bắt đầu, vì hai lý do:
+# Qdrant **không** nằm trong tập này, dù `PHASE-6.md` yêu cầu — và giờ thì tầng
+# 3 (`services/embeddings.py`) đã chạy thật, nên lý do không còn là "chưa ai
+# đọc Qdrant" nữa. Lý do còn lại mới là lý do đúng:
 #
-# 1. Chưa có gì đọc Qdrant thật. `services/entity_matcher.embedding_match` vẫn
-#    là stub trả thẳng (None, 0.0) — bật cờ bắt buộc lúc này là tự nhận mình
-#    chết vì một kho dữ liệu chưa ai gọi tới.
-# 2. Kể cả khi Phase 6 chạy thật: Qdrant chỉ phục vụ gắn entity cho tin tức.
-#    Nó chết thì tìm kiếm, catalog và giá vẫn chạy. Trả 503 là để load balancer
-#    rút cả API ra khỏi vòng phục vụ — tắt toàn bộ trang vì một nhánh phụ.
+# Qdrant chỉ phục vụ tầng 3 của việc gắn entity cho tin tức. Nó chết thì tầng 1
+# (link store) và tầng 2 (alias) vẫn chạy, và bài nào rớt cả ba tầng đã có sẵn
+# đường đi — hàng đợi duyệt tay. Tức là mất Qdrant làm giảm tỉ lệ tự động, chứ
+# không làm hỏng chức năng nào. Trả 503 nghĩa là bảo load balancer rút cả API
+# ra khỏi vòng phục vụ: tắt tìm kiếm, catalog, giá và push của toàn bộ người
+# dùng vì một nhánh phụ đang kém đi.
 #
-# Khi nào embedding match chạy thật và có nhánh nào KHÔNG dùng được nếu thiếu
-# Qdrant, hãy làm mịn hơn: báo `degraded` cho riêng nhánh đó, đừng 503 cả app.
+# Khi nào có nhánh nào KHÔNG dùng được nếu thiếu Qdrant, hãy báo `degraded` cho
+# riêng nhánh đó, đừng 503 cả app.
 REQUIRED: frozenset[str] = frozenset({"mongo", "redis", "meilisearch"})
 
 

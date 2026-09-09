@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:dio/dio.dart';
+import 'api_client.dart';
 
 // MOCK: Đại diện cho thư viện firebase_messaging
 class MockFirebaseMessaging {
@@ -25,15 +27,27 @@ class MockFirebaseMessaging {
 }
 
 final notificationServiceProvider = Provider<NotificationService>((ref) {
-  return NotificationService();
+  return NotificationService(ref.watch(dioProvider));
 });
 
 class NotificationService {
+  final Dio _dio;
+
+  NotificationService(this._dio);
   void initialize(GoRouter router) async {
     await MockFirebaseMessaging.requestPermission();
     final token = await MockFirebaseMessaging.getToken();
     debugPrint("Firebase Token: $token");
-    // TODO: Gửi token này lên /api/v1/user/device
+    
+    // Gửi token này lên /api/v1/user/device
+    if (token != null) {
+      try {
+        await _dio.post('/user/device', data: {'fcm_token': token, 'device_type': 'android'});
+        debugPrint("Gửi FCM token thành công");
+      } catch (e) {
+        debugPrint("Lỗi gửi FCM token: $e");
+      }
+    }
 
     // Xử lý khi user bấm vào thông báo từ background
     MockFirebaseMessaging.onMessageOpenedApp((data) {

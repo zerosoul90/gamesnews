@@ -148,33 +148,37 @@ async def process_notification(
     # Chỉ giá, streamer live, giftcode mới có tư cách báo tức thì
     is_immediate_type = payload.type in ("price_alert", "streamer_live", "giftcode")
 
-    if (is_immediate_type and not in_quiet) or force_immediate:
-        if http is None:
-            # Không có client thì không gửi được, và im lặng bỏ qua là đúng
-            # cái sai vừa sửa. Báo to rồi vẫn nhét vào hàng đợi digest để
-            # thông báo không mất hẳn.
-            logger.error(
-                "thiếu http client, không gửi push tức thì được",
-                extra={"user_id": str(payload.user_id), "type": payload.type},
-            )
-        else:
-            await send_push_notification(
-                db, http, payload.user_id, payload.title, payload.body, payload.data
-            )
-            return
-    else:
-        # Nhét vào queue chờ Job gom Digest hàng ngày bắn
-        await db.notification_queue.insert_one(
-            {
-                "user_id": payload.user_id,
-                "type": payload.type,
-                "title": payload.title,
-                "body": payload.body,
-                "data": payload.data,
-                "created_at": now.isoformat(),
-            }
+    wants_immediate = (is_immediate_type and not in_quiet) or force_immediate
+
+    if wants_immediate and http is None:
+        # Không có client thì không gửi tức thì được. Bản trước ghi log rồi
+        # **rơi ra khỏi hàm** — nhánh `else` không chạy vì nhánh `if` đã được
+        # chọn — nên thông báo biến mất hẳn, đúng cái sai mà chú thích ngay chỗ
+        # đó tuyên bố là đã tránh. Hạ xuống hàng đợi digest thay vì đánh rơi.
+        logger.error(
+            "thiếu http client, hạ thông báo xuống hàng đợi digest",
+            extra={"user_id": str(payload.user_id), "type": payload.type},
         )
-        logger.info(
-            "Notification kẹt queue (do Quiet Hours hoặc là Digest type)",
-            extra={"user_id": str(payload.user_id)},
+        wants_immediate = False
+
+    if wants_immediate and http is not None:
+        await send_push_notification(
+            db, http, payload.user_id, payload.title, payload.body, payload.data
         )
+        return
+
+    # Nhét vào queue chờ Job gom Digest hàng ngày bắn
+    await db.notification_queue.insert_one(
+        {
+            "user_id": payload.user_id,
+            "type": payload.type,
+            "title": payload.title,
+            "body": payload.body,
+            "data": payload.data,
+            "created_at": now.isoformat(),
+        }
+    )
+    logger.info(
+        "Notification kẹt queue (do Quiet Hours, thiếu client, hoặc là Digest type)",
+        extra={"user_id": str(payload.user_id)},
+    )

@@ -48,6 +48,43 @@ class YouTubeAdapter:
         except httpx.HTTPError as exc:
             raise TransientError(f"Không gọi được YouTube API: {exc!r}") from exc
 
+    async def is_video_live(self, video_id: str) -> bool | None:
+        """Video này có đang phát trực tiếp không? None nghĩa là không biết được.
+
+        Vì sao cần: thân notification WebSub của YouTube **giống hệt nhau** cho
+        một video mới đăng và một buổi live vừa mở — cùng schema Atom, không có
+        trường nào phân biệt. Đẩy push "đang live" cho mọi notification nghĩa là
+        mỗi lần streamer đăng một clip cắt là toàn bộ người theo dõi bị đánh
+        thức.
+
+        `videos.list` tốn **1 unit** (so với 100 của `search`), tức là quota
+        10.000/ngày đủ cho 10.000 notification — nhiều hơn hẳn mức một danh
+        sách kênh curate tay có thể sinh ra.
+        """
+        if not self._api_key:
+            return None
+
+        params = {
+            "part": "snippet",
+            "id": video_id,
+            "key": self._api_key,
+        }
+        try:
+            response = await self._http.get(f"{YOUTUBE_API_URL}/videos", params=params)
+            error = classify_http_status(response.status_code)
+            if error is not None:
+                raise error(f"Lỗi YouTube API -> {response.status_code}: {response.text[:200]}")
+            items = response.json().get("items", [])
+        except httpx.HTTPError as exc:
+            raise TransientError(f"Không gọi được YouTube API: {exc!r}") from exc
+
+        if not items:
+            # Video vừa bị xoá, hoặc để riêng tư. Không biết được, và cũng
+            # không có gì để báo.
+            return None
+        # "live" = đang phát, "upcoming" = đã lên lịch, "none" = video thường.
+        return bool(items[0].get("snippet", {}).get("liveBroadcastContent") == "live")
+
     async def subscribe_websub(self, channel_id: str, callback_url: str) -> bool:
         """
         Đăng ký WebSub cho kênh YouTube để nhận Webhook khi có video mới / live.

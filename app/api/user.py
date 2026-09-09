@@ -1,18 +1,24 @@
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from motor.motor_asyncio import AsyncIOMotorDatabase
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.adapters.steam.user import PrivateProfileError
 from app.api.auth import get_current_user
 from app.models.game import PyObjectId
 from app.models.user import PriceAlert, UserFollow
+from app.services import devices
 from app.services.user_library import delete_library, sync_steam_library
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/user", tags=["User"])
+
+
+def db_of(request: Request) -> AsyncIOMotorDatabase[dict[str, Any]]:
+    database: AsyncIOMotorDatabase[dict[str, Any]] = request.app.state.clients.db
+    return database
 
 
 @router.post("/library/sync")
@@ -84,6 +90,49 @@ async def add_epic_games_bulk(
         status_code=501,
         detail="Chưa hỗ trợ: cần dữ liệu game free Epic theo tuần trước đã.",
     )
+
+
+class DeviceRegistration(BaseModel):
+    """Token FCM của một thiết bị."""
+
+    fcm_token: str = Field(min_length=1, max_length=4096)
+    # Tên trường khớp đúng cái app Flutter đang gửi (`device_type`).
+    device_type: Literal["android", "ios", "web"] = "android"
+
+
+@router.post("/device")
+async def register_device(
+    request: Request,
+    payload: DeviceRegistration,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Ghi nhận thiết bị để gửi push.
+
+    Endpoint này **chưa từng tồn tại**, trong khi `mobile/lib/core/
+    notification_service.dart` đã POST tới đúng đường dẫn này và bắt lỗi bằng
+    một dòng `debugPrint`. Tức là mọi lần cài app đều nhận 404, log một dòng
+    rồi đi tiếp — không ai thấy, và không thiết bị nào bao giờ nhận được push.
+    """
+    try:
+        user_id = PyObjectId(current_user.get("sub"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="ID user không hợp lệ") from exc
+
+    is_new = await devices.register(
+        db_of(request), user_id, payload.fcm_token, platform=payload.device_type
+    )
+    return {"status": "ok", "is_new_device": is_new}
+
+
+@router.delete("/device")
+async def unregister_device(
+    request: Request,
+    payload: DeviceRegistration,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Gỡ một thiết bị — dùng khi người dùng đăng xuất trên máy đó."""
+    removed = await devices.forget(db_of(request), payload.fcm_token, reason="user đăng xuất")
+    return {"status": "ok", "removed": removed}
 
 
 @router.post("/follows")

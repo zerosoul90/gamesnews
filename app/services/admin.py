@@ -144,7 +144,9 @@ async def set_manual_aliases(db: Db, game_id: ObjectId, aliases: Iterable[str]) 
     if document["content_hash"] == doc.get("content_hash"):
         return doc
 
-    await games(db).update_one({"_id": game_id}, {"$set": document})
+    await games(db).update_one(
+        {"_id": game_id}, {"$set": document, "$unset": {"embedding_hash": ""}}
+    )
     logger.info("admin sửa alias", extra={"game_id": str(game_id), "aliases": len(game.aliases)})
     return await get_entity(db, game_id)
 
@@ -189,7 +191,9 @@ async def merge_games(db: Db, *, keep_id: ObjectId, drop_id: ObjectId) -> dict[s
             *(drop_doc.get("merged_from") or []),
             {"_id": drop_id, "slug": drop_doc.get("slug"), "at": now},
         ]
-        await collection.update_one({"_id": keep_id}, {"$set": document})
+        await collection.update_one(
+            {"_id": keep_id}, {"$set": document, "$unset": {"embedding_hash": ""}}
+        )
     except Exception:
         await collection.insert_one(drop_doc)
         raise

@@ -1,7 +1,13 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+final secureStorageProvider = Provider<FlutterSecureStorage>((ref) {
+  return const FlutterSecureStorage();
+});
 
 final dioProvider = Provider<Dio>((ref) {
+  final storage = ref.watch(secureStorageProvider);
   final dio = Dio(
     BaseOptions(
       // MOCK: Trỏ về server FastAPI localhost hoặc URL production sau này
@@ -16,12 +22,18 @@ final dioProvider = Provider<Dio>((ref) {
 
   // Thêm Interceptor để xử lý Token hoặc Log
   dio.interceptors.add(InterceptorsWrapper(
-    onRequest: (options, handler) {
-      // TODO: Gắn Bearer Token nếu có (từ Secure Storage)
+    onRequest: (options, handler) async {
+      final token = await storage.read(key: 'jwt_token');
+      if (token != null) {
+        options.headers['Authorization'] = 'Bearer $token';
+      }
       return handler.next(options);
     },
-    onError: (DioException e, handler) {
-      // TODO: Xử lý refresh token khi mã 401
+    onError: (DioException e, handler) async {
+      if (e.response?.statusCode == 401) {
+        // Token hết hạn hoặc không hợp lệ, xóa token
+        await storage.delete(key: 'jwt_token');
+      }
       return handler.next(e);
     },
   ));

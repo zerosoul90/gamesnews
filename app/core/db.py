@@ -12,6 +12,7 @@ from typing import Any
 
 import httpx
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
+from qdrant_client import AsyncQdrantClient
 from redis.asyncio import Redis
 
 from app.core.config import Settings
@@ -22,6 +23,10 @@ class Clients:
     mongo: AsyncIOMotorClient[dict[str, Any]]
     redis: Redis
     http: httpx.AsyncClient
+    # Tầng 3 gắn entity (`services/embeddings.py`). Nó có vòng đời y hệt ba
+    # client kia nên nằm cùng chỗ; `/health` vẫn ping Qdrant bằng `http` vì chỉ
+    # cần biết cổng có trả lời không.
+    qdrant: AsyncQdrantClient
     db_name: str
 
     @property
@@ -38,10 +43,20 @@ async def create_clients(settings: Settings) -> Clients:
     )
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
     http = httpx.AsyncClient(timeout=settings.health_timeout_seconds)
-    return Clients(mongo=mongo, redis=redis, http=http, db_name=settings.mongo_db)
+    qdrant = AsyncQdrantClient(
+        url=settings.qdrant_url,
+        # Không dò phiên bản server lúc khởi tạo: client sẽ gọi mạng ngay trong
+        # `create_clients` và cảnh báo ầm ĩ mỗi khi Qdrant chưa lên. Việc "kho
+        # này có sống không" là của `/health`, không phải của constructor.
+        check_compatibility=False,
+    )
+    return Clients(
+        mongo=mongo, redis=redis, http=http, qdrant=qdrant, db_name=settings.mongo_db
+    )
 
 
 async def close_clients(clients: Clients) -> None:
     await clients.http.aclose()
     await clients.redis.aclose()
+    await clients.qdrant.close()
     clients.mongo.close()

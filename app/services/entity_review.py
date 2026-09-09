@@ -112,7 +112,9 @@ async def add_alias(db: Db, game_id: ObjectId, alias: str) -> bool:
     if document["content_hash"] == doc.get("content_hash"):
         return False
 
-    await games(db).update_one({"_id": game_id}, {"$set": document})
+    await games(db).update_one(
+        {"_id": game_id}, {"$set": document, "$unset": {"embedding_hash": ""}}
+    )
     logger.info("vòng phản hồi: thêm alias", extra={"game_id": str(game_id), "alias": alias})
     return True
 

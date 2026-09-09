@@ -27,6 +27,10 @@ class PriceCurrent(BaseModel):
     lowest_ever: int | None = None
     lowest_ever_date: str | None = None
     is_historical_low: bool = False
+    # Số lần đã quan sát được giá của game này. `services/pricing.py` cần nó để
+    # biết mình có đủ lịch sử để nói "đang ở đáy" hay chưa — ở lượt quét đầu
+    # tiên thì `lowest_ever` chỉ là giá vừa đọc, không phải một cái đáy.
+    observations: int = 0
 
     url: str | None = None
     checked_at: str | None = None

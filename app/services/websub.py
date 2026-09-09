@@ -97,24 +97,44 @@ def parse_notification(body: bytes) -> list[VideoEntry]:
     return entries
 
 
-async def record_notification(db: Db, entry: VideoEntry) -> bool:
+async def is_curated_channel(db: Db, channel_id: str) -> bool:
+    """Kênh này có trong danh sách curate tay không?
+
+    Tách khỏi `record_notification` vì thứ tự quan trọng: endpoint webhook là
+    công khai, nên phải loại kênh lạ **trước** khi tiêu bất kỳ quota YouTube
+    nào để hỏi xem video có đang live không. Không tách thì ai cũng đốt được
+    quota của ta bằng cách POST payload giả.
+    """
+    return await db[STREAMERS].count_documents(
+        {"platform": "youtube", "channel_id": channel_id}, limit=1
+    ) > 0
+
+
+async def record_notification(db: Db, entry: VideoEntry, *, is_live: bool = False) -> bool:
     """Ghi nhận một video/live mới. Trả về False nếu kênh không có trong danh sách.
 
     Chỉ nhận kênh đã curate (`PHASE-7.md` mục 6: danh sách streamer Việt do
     người chọn tay). Endpoint là công khai, nên kênh lạ đẩy vào thì bỏ qua —
     nếu không, ai cũng bơm dữ liệu vào bảng streamer được.
+
+    `is_live` do người gọi quyết định, và mặc định là False. Thân notification
+    của WebSub giống hệt nhau cho video mới đăng và buổi live vừa mở, nên bản
+    trước cắm `is_live: True` cho **mọi** notification: một streamer đăng clip
+    cắt là bảng "đang live" ghi tên họ, và chỉ có job dọn cờ sau 12 giờ mới gỡ
+    ra được.
     """
+    changes: dict[str, Any] = {
+        "last_video_id": entry.video_id,
+        "last_video_title": entry.title,
+        "last_video_url": entry.link,
+        "last_notified_at": dt.datetime.now(dt.UTC),
+    }
+    if is_live:
+        changes["is_live"] = True
+
     result = await db[STREAMERS].update_one(
         {"platform": "youtube", "channel_id": entry.channel_id},
-        {
-            "$set": {
-                "is_live": True,
-                "last_video_id": entry.video_id,
-                "last_video_title": entry.title,
-                "last_video_url": entry.link,
-                "last_notified_at": dt.datetime.now(dt.UTC),
-            }
-        },
+        {"$set": changes},
     )
     if result.matched_count == 0:
         logger.info(

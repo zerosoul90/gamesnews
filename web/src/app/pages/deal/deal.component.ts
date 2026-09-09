@@ -1,15 +1,26 @@
 import { Component, OnInit } from '@angular/core';
 import { Meta, Title } from '@angular/platform-browser';
+import { CommonModule } from '@angular/common';
+import { RouterLink } from '@angular/router';
+import { DealService, Deal } from '../../services/deal.service';
 
 @Component({
   selector: 'app-deal',
   standalone: true,
-  imports: [],
+  imports: [CommonModule, RouterLink],
   templateUrl: './deal.component.html',
   styleUrl: './deal.component.css'
 })
 export class DealComponent implements OnInit {
-  constructor(private titleService: Title, private metaService: Meta) {}
+  deals: Deal[] = [];
+  isLoading = true;
+  filterBy = 'worth_buying';
+
+  constructor(
+    private titleService: Title, 
+    private metaService: Meta,
+    private dealService: DealService
+  ) {}
 
   ngOnInit(): void {
     const pageTitle = "Deal Game Hot - Khuyến mãi game PC bản quyền";
@@ -19,5 +30,27 @@ export class DealComponent implements OnInit {
     this.metaService.updateTag({ name: 'description', content: description });
     this.metaService.updateTag({ property: 'og:title', content: pageTitle });
     this.metaService.updateTag({ property: 'og:description', content: description });
+
+    this.fetchDeals();
+  }
+
+  fetchDeals(): void {
+    this.isLoading = true;
+    this.dealService.getDeals(20, this.filterBy).subscribe({
+      next: (res) => {
+        this.deals = res.deals || [];
+        this.isLoading = false;
+      },
+      error: (err) => {
+        console.error('Lỗi khi lấy danh sách deal:', err);
+        this.isLoading = false;
+      }
+    });
+  }
+
+  onFilterChange(event: Event): void {
+    const selectElem = event.target as HTMLSelectElement;
+    this.filterBy = selectElem.value;
+    this.fetchDeals();
   }
 }

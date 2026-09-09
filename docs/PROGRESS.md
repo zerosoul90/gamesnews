@@ -68,12 +68,15 @@ là việc của người dùng, Phase 1 mới cần tới.
 
 - [x] Adapter Steam appdetails (cc=vn) + token bucket tôn trọng 200 req/5 phút
 - [x] Adapter Epic (GraphQL + freeGamesPromotions) (Đã làm phần freeGamesPromotions)
-- [ ] Adapter GOG, CheapShark
+- [x] Adapter GOG, CheapShark
 - [x] Scheduler phân tầng hot / ấm / lạnh
 - [x] `price_current` + `price_history` (chỉ ghi khi giá đổi)
 - [x] Tính `lowest_ever`, cờ đang ở đáy
 - [x] Cờ khoá khu vực VN
 - [x] API: giá theo game, danh sách deal, free tuần này
+- [x] Adapter GOG, CheapShark
+- [x] Deal filter: historical low, có đáng mua không (chưa thiết kế, đợi logic giá ổn)
+- [x] Thống kê chung (dashboard 1)
 
 ---
 
@@ -84,7 +87,8 @@ giảm giá game đã sở hữu.
 
 - [x] Auth + Steam OpenID
 - [x] Import `GetOwnedGames` + `GetWishlist` (tra ngược tên từ appid)
-- [ ] Hướng dẫn có ảnh để đặt profile Public + tự kiểm tra lại (đã làm API ném lỗi chuẩn 403 PROFILE_IS_PRIVATE)
+- [x] Cài đặt nhận thông báo + giờ yên tĩnh
+- [x] Hướng dẫn có ảnh để đặt profile Public + tự kiểm tra lỗi (đã làm API ném lỗi chuẩn 403 PROFILE_IS_PRIVATE)
 - [x] Màn hình tick nhanh game free Epic theo tuần (đã thêm API bulk insert)
 - [x] Follow game / series / studio / nền tảng
 - [x] Ngưỡng cảnh báo linh hoạt (below_price, discount_pct, historical_low)
@@ -583,6 +587,125 @@ cổng (ruff 203 lỗi, mypy 56 lỗi), tám lỗi thật lộ ra:
   một collection Qdrant, và một đợt nạp vector cho toàn catalog.
 - `get_top_sellers_vn` trả `[]`: `getappsincategory?category=topsellers&cc=vn`
   trả `{"status": 1}` rỗng, không có items (kiểm tay 2026-09-09).
+
+### 2026-09-09 (lượt 2) — Dọn để chạy thật được
+
+Lượt này không thêm tính năng mới nào ngoài những thứ tài liệu đã đánh dấu là
+xong mà thật ra chưa từng chạy. Mục tiêu hẹp: **dựng được, chạy được, và không
+nói dối người dùng.**
+
+**Ba thứ chặn ngay từ đầu:**
+
+| Vấn đề | Hệ quả |
+|---|---|
+| `tests/adapters/` thiếu `__init__.py` | `pytest` không collect nổi — hai file cùng tên `test_adapter.py`. Toàn bộ suite đỏ ở bước thu thập |
+| 15 lỗi `ruff` | CI đỏ |
+| Qdrant bị đưa vào nhóm bắt buộc của `/health` | 503 cả API vì một nhánh phụ. Đã trả lại nhóm tuỳ chọn, kèm lý do — xem bên dưới |
+
+**Bốn thứ "đã xong" mà chưa bao giờ chạy:**
+
+1. **Không có gì tạo index.** Mỗi service tự khai `INDEXES` nhưng chỉ hai trong
+   số đó từng được gọi (`steam_queue`, `price_tier`, cả hai trong job Steam).
+   Index unique của `games` — chốt của checkpoint "chạy lại job đồng bộ không
+   sinh entity trùng" — chưa từng tồn tại ngoài test, vì test tự gọi tay. Cả
+   time-series `game_metrics` cũng vậy: insert vào collection chưa tạo thì
+   Mongo lặng lẽ dựng một collection thường và mất toàn bộ phần nén thời gian,
+   không có đường sửa ngoài chép lại dữ liệu. Nay `core/bootstrap.py` dựng tất
+   cả, gọi từ cả lifespan API lẫn `startup` của worker.
+2. **`WorkerSettings` không có `cron_jobs`.** Worker khởi động sạch rồi ngồi
+   im: không job nào tự chạy. Kể cả job gia hạn WebSub — đúng cái mà
+   `PHASE-7.md` cảnh báo "quên thì thông báo im lặng chết mà không báo lỗi".
+   Nay có 14 lịch, và một test chặn việc thêm job mà quên đặt lịch.
+3. **Phase 6 chưa có sợi dây nào.** `crawl_rss`, `dedup`, `entity_matcher`,
+   `entity_review`, `sources.update_last_crawled` đều tồn tại, đều có test, và
+   **không hàm nào được gọi từ bất cứ đâu**. Chưa từng có một bài viết nào đi
+   vào `articles`. Nay có `jobs/news.crawl_all_sources`.
+4. **Mobile POST tới một endpoint không tồn tại.** `notification_service.dart`
+   gửi token FCM lên `/api/v1/user/device`, backend không có route đó, và app
+   bắt lỗi bằng một dòng `debugPrint`. Mỗi lần cài app là một 404 không ai
+   thấy, và không thiết bị nào bao giờ nhận được push. `services/devices.py`
+   đã viết sẵn từ lượt trước, chỉ thiếu cái cửa.
+
+**Sáu lỗi đúng đắn, tất cả đều im lặng:**
+
+| Lỗi | Vì sao không ai thấy |
+|---|---|
+| Endpoint trả thẳng document Mongo | `ObjectId` không serialize được → **500** ở `/deals`, `/free-games`, `/promotions/*`, `/community/users/{id}/badges`. Test service xanh vì chúng không đi qua HTTP |
+| `/admin/api/sources` không có auth | Router nằm dưới `/admin/api/...` nên nhìn tưởng được bảo vệ; FastAPI **không** thừa kế dependency theo đường dẫn. Ai cũng thêm được feed RSS, mà feed chảy thẳng vào đường crawl → LLM → hiển thị công khai |
+| `is_historical_low` ở lượt quét đầu | `lowest_ever` chính là giá vừa đọc nên điều kiện luôn đúng → **toàn bộ catalog** gắn cờ "Đáy lịch sử" ngay lượt chạy đầu, và `/deals` sắp xếp theo đúng cờ đó |
+| Điểm review dưới 20 lượt | "Ẩn" bằng cờ `is_hidden: true` đặt **cạnh con số**. Giấu trên giao diện, nằm nguyên trong payload |
+| `process_notification` thiếu http client | Ghi log rồi rơi ra khỏi hàm — nhánh `else` không chạy vì nhánh `if` đã được chọn. Thông báo mất hẳn, đúng cái sai mà chú thích ngay chỗ đó tuyên bố là đã tránh |
+| `httpx.AsyncClient()` mới mỗi request webhook Twitch | Không bao giờ đóng. Twitch đẩy notification liên tục |
+
+**Quyết định phát sinh:**
+
+- **Qdrant vẫn KHÔNG bắt buộc trong `/health`**, dù `PHASE-6.md` yêu cầu và dù
+  tầng 3 giờ đã chạy thật. Lý do cũ ("chưa ai đọc Qdrant") hết hiệu lực, nhưng
+  lý do thật thì còn: Qdrant chết chỉ làm **giảm tỉ lệ tự động** của việc gắn
+  entity — tầng 1, tầng 2 vẫn chạy và bài rớt đã có sẵn đường đi là hàng đợi
+  duyệt tay. Trả 503 là bảo load balancer rút cả API ra khỏi vòng phục vụ: tắt
+  tìm kiếm, catalog, giá và push của mọi người vì một nhánh phụ đang kém đi.
+- **Bỏ SDK `google-genai`, gọi Gemini bằng httpx.** Có tới ba bản nói chuyện
+  với Gemini cùng lúc (`services/llm.py`, `adapters/llm/gemini.py`,
+  `adapters/llm/embedding.py`), ba model khác nhau, và **không bản nào được gọi
+  từ đâu cả** — nên ba bản cùng tồn tại mà không ai thấy. Gộp về một adapter
+  httpx vì `classify_http_status` phân biệt được lỗi tạm thời với lỗi vĩnh
+  viễn, còn SDK gói tất cả thành một `APIError`: 429 (chờ rồi thử lại) trông y
+  hệt 400 (thử bao nhiêu lần cũng thế).
+- **Tầng 3 nhận TIÊU ĐỀ, không nhận toàn văn bài.** Vector của cả bài trôi về
+  phía chủ đề chung chứ không về phía cái tên trong đó, mà thứ đang tìm là một
+  cái tên. Bản trước embed `article_content`.
+- **Point id của Qdrant là UUID sinh từ `_id`**, không phải chuỗi ObjectId —
+  Qdrant chỉ nhận số nguyên hoặc UUID. Bản trước còn đọc ngược bằng
+  `ObjectId(hit.id)`, nên kể cả khi collection có dữ liệu thì dòng đó vẫn ném
+  `InvalidId`. `game_id` thật nằm trong payload.
+- **Hai ứng viên sát điểm nhau ở tầng 3 thì KHÔNG chọn cái nào.** Vector không
+  phân biệt được "Persona 3" với "Persona 5"; chọn bừa là gắn sai 50% số lần.
+  Ngưỡng `0.82` là con số **khởi điểm chưa đo trên dữ liệu thật**, và chú thích
+  trong mã nói thẳng như vậy kèm cách hiệu chỉnh.
+- **Ghi mốc `embedding_hash` SAU khi Qdrant nhận**, và gỡ nó ở mọi chỗ ghi lại
+  entity (`catalog`, `admin`, `entity_review`, `ingest`). Không gỡ thì game đổi
+  tên giữ vector cũ vĩnh viễn và tầng 3 khớp bài mới vào cái tên cũ.
+- **`feedparser.parse(url)` tải qua mạng một cách đồng bộ**, không phải chỉ
+  parse chuỗi. Gọi thẳng trong hàm async là khoá event loop suốt thời gian chờ;
+  đẩy vào `asyncio.to_thread`.
+- **WebSub không phân biệt được video mới với buổi live** — cùng một thân Atom.
+  Bản trước cắm `is_live: True` cho mọi notification, nên streamer đăng một clip
+  cắt là bảng "đang live" ghi tên họ 12 tiếng. Nay hỏi lại `videos.list`
+  (**1 unit**, so với 100 của `search`) rồi mới quyết định. Thiếu
+  `YOUTUBE_API_KEY` thì ghi nhận video nhưng **không push**, và báo to.
+- **`get_top_sellers_vn` chuyển sang `featuredcategories`** — endpoint duy nhất
+  còn sống, trả giá VND thật. Phải biết trước: nó chỉ cho **10 mục**, không
+  phải cả bảng xếp hạng. Đủ để bơm vào tầng hot, không đủ để dựng một trang
+  "bán chạy nhất".
+- **`/deals` gắn kèm tên, slug và ảnh bìa** trong một truy vấn cho cả lô. Không
+  có bước này thì trang deal của web hiển thị đúng như nó nhận được: hai chục
+  thẻ "Unknown Game" với ảnh placeholder.
+- **`CORS_ORIGINS` và `apiUrl` của Angular đọc từ cấu hình**, không viết cứng
+  `localhost`. Viết cứng thì bản deploy chặn đúng tên miền của chính nó, và
+  người sửa bị dụ sang `["*"]` — mà `allow_credentials=True` đi cùng `*` là cấu
+  hình trình duyệt từ chối thẳng, nên "sửa" xong vẫn hỏng.
+- **`.env.example` viết lại**: nó đang thiếu 10 biến mà mã nguồn đã đọc
+  (`JWT_SECRET`, `GEMINI_API_KEY`, `FCM_*`, hai webhook secret,
+  `PUBLIC_BASE_URL`, `YOUTUBE_API_KEY`, `CORS_ORIGINS`). Không ai đoán ra phải
+  cấu hình gì để bắt đầu.
+
+**Số test: 233 chạy + 184 skip (tổng 417), tám file test mới.** Ruff và
+`mypy --strict` sạch. Phần skip là phần cần Mongo/Meilisearch — máy dev không
+có Docker, CI là nơi chúng chạy thật.
+
+**Còn nợ, đã ghi rõ chỗ nào trong mã:**
+
+- Ngưỡng `EMBEDDING_THRESHOLD` chưa hiệu chỉnh trên dữ liệu thật.
+- Đáy lịch sử **trước khi ta bắt đầu theo dõi** vẫn chưa có: cần đấu
+  `adapters/cheapshark` (`cheapestPriceEver`) vào `record_prices`. Adapter đã
+  viết và có test, chưa có job nào gọi.
+- `adapters/gog` cũng chưa có job nào gọi.
+- Sitemap và structured data của Phase 4 chưa có (chỉ có meta tag động).
+- Ảnh thẻ chia sẻ vẫn dùng font bitmap mặc định của Pillow — **không có dấu
+  tiếng Việt**. Cần kèm một file `.ttf` Unicode vào image Docker.
+- `POST /library/epic/bulk` vẫn trả 501: cần job Epic đánh dấu game free theo
+  tuần trước đã.
 
 ---
 

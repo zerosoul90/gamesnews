@@ -2,41 +2,55 @@ from typing import Any
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
 from app.api.auth import get_current_user_id
 from app.core.deps import MongoDep
+from app.core.serialization import jsonify_docs
 from app.models.community import UserReview
 from app.services.community import award_badge, calculate_game_score
 
 router = APIRouter(prefix="/community", tags=["community"])
 
 
+class ReviewRequest(BaseModel):
+    """Thân request của `POST /community/reviews`.
+
+    Bản trước nhận `dict[str, Any]` rồi tự kiểm bằng tay, và cách kiểm đó có
+    hai lỗ: `if not score` coi **điểm 0 là thiếu điểm**, và không có gì chặn
+    `score = 999` hay `score = -3` đi thẳng vào phép tính trung bình. Khai
+    model để pydantic chặn ngay ở biên và OpenAPI mô tả đúng.
+    """
+
+    game_id: str
+    # Khớp đúng ràng buộc của `UserReview`: sai lệch ở đây thì request qua được
+    # biên API rồi mới chết ở tầng model, và client nhận 500 thay vì 422.
+    score: int = Field(ge=1, le=10)
+    comment: str | None = None
+
 
 @router.post("/reviews")
 async def post_review(
-    review_data: dict[str, Any],
+    review_data: ReviewRequest,
     db: MongoDep,
     user_id: str = Depends(get_current_user_id),
 ) -> dict[str, Any]:
     """Đăng hoặc sửa review cho 1 game"""
-    game_id = review_data.get("game_id")
-    score = review_data.get("score")
-    comment = review_data.get("comment")
+    if not ObjectId.is_valid(review_data.game_id):
+        raise HTTPException(status_code=400, detail="game_id không hợp lệ")
 
-    if not game_id or not score:
-        raise HTTPException(status_code=400, detail="Missing game_id or score")
-
+    game_id = ObjectId(review_data.game_id)
     review = UserReview(
         user_id=ObjectId(user_id),
-        game_id=ObjectId(game_id),
-        score=score,
-        comment=comment
+        game_id=game_id,
+        score=review_data.score,
+        comment=review_data.comment,
     )
 
     await db.user_reviews.update_one(
-        {"user_id": ObjectId(user_id), "game_id": ObjectId(game_id)},
+        {"user_id": ObjectId(user_id), "game_id": game_id},
         {"$set": review.to_mongo()},
-        upsert=True
+        upsert=True,
     )
 
     # Trao badge 'reviewer' cho bài đánh giá đầu tiên
@@ -47,19 +61,18 @@ async def post_review(
 
 @router.get("/games/{game_id}/reviews/score")
 async def get_game_score(game_id: str, db: MongoDep) -> dict[str, Any]:
-    """Lấy điểm số trung bình của game (ẩn nếu < 20 lượt)"""
+    """Điểm trung bình của game. Dưới 20 lượt thì `average_score` là null."""
+    if not ObjectId.is_valid(game_id):
+        raise HTTPException(status_code=400, detail="game_id không hợp lệ")
     score = await calculate_game_score(db, game_id)
-    # Game chưa đủ lượt đánh giá thì service trả None — `SCHEMA`/PHASE-8 quy
-    # định ẩn điểm dưới 20 lượt. Trả về object nói rõ trạng thái, đừng để
-    # client tự đoán từ một cái null.
-    if score is None:
-        return {"score": None, "hidden": True, "reason": "chưa đủ 20 lượt đánh giá"}
-    return score
+    # Service luôn trả dict; giữ nhánh này để mypy thấy kiểu thu hẹp đúng.
+    return score or {"average_score": None, "review_count": 0, "is_hidden": True}
 
 
 @router.get("/users/{user_id}/badges")
 async def get_user_badges(user_id: str, db: MongoDep) -> list[dict[str, Any]]:
     """Xem danh hiệu của 1 user"""
+    if not ObjectId.is_valid(user_id):
+        raise HTTPException(status_code=400, detail="user_id không hợp lệ")
     cursor = db.user_badges.find({"user_id": ObjectId(user_id)})
-    badges = await cursor.to_list(length=100)
-    return badges
+    return jsonify_docs(await cursor.to_list(length=100))

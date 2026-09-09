@@ -6,53 +6,54 @@
     </div>
     
     <div class="flex gap-2">
-      <select class="bg-slate-800 border border-slate-700 text-white rounded px-3 py-2 outline-none">
-        <option>Sắp xếp: Khuyến mãi tốt nhất</option>
-        <option>Sắp xếp: Giá thấp nhất</option>
+      <select class="bg-slate-800 border border-slate-700 text-white rounded px-3 py-2 outline-none" (change)="onFilterChange($event)">
+        <option value="worth_buying">Đáng mua (Đáy lịch sử / Giảm > 50%)</option>
+        <option value="historical_low">Chỉ hiện Đáy lịch sử</option>
+        <option value="">Tất cả Deals</option>
       </select>
     </div>
   </div>
 
-  <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
+  <div *ngIf="isLoading" class="text-center py-12 text-slate-400">
+    Đang tải danh sách deals...
+  </div>
+
+  <div *ngIf="!isLoading && deals.length === 0" class="text-center py-12 text-slate-400">
+    Không có deal nào phù hợp với bộ lọc hiện tại.
+  </div>
+
+  <div *ngIf="!isLoading && deals.length > 0" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
     <!-- Thẻ Game Deal -->
-    <a href="/game/cyberpunk-2077" class="bg-slate-800 rounded-lg overflow-hidden border border-slate-700 hover:border-blue-500 transition-colors group block relative">
-      <div class="absolute top-0 right-0 bg-red-600 text-white font-bold px-3 py-1 rounded-bl-lg z-10">
-        -50%
+    <a *ngFor="let deal of deals" [routerLink]="['/game', deal.game_details?.slug || deal.game_id]" class="bg-slate-800 rounded-lg overflow-hidden border border-slate-700 hover:border-blue-500 transition-colors group block relative">
+      <div *ngIf="deal.discount_percent > 0" class="absolute top-0 right-0 bg-red-600 text-white font-bold px-3 py-1 rounded-bl-lg z-10">
+        -{{deal.discount_percent}}%
       </div>
-      <div class="absolute top-0 left-0 bg-yellow-500 text-black font-bold px-2 py-1 text-xs rounded-br-lg z-10">
+      <div *ngIf="deal.is_historical_low" class="absolute top-0 left-0 bg-yellow-500 text-black font-bold px-2 py-1 text-xs rounded-br-lg z-10">
         Đáy lịch sử
       </div>
       <div class="aspect-video bg-slate-700 relative overflow-hidden">
-        <img src="https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1091500/header.jpg" alt="Cyberpunk 2077" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+        <img *ngIf="deal.game_details?.cover_image_url; else noCover"
+             [src]="deal.game_details?.cover_image_url"
+             [alt]="deal.game_details?.title || 'Game chưa có tên'"
+             loading="lazy"
+             class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+        <!-- Không gọi ra placeholder.com: thẻ ảnh trỏ ra dịch vụ ngoài thì
+             mỗi lần tải trang là một lượt yêu cầu tới bên thứ ba, và ngày nó
+             chết thì cả lưới deal đầy ảnh vỡ. Ô xám tự vẽ thì luôn hiện. -->
+        <ng-template #noCover>
+          <div class="w-full h-full flex items-center justify-center text-slate-500 text-sm">
+            Chưa có ảnh
+          </div>
+        </ng-template>
       </div>
       <div class="p-4">
         <div class="flex items-center gap-2 mb-2">
-          <span class="bg-slate-700 text-slate-300 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider">Steam</span>
+          <span class="bg-slate-700 text-slate-300 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider">{{deal.store}}</span>
         </div>
-        <h3 class="font-bold text-white mb-1 group-hover:text-blue-400 truncate text-lg">Cyberpunk 2077</h3>
+        <h3 class="font-bold text-white mb-1 group-hover:text-blue-400 truncate text-lg">{{deal.game_details?.title || 'Game chưa có tên'}}</h3>
         <div class="flex items-end gap-2 mt-4">
-          <span class="text-xl font-bold text-green-400">495.000₫</span>
-          <span class="text-sm text-slate-500 line-through mb-0.5">990.000₫</span>
-        </div>
-      </div>
-    </a>
-    
-    <!-- MOCK Thêm thẻ deal (Trong thực tế sẽ dùng *ngFor) -->
-    <a href="/game/red-dead-redemption-2" class="bg-slate-800 rounded-lg overflow-hidden border border-slate-700 hover:border-blue-500 transition-colors group block relative">
-      <div class="absolute top-0 right-0 bg-red-600 text-white font-bold px-3 py-1 rounded-bl-lg z-10">
-        -67%
-      </div>
-      <div class="aspect-video bg-slate-700 relative overflow-hidden">
-        <img src="https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1174180/header.jpg" alt="Red Dead Redemption 2" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
-      </div>
-      <div class="p-4">
-        <div class="flex items-center gap-2 mb-2">
-          <span class="bg-slate-700 text-slate-300 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider">Epic Games</span>
-        </div>
-        <h3 class="font-bold text-white mb-1 group-hover:text-blue-400 truncate text-lg">Red Dead Redemption 2</h3>
-        <div class="flex items-end gap-2 mt-4">
-          <span class="text-xl font-bold text-green-400">330.000₫</span>
-          <span class="text-sm text-slate-500 line-through mb-0.5">1.000.000₫</span>
+          <span class="text-xl font-bold text-green-400">{{deal.price_final.toLocaleString('vi-VN')}}₫</span>
+          <span class="text-sm text-slate-500 line-through mb-0.5" *ngIf="deal.price_initial > deal.price_final">{{deal.price_initial.toLocaleString('vi-VN')}}₫</span>
         </div>
       </div>
     </a>

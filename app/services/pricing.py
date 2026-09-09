@@ -9,6 +9,9 @@ from app.models.game import PyObjectId
 from app.models.price import PriceCurrent, PriceHistory
 from app.services.notification import NotificationPayload, process_notification
 
+# Số lần quan sát tối thiểu trước khi được phép nói "đang ở đáy lịch sử".
+MIN_OBSERVATIONS_FOR_LOW = 2
+
 
 async def record_prices(
     db: AsyncIOMotorDatabase[dict[str, Any]],
@@ -47,10 +50,14 @@ async def record_prices(
         price_changed = True
         lowest_ever = new_price.price_final
         lowest_ever_date = now
+        # Số lần ta ĐÃ THẬT SỰ nhìn thấy giá của game này. Xem chú thích về
+        # `is_historical_low` bên dưới.
+        observations = 1
 
         if old_price:
             prev_final = old_price.get("price_final")
             prev_lowest = old_price.get("lowest_ever")
+            observations = int(old_price.get("observations") or 1) + 1
 
             # Chỉ ghi lịch sử khi giá (hoặc %) thực sự đổi
             if (
@@ -66,10 +73,26 @@ async def record_prices(
 
         new_price.lowest_ever = lowest_ever
         new_price.lowest_ever_date = lowest_ever_date
+        # "Đang ở đáy lịch sử" là một lời khẳng định với người dùng, và ở lượt
+        # quét ĐẦU TIÊN ta không có cơ sở nào để nói nó. Lúc đó `lowest_ever`
+        # chính là giá vừa đọc được, nên `price_final <= lowest_ever` luôn
+        # đúng — bản trước vì thế gắn cờ đáy cho **toàn bộ catalog** ngay lượt
+        # chạy đầu, và `/deals` sắp xếp theo đúng cái cờ đó.
+        #
+        # Ta chỉ có lịch sử từ lần đọc thứ hai trở đi. Bỏ sót một game thật sự
+        # đang ở đáy trong đúng một chu kỳ là cái giá rẻ; nói với cả triệu người
+        # rằng mọi game đều đang ở đáy thì không.
+        #
+        # (Đáy THẬT — trước khi ta bắt đầu theo dõi — phải lấy từ nguồn ngoài;
+        # `adapters/cheapshark` có `cheapestPriceEver` cho đúng việc này, chưa
+        # đấu vào đây.)
         new_price.is_historical_low = (
-            new_price.price_final <= lowest_ever and new_price.price_final > 0
+            observations >= MIN_OBSERVATIONS_FOR_LOW
+            and new_price.price_final <= lowest_ever
+            and new_price.price_final > 0
         )
         new_price.checked_at = now
+        new_price.observations = observations
 
         current_ops.append(
             UpdateOne(
@@ -128,7 +151,12 @@ async def _check_price_alerts_batch(
 
     async for alert in cursor:
         game_id = alert["game_id"]
-        price = price_map[game_id]
+        price = price_map.get(game_id)
+        if price is None:
+            # Không thể xảy ra với truy vấn `$in` ở trên, trừ khi kiểu của
+            # `game_id` trong `price_alerts` lệch. Bỏ qua chứ đừng để một dòng
+            # dữ liệu lệch kiểu làm hỏng cả lô cảnh báo còn lại.
+            continue
 
         condition = alert.get("condition")
         value = alert.get("value")

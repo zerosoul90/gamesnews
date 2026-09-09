@@ -157,5 +157,7 @@ async def _refresh(db: Db, existing_doc: dict[str, Any], incoming: Game) -> Stor
     if document["content_hash"] == existing_doc.get("content_hash"):
         return "unchanged"
 
-    await games(db).update_one({"_id": existing_doc["_id"]}, {"$set": document})
+    await games(db).update_one(
+        {"_id": existing_doc["_id"]}, {"$set": document, "$unset": {"embedding_hash": ""}}
+    )
     return "updated"
