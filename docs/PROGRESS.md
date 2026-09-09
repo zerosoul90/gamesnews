@@ -1,7 +1,7 @@
 # PROGRESS.md — Tiến độ
 
 **Phase hiện tại:** Phase 1 — Catalog + Search
-**Cập nhật lần cuối:** 2026-09-08
+**Cập nhật lần cuối:** 2026-09-09
 
 Phase 0 đã đạt toàn bộ checkpoint nghiệm thu. Chỉ còn mục 7 (đăng ký key ngoài)
 là việc của người dùng, Phase 1 mới cần tới.
@@ -525,6 +525,64 @@ game cha. **CI xanh.**
 **Chưa chạy hết một lượt thật vào Mongo** — máy dev không có Docker. Checkpoint
 "catalog ≥ 50.000 game" vì vậy vẫn chưa đóng được, dù nguồn đã chứng minh có
 184.981 game: còn thiếu đúng một lượt chạy job trên máy có Docker.
+
+### 2026-09-09 — Review Phase 2-8 và thay sáu mock bằng bản thật
+
+Antigravity đã dựng khung Phase 2 tới Phase 8. Lượt này review, sửa lỗi, rồi
+thay lần lượt các phần còn là mock.
+
+**Trạng thái lúc nhận:** cây nguồn **không import nổi** — `SlidingWindowRateLimiter`
+được gọi tên nhưng chưa bao giờ viết. Nghĩa là Phase 2-8 chưa từng có dòng nào
+chạy, và 249 test của Phase 0-1 cũng không collect được. Sau khi dựng lại ba
+cổng (ruff 203 lỗi, mypy 56 lỗi), tám lỗi thật lộ ra:
+
+| Loại | Lỗi |
+|---|---|
+| Bảo mật | Webhook Twitch kiểm chữ ký bằng secret mặc định `"your_webhook_secret_here"` viết cứng trong mã nguồn công khai — ai cũng ký được notification hợp lệ |
+| Sai dữ liệu | `notification.py` nuốt lỗi khi kiểm "đã sở hữu game chưa" rồi gửi tiếp — một lần Mongo trục trặc là báo giảm giá cho game người ta đã mua |
+| Mất dữ liệu | `asyncio.create_task` không giữ tham chiếu → thông báo bị thu gom rác giữa chừng |
+| Luôn hỏng | `epic/adapter.py` gọi `normalize` hai lần; ba cách lấy database, hai cách sai (`app.state.db` không tồn tại, `clients.mongo` là client chứ không phải database) |
+| Im lặng không chạy | Pillow không khai báo → ảnh thẻ chia sẻ không bao giờ sinh được mà cũng không báo gì |
+| Nói dối client | `POST /library/epic/bulk` trả `{"status": "ok"}` cho việc nó không làm |
+
+**Sáu mock đã thay, mỗi cái kèm test thật:**
+
+| Mock | Vấn đề thật, không chỉ là dữ liệu giả |
+|---|---|
+| `entity_matcher` | Thuật toán sai hẳn: so CẢ tiêu đề với alias bằng SequenceMatcher rồi đòi >= 0.85, nên tiêu đề tin thật luôn ra ~0.4 và tầng 2 gần như không bao giờ khớp được gì |
+| `steam_pricing` phân tầng | Chưa có tầng nào; kèm phép tính quota lật ngược giả định của tài liệu |
+| `rollup` + `metrics` | `calculate_hotness(db, game_id)` **không tính percentile được** vì percentile là vị trí trong quần thể; `ts` lưu dạng chuỗi nên `$dateTrunc` không chạy và time-series collection không tạo được |
+| WebSub YouTube | Endpoint verify khai `hub_mode` thay vì `hub.mode` nên **subscription chưa từng thành lập được**; không kiểm chữ ký; không gia hạn |
+| FCM | Hệ thống **chưa bao giờ biết gửi tới đâu** — không có chỗ nào lưu token thiết bị |
+| Ảnh thẻ chia sẻ | Vẽ giá `595.000 VND` viết cứng cho mọi game, đăng thẳng lên Facebook/Zalo |
+
+**Quyết định phát sinh:**
+
+- **Qdrant chưa vào nhóm bắt buộc của `/health`** dù `PHASE-6.md` yêu cầu, vì
+  `embedding_match` vẫn là stub — chưa ai đọc Qdrant. Và kể cả khi Phase 6
+  chạy thật, Qdrant chỉ phục vụ gắn entity cho tin tức; 503 vì nó là tắt cả
+  trang vì một nhánh phụ. Ghi rõ trong `api/health.py` khi nào thì lật cờ.
+- **`user_library` không được làm tín hiệu tầng hot.** Đó là game đã sở hữu, mà
+  `CLAUDE.md` cấm báo giảm giá cho nhóm này.
+- **Momentum tính trên percentile nên đo ĐỔI THỨ HẠNG, không đo tăng trưởng
+  tuyệt đối.** Một test sai vì giả định ngược lại: quần thể hai game thì hạng
+  luôn là {0.5, 1.0} dù giá trị nhảy bao nhiêu lần.
+- **Alias do người duyệt chỉ định, không tự cắt từ tiêu đề.** Nhét cả câu
+  "Elden Ring hé lộ ngày ra mắt" vào aliases thì lần sau mọi bài có cụm "hé lộ
+  ngày ra mắt" đều khớp vào game đó.
+- Thêm `pyjwt[crypto]` (ký RS256 cho FCM v1) và `pillow`.
+
+**Số test: 249 -> 329.** Phase 2-8 lúc nhận có **0 test**.
+
+**Chưa nghiệm thu được:**
+
+- Checkpoint Phase 1 "catalog >= 50.000 game" vẫn chưa đóng: cần chạy thật hai
+  job Steam trên máy có Docker.
+- Cú gọi cuối tới `fcm.googleapis.com` — cần một dự án Firebase thật.
+- Tầng 3 gắn entity (Qdrant) chưa bật: cần quyết định backend sinh vector,
+  một collection Qdrant, và một đợt nạp vector cho toàn catalog.
+- `get_top_sellers_vn` trả `[]`: `getappsincategory?category=topsellers&cc=vn`
+  trả `{"status": 1}` rỗng, không có items (kiểm tay 2026-09-09).
 
 ---
 
