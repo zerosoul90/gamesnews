@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     # Timeout cho mọi lần ping phụ thuộc trong /health, tính bằng giây.
     health_timeout_seconds: float = Field(default=2.0, gt=0)
 
+    # Timeout HTTP của worker, tính bằng giây. Phải rộng hơn hẳn
+    # `health_timeout_seconds`: một /health chậm 2 giây là hỏng, còn một job
+    # đẩy batch nghìn document sang Meilisearch hay gọi Steam mất vài giây là
+    # bình thường. Dùng chung trần của /health thì job đứt giữa chừng.
+    job_timeout_seconds: float = Field(default=30.0, gt=0)
+
     # --- Admin ---
     #
     # Phase 3 mới có auth thật. Tới lúc đó, một token tĩnh là thứ duy nhất

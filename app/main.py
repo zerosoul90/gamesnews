@@ -25,6 +25,7 @@ from app.api.webhooks import router as webhooks_router
 from app.core.bootstrap import ensure_storage
 from app.core.config import get_settings
 from app.core.db import close_clients, create_clients
+from app.core.deps import build_meili
 from app.core.logging import new_request_id, request_id_var, setup_logging
 from app.services.admin import AdminError
 from app.services.catalog import CatalogError
@@ -48,7 +49,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Mongo chết thì app vẫn phải lên được: `/health` mới là chỗ nói ra điều
     # đó, còn tiến trình chết lúc khởi động thì không ai đọc được gì.
     try:
-        await ensure_storage(app.state.clients.db)
+        await ensure_storage(
+            app.state.clients.db, build_meili(app.state.clients, settings)
+        )
     except Exception:
         logger.exception("không dựng được index lúc khởi động")
 

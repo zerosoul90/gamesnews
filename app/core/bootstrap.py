@@ -25,6 +25,7 @@ from typing import Any
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.jobs import news
+from app.search.meili import MeiliIndex
 from app.services import catalog, devices, entity_review, price_tier, rollup, steam_queue
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,7 @@ logger = logging.getLogger(__name__)
 Db = AsyncIOMotorDatabase[dict[str, Any]]
 
 
-async def ensure_storage(db: Db) -> dict[str, int]:
+async def ensure_storage(db: Db, index: MeiliIndex | None = None) -> dict[str, int]:
     """Tạo mọi index và collection mà hệ thống dựa vào. Trả về số index mỗi nhóm.
 
     Không để lỗi ở đây làm app chết: một `create_indexes` hỏng vì index cùng
@@ -68,6 +69,18 @@ async def ensure_storage(db: Db) -> dict[str, int]:
         await rollup.ensure_indexes(db)
     except Exception:
         logger.exception("không dựng được time-series game_metrics")
+
+    # Index Meilisearch cũng chưa từng được dựng ở môi trường thật: nó chỉ được
+    # tạo bên trong `reindex()`, mà job đó chưa chạy lần nào trên một deploy
+    # mới. Hậu quả lộ ra ngay chứ không âm thầm như phía Mongo — `/search` ném
+    # 500 `index_not_found` cho mọi truy vấn, trong khi `/health` vẫn báo cả
+    # bốn kho `ok` vì Meilisearch sống, chỉ là chưa có index.
+    if index is not None:
+        try:
+            await index.ensure_index()
+            created["meili_games"] = 1
+        except Exception:
+            logger.exception("không dựng được index Meilisearch")
 
     logger.info("đã dựng index", extra=created)
     return created

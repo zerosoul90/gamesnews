@@ -810,3 +810,44 @@ Khởi động lõi thu thập tin tức của GameNews. Module này phải gi�
 - Khai báo thêm phụ thuộc `simhash`, `beautifulsoup4`, `feedparser` qua `uv`.
 - Nâng cấp `qdrant` thành Required Dependency (503 nếu rớt) trong Healthcheck.
 - **Nghiệm thu**: Chạy Script test với feed IGN, kéo thành công 20 bài, lọc simhash và log tỷ lệ khớp hoàn hảo. Đã fix lỗi Unicode (`cp1252`) trên PowerShell Windows trong lúc test.
+
+### 2026-09-09 — `/search` chết trên mọi deploy mới
+
+Chạy thử bằng Docker. Stack đang chạy thì bình thường, 441 test xanh, nhưng dựng
+một stack **sạch** (`-p gamesnews-fresh`, volume riêng) thì `/health` báo `ok`
+cả bốn kho mà **mọi truy vấn `/search` trả 500**:
+
+```
+MeiliError: POST /indexes/games/search -> 404: Index `games` not found.
+```
+
+`core/bootstrap.py` đã gom mọi `ensure_indexes` của Mongo, nhưng bỏ sót phía
+Meilisearch: `index.ensure_index()` chỉ được gọi **bên trong `reindex()`**, mà
+job đó chưa chạy lần nào trên deploy mới. `/health` không bắt được vì
+Meilisearch *sống* — nó chỉ chưa có index.
+
+**Đã sửa:**
+
+- `ensure_storage(db, index=None)` nhận thêm `MeiliIndex` và dựng luôn index
+  Meili. Cả `main.py` lẫn worker truyền vào; log giờ có `meili_games: 1`.
+- `/search` bắt đúng mã `index_not_found` → **503**. Mọi mã lỗi Meili khác vẫn
+  nổi lên thành 500: nuốt hết thì một master key sai cũng thành "chưa sẵn sàng"
+  và sẽ không có ai đi sửa.
+- `MeiliError` mang thêm `code`, để so theo mã thay vì dò chuỗi trong message.
+- `build_meili()` trong `core/deps.py` — trước đó `MeiliIndex` được dựng ở hai
+  chỗ với hai bản sao cùng một cách đọc master key.
+- **`JOB_TIMEOUT_SECONDS` (30s) tách khỏi `HEALTH_TIMEOUT_SECONDS`.** Phát hiện
+  lúc sửa: worker dùng chung `httpx.AsyncClient` có trần **2 giây** của
+  `/health`, mà đẩy một batch 1000 document sang Meilisearch thì đứt giữa chừng.
+
+**Nghiệm thu lại trên stack trắng:** `/search` trả 200 rỗng thay vì 500; log app
+và worker đều có `meili_games: 1`; xoá index rồi gọi lại thì đúng 503, không
+traceback. 441 test xanh (+6 mới), ruff + mypy sạch.
+
+**Đáng ghi vì đây là lần thứ ba cùng một dạng lỗi.** Trước đó: `docker compose
+config` hợp lệ không suy ra service container CI chạy được; `ensure_indexes` có
+test nhưng chưa ai gọi ở môi trường thật. Lần này `core/bootstrap.py` đã sinh ra
+để chữa đúng bệnh đó mà vẫn sót một kho. **Test xanh không thay được một lần
+dựng deploy trắng** — và cách kiểm rẻ, không phá dữ liệu dev:
+`APP_PORT=8001 docker compose -p gamesnews-fresh -f docker-compose.yml up -d`
+(phải chỉ rõ `-f` để bỏ qua override file đang bind cổng), xong thì `down -v`.

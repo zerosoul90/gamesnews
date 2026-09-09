@@ -29,14 +29,24 @@ def get_db(clients: ClientsDep) -> AsyncIOMotorDatabase[dict[str, Any]]:
 MongoDep = Annotated[AsyncIOMotorDatabase[dict[str, Any]], Depends(get_db)]
 
 
-def get_meili(clients: ClientsDep, settings: SettingsDep) -> MeiliIndex:
-    """Master key chỉ ở phía server. Client không bao giờ nói thẳng với
-    Meilisearch — mọi truy vấn đi qua `/search` của ta."""
+def build_meili(clients: Clients, settings: Settings) -> MeiliIndex:
+    """Dựng `MeiliIndex` từ client dùng chung.
+
+    Không phải dependency của FastAPI: lifespan trong `main.py` và `startup`
+    của worker đều cần đúng cách dựng này mà không có `Request` nào để đi qua
+    `Depends`. Giữ một chỗ duy nhất đọc master key.
+    """
     return MeiliIndex(
         clients.http,
         settings.meili_url,
         settings.meili_master_key.get_secret_value(),
     )
+
+
+def get_meili(clients: ClientsDep, settings: SettingsDep) -> MeiliIndex:
+    """Master key chỉ ở phía server. Client không bao giờ nói thẳng với
+    Meilisearch — mọi truy vấn đi qua `/search` của ta."""
+    return build_meili(clients, settings)
 
 
 MeiliDep = Annotated[MeiliIndex, Depends(get_meili)]

@@ -34,15 +34,25 @@ class Clients:
         return self.mongo[self.db_name]
 
 
-async def create_clients(settings: Settings) -> Clients:
+async def create_clients(
+    settings: Settings, *, timeout_seconds: float | None = None
+) -> Clients:
+    """Mở các client dùng chung một vòng đời.
+
+    `timeout_seconds` để worker nới trần thời gian: mặc định lấy theo
+    `health_timeout_seconds` vì API phải trả lời `/health` thật nhanh, nhưng
+    một job đẩy cả nghìn document sang Meilisearch thì 2 giây là quá ngắn và sẽ
+    đứt giữa chừng. Xem `app/jobs/worker.py`.
+    """
+    timeout = settings.health_timeout_seconds if timeout_seconds is None else timeout_seconds
     mongo: AsyncIOMotorClient[dict[str, Any]] = AsyncIOMotorClient(
         settings.mongo_uri,
         # Không để driver treo mãi khi Mongo chết; /health phải trả lời nhanh.
-        serverSelectionTimeoutMS=int(settings.health_timeout_seconds * 1000),
+        serverSelectionTimeoutMS=int(timeout * 1000),
         tz_aware=True,
     )
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
-    http = httpx.AsyncClient(timeout=settings.health_timeout_seconds)
+    http = httpx.AsyncClient(timeout=timeout)
     qdrant = AsyncQdrantClient(
         url=settings.qdrant_url,
         # Không dò phiên bản server lúc khởi tạo: client sẽ gọi mạng ngay trong

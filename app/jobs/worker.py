@@ -23,6 +23,7 @@ from arq.cron import CronJob, cron
 from app.core.bootstrap import ensure_storage
 from app.core.config import get_settings
 from app.core.db import close_clients, create_clients
+from app.core.deps import build_meili
 from app.core.logging import new_request_id, request_id_var, setup_logging
 from app.jobs.embeddings import sync_game_embeddings
 from app.jobs.metrics import job_compute_hotness, job_fetch_steam_ccu, job_rollup_metrics
@@ -32,7 +33,6 @@ from app.jobs.notification_digest import send_notification_digest
 from app.jobs.steam_catalog import sync_steam_app_list, sync_steam_details
 from app.jobs.steam_pricing import recompute_price_tiers, sync_steam_prices
 from app.jobs.streamer import job_renew_youtube_websub, job_sync_streamers
-from app.search.meili import MeiliIndex
 
 logger = logging.getLogger(__name__)
 
@@ -47,17 +47,18 @@ async def startup(ctx: dict[str, Any]) -> None:
     settings = get_settings()
     setup_logging(settings.log_level)
 
-    clients = await create_clients(settings)
+    # Trần thời gian rộng hơn API: `/health` chậm 2 giây là hỏng, còn một job
+    # đẩy batch nghìn document sang Meilisearch mất vài giây là bình thường.
+    # Dùng chung trần của /health thì job đứt giữa chừng.
+    clients = await create_clients(settings, timeout_seconds=settings.job_timeout_seconds)
     ctx["clients"] = clients
     # Master key chỉ ở phía server, giống hệt bên API.
-    ctx["meili"] = MeiliIndex(
-        clients.http, settings.meili_url, settings.meili_master_key.get_secret_value()
-    )
+    ctx["meili"] = build_meili(clients, settings)
     # Worker hay khởi động TRƯỚC API (compose không ràng buộc thứ tự giữa hai
     # cái), và job đầu tiên chạy có thể ghi trước khi API kịp dựng index. Dựng
     # ở cả hai chỗ; `ensure_storage` chạy lại được nên không hại gì.
     try:
-        await ensure_storage(clients.db)
+        await ensure_storage(clients.db, ctx["meili"])
     except Exception:
         logger.exception("không dựng được index lúc khởi động worker")
 

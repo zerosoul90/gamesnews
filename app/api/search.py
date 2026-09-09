@@ -7,15 +7,21 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.core.deps import MeiliDep
-from app.search.meili import FILTERABLE_ATTRIBUTES
+from app.search.meili import FILTERABLE_ATTRIBUTES, INDEX_NOT_FOUND, MeiliError
 
 router = APIRouter(tags=["search"])
 
 MAX_PER_PAGE = 50
+
+# Index Meilisearch chưa tồn tại nghĩa là `ensure_storage` chưa dựng được nó —
+# hạ tầng chưa sẵn sàng, không phải "catalog rỗng". Trả 200 kèm danh sách rỗng
+# ở đây thì một deploy hỏng trông y hệt một deploy chạy đúng nhưng chưa có dữ
+# liệu, và sẽ không ai biết để đi sửa.
+INDEX_NOT_READY_DETAIL = "index tìm kiếm chưa sẵn sàng"
 
 
 class SearchHit(BaseModel):
@@ -79,13 +85,21 @@ async def search(
     ]
     filters = [group for group in groups if group]
 
-    result = await index.search(
-        q,
-        filters=filters,
-        facets=FILTERABLE_ATTRIBUTES,
-        limit=per_page,
-        offset=(page - 1) * per_page,
-    )
+    try:
+        result = await index.search(
+            q,
+            filters=filters,
+            facets=FILTERABLE_ATTRIBUTES,
+            limit=per_page,
+            offset=(page - 1) * per_page,
+        )
+    except MeiliError as exc:
+        # Chỉ nuốt đúng trường hợp này. Mọi mã lỗi Meilisearch khác vẫn nổi lên
+        # thành 500 — bắt hết rồi trả 503 thì một master key sai cũng thành
+        # "chưa sẵn sàng" và sẽ không có ai đi sửa.
+        if exc.code != INDEX_NOT_FOUND:
+            raise
+        raise HTTPException(status_code=503, detail=INDEX_NOT_READY_DETAIL) from exc
 
     raw_facets: dict[str, dict[str, Any]] = result.get("facetDistribution") or {}
     return SearchResponse(

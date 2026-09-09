@@ -52,8 +52,36 @@ RANKING_RULES = [
 TYPE_RANK = {"game": 0, "bundle": 1, "demo": 2, "dlc": 3}
 
 
+# Mã lỗi của Meilisearch. Cần đến chúng để phân biệt "index chưa được dựng"
+# với "Meilisearch hỏng thật" — hai chuyện đòi hai cách xử lý khác hẳn nhau.
+INDEX_NOT_FOUND = "index_not_found"
+INDEX_ALREADY_EXISTS = "index_already_exists"
+
+
 class MeiliError(RuntimeError):
-    """Meilisearch trả lỗi, hoặc một task ghi thất bại."""
+    """Meilisearch trả lỗi, hoặc một task ghi thất bại.
+
+    `code` là mã lỗi máy đọc được của Meilisearch. Nơi gọi cần phân biệt các
+    trường hợp thì so theo nó, đừng dò chuỗi trong message — message có kèm cả
+    body cắt ngắn, đổi lúc nào không hay.
+    """
+
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def _error_code(response: httpx.Response) -> str | None:
+    """Lấy `code` trong body lỗi, chịu được body không phải JSON.
+
+    Lỗi từ proxy hay từ tầng mạng không có dạng JSON của Meilisearch; lúc đó
+    không có mã nào để trả về và nơi gọi phải coi như lỗi lạ.
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    return body.get("code") if isinstance(body, dict) else None
 
 
 def to_search_document(doc: dict[str, Any]) -> dict[str, Any]:
@@ -107,7 +135,10 @@ class MeiliIndex:
             method, f"{self._base}{path}", headers=self._headers, **kwargs
         )
         if response.status_code >= 400:
-            raise MeiliError(f"{method} {path} -> {response.status_code}: {response.text[:300]}")
+            raise MeiliError(
+                f"{method} {path} -> {response.status_code}: {response.text[:300]}",
+                code=_error_code(response),
+            )
         return response.json() if response.content else None
 
     async def wait_for_task(
@@ -134,9 +165,10 @@ class MeiliIndex:
                 return
             if status == "failed":
                 error = task.get("error") or {}
-                if error.get("code") in ignore_error_codes:
+                code = error.get("code")
+                if code in ignore_error_codes:
                     return
-                raise MeiliError(f"task {task_uid} hỏng: {error}")
+                raise MeiliError(f"task {task_uid} hỏng: {error}", code=code)
             if time.monotonic() > deadline:
                 raise MeiliError(
                     f"task {task_uid} quá {timeout_seconds}s vẫn ở trạng thái {status}"
@@ -154,7 +186,7 @@ class MeiliIndex:
             "POST", "/indexes", json={"uid": self._uid, "primaryKey": PRIMARY_KEY}
         )
         await self.wait_for_task(
-            task["taskUid"], ignore_error_codes=frozenset({"index_already_exists"})
+            task["taskUid"], ignore_error_codes=frozenset({INDEX_ALREADY_EXISTS})
         )
 
         task = await self._request(
@@ -182,7 +214,7 @@ class MeiliIndex:
         """Xoá hẳn index. Index không tồn tại thì coi như xong."""
         task = await self._request("DELETE", f"/indexes/{self._uid}")
         await self.wait_for_task(
-            task["taskUid"], ignore_error_codes=frozenset({"index_not_found"})
+            task["taskUid"], ignore_error_codes=frozenset({INDEX_NOT_FOUND})
         )
 
     async def delete_document(self, document_id: str) -> None:
