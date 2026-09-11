@@ -113,22 +113,28 @@ export class GameComponent implements OnInit {
 
   /** Polyline cho sparkline lịch sử giá, trong hệ toạ độ 100x40 của viewBox.
    *
+   *  Quy chiếu về **0**, giống biểu đồ người chơi — bản trước quy chiếu về giá
+   *  thấp nhất trong kỳ, và đó là đúng cái sai lệch mà `playerChart` đã tránh.
+   *  Đo trên dữ liệu thật: World of Goo giảm 165.000 -> 99.000, tức 40%, nhưng
+   *  trục bắt đầu từ min đẩy điểm cuối xuống sát đáy khung (y=40) nên đường vẽ
+   *  trông như giảm 100%. Với zero-based, 99.000 nằm ở y=16 — đúng 60% chiều cao
+   *  còn lại, khớp tỉ lệ thật.
+   *
    *  Dưới 2 điểm thì trả null: một đường thẳng vẽ từ một mốc giá duy nhất trông
-   *  y như "giá không đổi suốt 30 ngày", trong khi sự thật là chưa đủ dữ liệu.
-   *  Giá không đổi trong kỳ cũng cho `span = 0` — chia cho nó ra NaN và đường
-   *  biến mất, nên trường hợp đó vẽ thẳng ở giữa. */
+   *  y như "giá không đổi suốt 30 ngày", trong khi sự thật là chưa đủ dữ liệu. */
   get sparkline(): string | null {
     const points = this.game?.price_history ?? [];
     if (points.length < 2) {
       return null;
     }
     const values = points.map((p) => p.price_final);
-    const min = Math.min(...values);
-    const span = Math.max(...values) - min;
+    const max = Math.max(...values);
     return values
       .map((value, index) => {
         const x = (index / (values.length - 1)) * 100;
-        const y = span === 0 ? 20 : 40 - ((value - min) / span) * 40;
+        // `max === 0` là game free suốt kỳ. Chia cho 0 ra NaN và cả đường biến
+        // mất; vẽ sát đáy mới đúng, vì đáy CHÍNH LÀ mốc 0 trong thang này.
+        const y = max === 0 ? 40 : 40 - (value / max) * 40;
         return `${x.toFixed(2)},${y.toFixed(2)}`;
       })
       .join(' ');
