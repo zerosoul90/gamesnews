@@ -30,11 +30,34 @@ MONGO_TEST_URI = os.getenv("TEST_MONGO_URI", "mongodb://localhost:27017")
 REQUIRE_MONGO = os.getenv("REQUIRE_MONGO") == "1"
 MONGO_TEST_DB = "gamesnews_test"
 
+
+def _key_tu_env_file() -> str:
+    """Đọc `MEILI_MASTER_KEY` từ `.env` ở gốc repo, nếu có.
+
+    Đọc tay chứ không gọi `Settings()`: `Settings` có validator từ chối khởi tạo
+    khi `APP_ENV` khác `dev`, và một biến môi trường vô tình còn sót lại sẽ làm
+    cả bộ test không collect được.
+    """
+    env_file = pathlib.Path(__file__).parent.parent / ".env"
+    if not env_file.exists():
+        return ""
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        name, sep, value = line.partition("=")
+        if sep and name.strip() == "MEILI_MASTER_KEY":
+            return value.strip().strip("\"'")
+    return ""
+
+
 # Meilisearch: chất lượng tìm kiếm tiếng Việt là checkpoint khó nhất của
 # Phase 1 và không có cách nào kiểm bằng mock — nó là hành vi của tokenizer và
 # của ranking rules, không phải của code ta viết.
 MEILI_TEST_URL = os.getenv("TEST_MEILI_URL", "http://localhost:7700")
-MEILI_TEST_KEY = os.getenv("MEILI_MASTER_KEY", "")
+# Biến môi trường đi trước, rồi mới tới `.env`. CI đặt biến; máy dev thì để key
+# trong `.env` và trước đây conftest không đọc file đó — nên chạy `pytest` ở
+# local mà quên `export` thì 10 test `test_search.py` KHÔNG skip mà ERROR với
+# `httpx.LocalProtocolError: Illegal header value b'Bearer '`. Meilisearch sống,
+# chỉ là request đi kèm một key rỗng; thông báo lỗi không hề nhắc tới key.
+MEILI_TEST_KEY = os.getenv("MEILI_MASTER_KEY") or _key_tu_env_file()
 REQUIRE_MEILI = os.getenv("REQUIRE_MEILI") == "1"
 MEILI_TEST_INDEX = "games_test"
 
