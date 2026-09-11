@@ -16,9 +16,23 @@ T0 = 1_700_000_000_000
 
 
 def bucket(
-    redis: Redis, key: str, capacity: int, per_seconds: float, **kw: float
+    redis: Redis,
+    key: str,
+    capacity: int,
+    per_seconds: float,
+    *,
+    max_wait_seconds: float = 30.0,
+    reserve: int = 0,
 ) -> RedisTokenBucket:
-    return RedisTokenBucket(redis, key, RateLimit(capacity, per_seconds), **kw)
+    # Khai tường minh hai kwarg thay vì `**kw: float`: `reserve` là `int`, nên
+    # dạng gom lại làm `mypy app tests` đỏ ngay từ commit thêm `reserve`.
+    return RedisTokenBucket(
+        redis,
+        key,
+        RateLimit(capacity, per_seconds),
+        max_wait_seconds=max_wait_seconds,
+        reserve=reserve,
+    )
 
 
 async def test_bucket_moi_thi_day(redis_client: Redis) -> None:

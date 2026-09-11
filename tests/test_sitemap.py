@@ -17,7 +17,7 @@ from typing import Any
 from xml.etree import ElementTree
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.api import sitemap
@@ -51,12 +51,21 @@ async def add(db: Db, slug: str, primary: str, game_type: str = "game") -> None:
     await upsert_game(db, game, key="steam_appid")
 
 
-def locs(body: bytes | str) -> list[str]:
+def body(response: Response) -> str:
+    """Thân phản hồi dạng chuỗi.
+
+    `Response.body` khai kiểu là `bytes | memoryview[int]`, nên gọi thẳng
+    `.decode()` là `mypy app tests` đỏ — dù ở runtime nó luôn là `bytes`.
+    """
+    return bytes(response.body).decode()
+
+
+def locs(response: Response) -> list[str]:
     """Parse thật bằng trình đọc XML, không dò chuỗi — đó là điều bot sẽ làm."""
     # S314 tắt có chủ ý: dữ liệu vào đây là XML do chính ta vừa sinh ra trong
     # test, không phải đầu vào bên ngoài — kéo thêm `defusedxml` chỉ để đọc nó
     # là thừa.
-    root = ElementTree.fromstring(body)  # noqa: S314
+    root = ElementTree.fromstring(body(response))  # noqa: S314
     return [el.text or "" for el in root.iter(f"{NS}loc")]
 
 
@@ -78,23 +87,23 @@ async def test_robots_van_tra_loi_khi_thieu_base_url(monkeypatch: pytest.MonkeyP
     """Khác sitemap: robots.txt hỏng nghĩa là bot không biết được đọc gì."""
     monkeypatch.setattr(get_settings(), "public_base_url", "")
 
-    body = (await sitemap.robots_txt()).body.decode()
+    txt = body(await sitemap.robots_txt())
 
-    assert "User-agent: *" in body
-    assert "Disallow: /admin" in body
-    assert "Sitemap:" not in body
+    assert "User-agent: *" in txt
+    assert "Disallow: /admin" in txt
+    assert "Sitemap:" not in txt
 
 
 async def test_robots_chi_duong_toi_sitemap(co_base_url: None) -> None:
-    body = (await sitemap.robots_txt()).body.decode()
+    txt = body(await sitemap.robots_txt())
 
-    assert f"Sitemap: {BASE}/sitemap.xml" in body
+    assert f"Sitemap: {BASE}/sitemap.xml" in txt
 
 
 async def test_index_tro_toi_du_so_trang(mongo_db: Db, co_base_url: None) -> None:
     await add(mongo_db, "game-mot", "Game Một")
 
-    urls = locs((await sitemap.sitemap_index(mongo_db)).body)
+    urls = locs(await sitemap.sitemap_index(mongo_db))
 
     assert f"{BASE}/sitemap-pages.xml" in urls
     assert f"{BASE}/sitemap-games-1.xml" in urls
@@ -102,7 +111,7 @@ async def test_index_tro_toi_du_so_trang(mongo_db: Db, co_base_url: None) -> Non
 
 async def test_catalog_rong_van_co_mot_file_con(mongo_db: Db, co_base_url: None) -> None:
     """Index không trỏ đi đâu là cấu trúc Search Console báo lỗi."""
-    urls = locs((await sitemap.sitemap_index(mongo_db)).body)
+    urls = locs(await sitemap.sitemap_index(mongo_db))
 
     assert f"{BASE}/sitemap-games-1.xml" in urls
 
@@ -110,7 +119,7 @@ async def test_catalog_rong_van_co_mot_file_con(mongo_db: Db, co_base_url: None)
 async def test_slug_game_vao_sitemap_duoi_url_tuyet_doi(mongo_db: Db, co_base_url: None) -> None:
     await add(mongo_db, "elden-ring", "ELDEN RING")
 
-    urls = locs((await sitemap.sitemap_games(mongo_db, 1)).body)
+    urls = locs(await sitemap.sitemap_games(mongo_db, 1))
 
     assert urls == [f"{BASE}/game/elden-ring"]
 
@@ -120,7 +129,7 @@ async def test_dlc_khong_vao_sitemap(mongo_db: Db, co_base_url: None) -> None:
     await add(mongo_db, "game-cha", "Game Cha")
     await add(mongo_db, "ban-mo-rong", "Bản Mở Rộng", game_type="dlc")
 
-    urls = locs((await sitemap.sitemap_games(mongo_db, 1)).body)
+    urls = locs(await sitemap.sitemap_games(mongo_db, 1))
 
     assert urls == [f"{BASE}/game/game-cha"]
 
@@ -139,8 +148,8 @@ async def test_lastmod_khong_lot_dau_cach_vao_xml(mongo_db: Db, co_base_url: Non
     """Chốt ở tầng XML, không chỉ ở hàm: `upsert_game` mới là chỗ đặt kiểu thật."""
     await add(mongo_db, "elden-ring", "ELDEN RING")
 
-    body = (await sitemap.sitemap_games(mongo_db, 1)).body.decode()
-    root = ElementTree.fromstring(body)  # noqa: S314
+    xml = body(await sitemap.sitemap_games(mongo_db, 1))
+    root = ElementTree.fromstring(xml)  # noqa: S314
     mods = [el.text or "" for el in root.iter(f"{NS}lastmod")]
 
     assert mods, "game vừa ghi phải có updated_at"
@@ -160,6 +169,6 @@ async def test_trang_ngoai_khoang_tra_404(mongo_db: Db, co_base_url: None) -> No
 
 async def test_trang_tinh_khop_voi_route_cua_web(co_base_url: None) -> None:
     """`/` đã 302 sang `/deals` ở server.ts — liệt kê cả hai là hai URL cùng nội dung."""
-    urls = locs((await sitemap.sitemap_pages()).body)
+    urls = locs(await sitemap.sitemap_pages())
 
     assert urls == [f"{BASE}/deals", f"{BASE}/free"]
