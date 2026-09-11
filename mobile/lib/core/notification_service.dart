@@ -39,10 +39,12 @@ class NotificationService {
     final token = await MockFirebaseMessaging.getToken();
     debugPrint("Firebase Token: $token");
     
-    // Gửi token này lên /api/v1/user/device
+    // Path đầy đủ: baseUrl giờ là gốc API, không còn kèm `/api/v1`. Router
+    // `user` là một trong ít router thật sự nằm dưới prefix đó.
     if (token != null) {
       try {
-        await _dio.post('/user/device', data: {'fcm_token': token, 'device_type': 'android'});
+        await _dio.post('/api/v1/user/device',
+            data: {'fcm_token': token, 'device_type': 'android'});
         debugPrint("Gửi FCM token thành công");
       } catch (e) {
         debugPrint("Lỗi gửi FCM token: $e");

@@ -6,12 +6,26 @@ final secureStorageProvider = Provider<FlutterSecureStorage>((ref) {
   return const FlutterSecureStorage();
 });
 
+/// Gốc của API, KHÔNG kèm `/api/v1`.
+///
+/// Backend không gắn prefix đồng nhất: `/deals`, `/free-games`, `/search`,
+/// `/games/...` nằm ở root, còn `user`, `auth` và `seo` mới ở `/api/v1`. Đặt
+/// baseUrl là `/api/v1` thì mọi route root thành 404, nên base phải là gốc và
+/// từng lời gọi tự mang path thật của nó.
+///
+/// Đổi khi build: `--dart-define=API_BASE_URL=https://...`. Mặc định là
+/// `10.0.2.2:8000`, alias host của emulator Android — chỉ đúng trên máy dev, và
+/// nếu viết cứng thì muốn deploy phải sửa code.
+const apiBaseUrl = String.fromEnvironment(
+  'API_BASE_URL',
+  defaultValue: 'http://10.0.2.2:8000',
+);
+
 final dioProvider = Provider<Dio>((ref) {
   final storage = ref.watch(secureStorageProvider);
   final dio = Dio(
     BaseOptions(
-      // MOCK: Trỏ về server FastAPI localhost hoặc URL production sau này
-      baseUrl: 'http://10.0.2.2:8000/api/v1',
+      baseUrl: apiBaseUrl,
       connectTimeout: const Duration(seconds: 5),
       receiveTimeout: const Duration(seconds: 3),
       headers: {
@@ -41,34 +55,27 @@ final dioProvider = Provider<Dio>((ref) {
   return dio;
 });
 
-// Ví dụ một Repository dùng Dio
 class GameRepository {
   final Dio _dio;
 
   GameRepository(this._dio);
 
+  /// Lỗi được để nguyên cho người gọi, KHÔNG trả dữ liệu bịa.
+  ///
+  /// Bản trước bọc `catch (e)` rồi trả về một deal Elden Ring 595.000₫ viết
+  /// cứng "để app không crash". Hệ quả: path `/prices/deals` vốn không tồn tại
+  /// (route thật là `/deals`) vẫn cho ra một màn hình trông bình thường, nên
+  /// không có cách nào phát hiện nó sai — và người dùng đọc một mức giá bịa như
+  /// thể là giá thật. `AsyncValue` của Riverpod đã có sẵn nhánh lỗi để hiển thị
+  /// "không tải được"; đó mới là chỗ xử lý việc này.
   Future<List<dynamic>> getDeals() async {
-    try {
-      final response = await _dio.get('/prices/deals');
-      return response.data['deals'] as List<dynamic>;
-    } catch (e) {
-      // MOCK Data nếu server đang tắt để app không crash
-      return [
-        {"game_id": "elden-ring", "discount_percent": 30, "price_vnd": 595000, "is_historical_low": true}
-      ];
-    }
+    final response = await _dio.get('/deals');
+    return response.data['deals'] as List<dynamic>;
   }
 
   Future<List<dynamic>> getFreeGames() async {
-    try {
-      final response = await _dio.get('/prices/free-games');
-      return response.data['free_games'] as List<dynamic>;
-    } catch (e) {
-      // MOCK Data
-      return [
-        {"game_id": "marvels-midnight-suns", "is_free_promo": true, "promo_ends_at": "2026-09-12"}
-      ];
-    }
+    final response = await _dio.get('/free-games');
+    return response.data['free_games'] as List<dynamic>;
   }
 }
 
