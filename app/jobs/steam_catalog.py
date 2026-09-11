@@ -44,6 +44,27 @@ Db = AsyncIOMotorDatabase[dict[str, Any]]
 # hết bucket rồi nhường chỗ, thay vì ngồi chờ trong khi giữ kết nối.
 DETAILS_BATCH = 200
 
+# Số token job này tự chừa lại trong bucket `steam_appdetails` dùng chung.
+#
+# `docs/CLAUDE.md`: "không được để một job làm cạn quota của job khác". Job bồi
+# chi tiết gọi appdetails **một request mỗi appid**, tuần tự tới 200 lần một lượt,
+# nên nó là job duy nhất có thể vét sạch bucket — ba job kia đều nhỏ hoặc gộp lô.
+#
+# 25 được chọn theo nhu cầu lớn nhất của một lượt chạy mà người dùng thấy độ trễ
+# ngay: `sync_steam_prices` gộp 50 appid mỗi request nên tối đa 20 request, cộng
+# job Epic 1 request.
+#
+# Nói cho đúng phạm vi: sàn chỉ bảo đảm bucket KHÔNG bị vét về 0, nó không phân
+# xử giữa các job còn lại. `sync_steam_reviews` cũng không đặt sàn nên về nguyên
+# tắc nó có thể lấy trước phần đó. Thực tế lịch đã tách chúng ra (giá ở phút
+# :00/:15/:30/:45, review ở :08/:38, catalog ở :05/:20/:35/:50) và refill
+# 0,667 token/s tự tạo thêm khoảng cách, nên cái sàn này là mạng an toàn cho lúc
+# lịch bị xô lệch — không phải cơ chế ưu tiên.
+#
+# Giá phải trả: mỗi lượt bồi tối đa 175 thay vì 200 request, tức 700/giờ thay vì
+# 800 — chậm khoảng 12% việc bồi 185k app.
+DETAILS_RESERVE = 25
+
 
 def _adapter(ctx: dict[str, Any], *, keyed: bool) -> SteamCatalogAdapter:
     clients = ctx["clients"]
@@ -52,8 +73,10 @@ def _adapter(ctx: dict[str, Any], *, keyed: bool) -> SteamCatalogAdapter:
     # Phase 2 sẽ cần cho việc lấy giá.
     limit = APP_LIST_RATE_LIMIT if keyed else DETAILS_RATE_LIMIT
     name = "steam_applist" if keyed else "steam_appdetails"
+    # Chỉ bucket appdetails cần sàn: `steam_applist` không ai dùng chung.
+    reserve = 0 if keyed else DETAILS_RESERVE
     return SteamCatalogAdapter(
-        AdapterConfig(limiter=RedisTokenBucket(clients.redis, name, limit)),
+        AdapterConfig(limiter=RedisTokenBucket(clients.redis, name, limit, reserve=reserve)),
         clients.http,
         api_key=settings.steam_api_key.get_secret_value(),
     )

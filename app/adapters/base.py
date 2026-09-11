@@ -76,6 +76,11 @@ local capacity  = tonumber(ARGV[1])
 local rate      = tonumber(ARGV[2])
 local requested = tonumber(ARGV[3])
 local now_ms    = tonumber(ARGV[4])
+-- reserve: so token nguoi goi NAY khong duoc pham vao, de chua cho job khac.
+-- Phai kiem trong cung script nay: tach ra doc roi kiem o Python thi hai worker
+-- cung doc mot trang thai va cung tuong minh con dung tren san.
+-- reserve = 0 la hanh vi cu, y nguyen.
+local reserve   = tonumber(ARGV[5])
 
 -- now_ms < 0: lay dong ho cua Redis. Worker va API co the o hai may khac
 -- nhau, dung dong ho chung moi tranh lech gio. Test truyen now_ms de tu
@@ -99,11 +104,13 @@ tokens = math.min(capacity, tokens + (elapsed / 1000.0) * rate)
 
 local allowed = 0
 local wait_ms = 0
-if tokens >= requested then
+-- `tokens - requested >= reserve` thay vi `tokens >= requested`. Voi reserve = 0
+-- hai bieu thuc la mot, nen khong doi hanh vi cua nguoi goi cu.
+if tokens - requested >= reserve then
   tokens = tokens - requested
   allowed = 1
 else
-  wait_ms = math.ceil(((requested - tokens) / rate) * 1000)
+  wait_ms = math.ceil(((requested + reserve - tokens) / rate) * 1000)
 end
 
 redis.call('HSET', KEYS[1], 'tokens', tokens, 'ts', now_ms)
@@ -138,6 +145,13 @@ class RedisTokenBucket:
 
     Một bucket cho mỗi `key`. Mọi job gọi Steam phải dùng chung một key, nếu
     không thì mỗi job có hạn mức riêng và tổng số request vượt quota của IP.
+
+    `reserve` là số token người gọi này tự nguyện KHÔNG phạm vào, để chừa cho job
+    khác dùng chung bucket. `docs/CLAUDE.md` yêu cầu "không được để một job làm
+    cạn quota của job khác", mà job bồi catalog thì gọi tuần tự hàng trăm lần một
+    lượt nên nó vét sạch bucket nếu không có sàn. Job nào không đặt `reserve`
+    (mặc định 0) vẫn được dùng tới token cuối cùng — đó chính là mục đích: phần
+    sàn dành cho chúng.
     """
 
     def __init__(
@@ -147,11 +161,18 @@ class RedisTokenBucket:
         limit: RateLimit,
         *,
         max_wait_seconds: float = 30.0,
+        reserve: int = 0,
     ) -> None:
+        if not 0 <= reserve < limit.capacity:
+            # `reserve == capacity` thì không request nào qua được, và job sẽ chờ
+            # tới hết `max_wait_seconds` rồi chết mỗi lượt — hỏng theo cách trông
+            # như lỗi mạng.
+            raise PermanentError(f"reserve phải trong [0, {limit.capacity}), nhận {reserve}")
         self._redis = redis
         self._key = f"ratelimit:{key}"
         self._limit = limit
         self._max_wait_seconds = max_wait_seconds
+        self._reserve = reserve
         self._script = redis.register_script(_BUCKET_LUA)
 
     @property
@@ -163,9 +184,15 @@ class RedisTokenBucket:
 
         `now_ms` chỉ dùng cho test; mặc định lấy đồng hồ của Redis.
         """
-        if tokens > self._limit.capacity:
+        # Trần thật là `capacity - reserve`, không phải `capacity`: xin nhiều hơn
+        # thế thì vĩnh viễn không qua được, và nếu chỉ kiểm theo `capacity` thì
+        # job sẽ chờ hết `max_wait_seconds` rồi chết mỗi lượt thay vì báo ngay
+        # rằng yêu cầu đó là bất khả thi.
+        usable = self._limit.capacity - self._reserve
+        if tokens > usable:
             raise PermanentError(
-                f"xin {tokens} token nhưng bucket chỉ chứa tối đa {self._limit.capacity}"
+                f"xin {tokens} token nhưng người gọi này chỉ được dùng tối đa {usable}"
+                f" (capacity {self._limit.capacity}, reserve {self._reserve})"
             )
         raw = await self._script(
             keys=[self._key],
@@ -174,6 +201,7 @@ class RedisTokenBucket:
                 self._limit.refill_per_second,
                 tokens,
                 -1 if now_ms is None else now_ms,
+                self._reserve,
             ],
         )
         # Script trả về {allowed, wait_ms}; redis-py không biết kiểu nên ép tay.
@@ -232,9 +260,7 @@ class SlidingWindowRateLimiter:
 
     async def acquire(self, tokens: int = 1) -> None:
         if tokens > self._limit:
-            raise PermanentError(
-                f"xin {tokens} lượt nhưng cửa sổ chỉ chứa tối đa {self._limit}"
-            )
+            raise PermanentError(f"xin {tokens} lượt nhưng cửa sổ chỉ chứa tối đa {self._limit}")
         async with self._lock:
             while True:
                 now = time.monotonic()
@@ -289,6 +315,7 @@ CallHook = Callable[[CallRecord], None]
 
 
 # ------------------------------------------------------------- adapter
+
 
 @dataclass(slots=True)
 class AdapterConfig:
