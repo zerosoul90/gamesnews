@@ -7,6 +7,7 @@ import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import bootstrap from './src/main.server';
 import { RENDER_STATUS, RenderStatus } from './src/app/render-status';
+import { SITE_ORIGIN } from './src/app/site-origin';
 
 /**
  * Gắn proxy `/api` -> backend.
@@ -113,6 +114,14 @@ export function app(): express.Express {
     // thời mà một cái 404 thì cái kia sẽ bị gán status theo.
     const renderStatus: RenderStatus = { statusCode: 200 };
 
+    // Origin công khai suy từ chính request, không từ biến môi trường: không
+    // phải nhớ sửa cấu hình mỗi lần đổi tên miền. `x-forwarded-*` đi trước vì
+    // sau reverse proxy thì `req.protocol` là 'http' và `headers.host` là tên
+    // nội bộ — thẻ share sẽ mang một URL người ngoài không gọi được.
+    const forwardedProto = String(headers['x-forwarded-proto'] || '').split(',')[0].trim();
+    const forwardedHost = String(headers['x-forwarded-host'] || '').split(',')[0].trim();
+    const siteOrigin = `${forwardedProto || protocol}://${forwardedHost || headers.host}`;
+
     commonEngine
       .render({
         bootstrap,
@@ -122,6 +131,7 @@ export function app(): express.Express {
         providers: [
           { provide: APP_BASE_HREF, useValue: baseUrl },
           { provide: RENDER_STATUS, useValue: renderStatus },
+          { provide: SITE_ORIGIN, useValue: siteOrigin },
         ],
       })
       // NotFoundComponent đã kịp ghi 404 vào `renderStatus` lúc render, nên URL

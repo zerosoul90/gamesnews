@@ -14,6 +14,7 @@ from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.api.community import router as community_router
 from app.api.dashboard import router as dashboard_router
+from app.api.games import router as games_router
 from app.api.health import router as health_router
 from app.api.prices import router as prices_router
 from app.api.promotions import router as promotions_router
@@ -99,6 +100,7 @@ app.include_router(auth_router)
 app.include_router(user_router)
 app.include_router(search_router)
 app.include_router(prices_router)
+app.include_router(games_router)
 app.include_router(seo_router)
 app.include_router(admin_router)
 app.include_router(sources_router)
