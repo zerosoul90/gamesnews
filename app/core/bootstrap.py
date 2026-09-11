@@ -30,6 +30,7 @@ from app.services import (
     catalog,
     devices,
     entity_review,
+    intl_prices,
     price_tier,
     reviews,
     rollup,
@@ -63,6 +64,9 @@ async def ensure_storage(db: Db, index: MeiliIndex | None = None) -> dict[str, i
         # đọc điểm lại thêm một dòng cho cùng một game thay vì cập nhật, và trang
         # game lấy một dòng tuỳ ý trong đống đó.
         ("game_reviews", reviews.ensure_indexes),
+        # `price_intl` tách khỏi `price_current` vì nó là USD — xem docstring của
+        # `services/intl_prices.py`.
+        ("price_intl", intl_prices.ensure_indexes),
     ]
 
     for name, ensure in steps:

@@ -25,6 +25,7 @@ from app.core.config import get_settings
 from app.core.db import close_clients, create_clients
 from app.core.deps import build_meili
 from app.core.logging import new_request_id, request_id_var, setup_logging
+from app.jobs.cheapshark_pricing import sync_cheapshark_prices
 from app.jobs.embeddings import sync_game_embeddings
 from app.jobs.epic_pricing import sync_epic_free_games
 from app.jobs.metrics import job_compute_hotness, job_fetch_steam_ccu, job_rollup_metrics
@@ -103,6 +104,9 @@ CRON_JOBS: list[CronJob] = [
     # canh đúng mốc đó: một lượt hỏng vào đúng giờ đổi sẽ làm cả tuần thiếu
     # game free, mà đây cũng chỉ là MỘT request sau CDN.
     cron(sync_epic_free_games, minute=10),
+    # Giá USD nhiều store. Nguồn riêng với hạn mức riêng nên không tranh bucket
+    # `steam_appdetails`; đặt lệch giờ chỉ để log dễ đọc.
+    cron(sync_cheapshark_prices, minute={12, 42}),
     # --- Catalog (Phase 1) ---
     # Bồi chi tiết 185k app mất vài ngày, nên phải chạy đều đặn và liên tục.
     cron(sync_steam_details, minute={5, 20, 35, 50}),
@@ -145,6 +149,7 @@ class WorkerSettings:
         sync_steam_prices,
         recompute_price_tiers,
         sync_epic_free_games,
+        sync_cheapshark_prices,
         sync_steam_reviews,
         send_notification_digest,
         job_rollup_metrics,

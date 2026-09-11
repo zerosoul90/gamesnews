@@ -171,6 +171,18 @@ export class GameComponent implements OnInit {
     };
   }
 
+  /** Cent USD -> chuỗi đọc được, ví dụ 5159 -> "$51.59".
+   *
+   *  KHÔNG dùng `toLocaleString('vi-VN')` như các con số VND trên trang: đây là
+   *  đô la, và định dạng nó theo quy ước Việt rồi đặt cạnh "₫" là mời người đọc
+   *  hiểu sai đơn vị. */
+  usd(cents: number | null): string {
+    if (cents === null) {
+      return '—';
+    }
+    return `$${(cents / 100).toFixed(2)}`;
+  }
+
   private requirementRows(spec: Record<string, string>): { key: string; value: string }[] {
     return Object.entries(spec).map(([key, value]) => ({ key, value }));
   }

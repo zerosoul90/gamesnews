@@ -20,6 +20,7 @@ from fastapi import APIRouter, HTTPException, Query
 from app.core.deps import MongoDep
 from app.core.serialization import jsonify_docs
 from app.services.community import calculate_game_score
+from app.services.intl_prices import intl_prices_of
 from app.services.reviews import review_score_of
 from app.services.rollup import DAILY
 
@@ -145,6 +146,10 @@ async def get_game_by_slug(
     # khác, nhóm người khác. Gộp hai thứ vào một con số là nói với người đọc một
     # điều không nguồn nào nói.
     steam_review = await review_score_of(db, game_id, "steam")
+    # Trường riêng, KHÔNG gộp vào `prices`: đây là USD theo cent, còn `prices` là
+    # VND đơn vị lớn. Gộp lại thì phép so "rẻ nhất" trộn hai đồng tiền, và trang
+    # sẽ in một con số USD kèm dấu ₫.
+    intl_prices = await intl_prices_of(db, game_id, "cheapshark")
 
     titles = doc.get("titles") or {}
     media = doc.get("media") or {}
@@ -177,5 +182,6 @@ async def get_game_by_slug(
         # None khi chưa đọc được lần nào. Không trả `{"score": 0}` — trang sẽ
         # hiện "0/10" và người đọc hiểu là game bị chấm 0 điểm.
         "steam_review": steam_review,
+        "intl_prices": intl_prices,
         "player_counts": player_counts,
     }

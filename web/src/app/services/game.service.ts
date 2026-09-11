@@ -71,6 +71,29 @@ export interface SteamReview {
   checked_at?: string;
 }
 
+/** Một dòng giá quốc tế. `price_cents` là **cent USD**, không phải đồng — tên
+ *  field nói rõ thang đo vì `GamePrice.price_final` ở ngay cạnh là VND đơn vị
+ *  lớn, và trộn hai thứ là in một con số USD kèm dấu ₫. */
+export interface IntlDeal {
+  store: string;
+  store_id: string;
+  price_cents: number;
+  retail_price_cents: number | null;
+  savings_percent: number;
+  url: string | null;
+}
+
+/** Giá nhiều store từ CheapShark, USD. Tách hẳn khỏi `prices` (VND) và KHÔNG
+ *  tham gia phép so "rẻ nhất" của bảng giá VND. `null` nghĩa là chưa đọc được. */
+export interface IntlPrices {
+  source?: string;
+  currency: string;
+  deals: IntlDeal[];
+  lowest_ever_cents: number | null;
+  lowest_ever_at: number | null;
+  checked_at?: string;
+}
+
 export interface GameDetail {
   id: string;
   slug: string;
@@ -95,6 +118,7 @@ export interface GameDetail {
   price_history: PriceHistoryPoint[];
   community_score: CommunityScore;
   steam_review: SteamReview | null;
+  intl_prices: IntlPrices | null;
   player_counts: PlayerCountDay[];
 }
 
