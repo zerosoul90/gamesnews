@@ -7,10 +7,55 @@ from pymongo import InsertOne, UpdateOne
 
 from app.models.game import PyObjectId
 from app.models.price import PriceCurrent, PriceHistory
+from app.services.intl_prices import deepest_discounts
 from app.services.notification import NotificationPayload, process_notification
 
 # Số lần quan sát tối thiểu trước khi được phép nói "đang ở đáy lịch sử".
+# Chỉ còn dùng khi KHÔNG có mốc từ nguồn ngoài — xem `_is_historical_low`.
 MIN_OBSERVATIONS_FOR_LOW = 2
+
+
+def _is_historical_low(
+    *,
+    price_final: int,
+    discount_percent: int,
+    observations: int,
+    lowest_ever: int | None,
+    best_ever_discount: int | None,
+) -> bool:
+    """Có được phép nói với người dùng "game này đang ở đáy lịch sử" không.
+
+    Hai chốt, theo thứ tự:
+
+    1. **Giá nguyên thì không bao giờ là đáy.** Nghe hiển nhiên, nhưng bản
+       trước thiếu đúng chốt này và hậu quả đo được trên dữ liệu thật:
+       2.336/5.987 game đeo nhãn vàng "Đáy lịch sử" ở mức giảm 0%, chỉ vì job
+       đọc đúng một cái giá đứng yên hai lần. `observations >= 2` không chặn
+       được — hai lần đọc cùng một con số vẫn là hai lần quan sát.
+    2. **Có mốc ngoài thì tin mốc ngoài.** `best_ever_discount` là mức giảm sâu
+       nhất CheapShark từng ghi nhận, tức là lịch sử có TRƯỚC khi ta bắt đầu
+       theo dõi — thứ mà `lowest_ever` của riêng ta không bao giờ biết. Khi có
+       nó thì không cần chờ đủ lượt quan sát nữa: nguồn ngoài đã đóng vai lịch
+       sử rồi.
+
+    Không có mốc ngoài thì quay về luật cũ, và nó vẫn chỉ nói được "đáy kể từ
+    lúc ta bắt đầu nhìn" — hẹp hơn cái nhãn hứa hẹn, nên phải đi kèm chốt 1.
+    """
+    if price_final <= 0 or discount_percent <= 0:
+        return False
+
+    if best_ever_discount is not None:
+        if discount_percent < best_ever_discount:
+            return False
+        # Lịch sử của chính ta vẫn có quyền phủ quyết: ta từng thấy rẻ hơn thì
+        # "đang ở đáy" là sai, bất kể nguồn ngoài nói gì.
+        return lowest_ever is None or price_final <= lowest_ever
+
+    return (
+        observations >= MIN_OBSERVATIONS_FOR_LOW
+        and lowest_ever is not None
+        and price_final <= lowest_ever
+    )
 
 
 async def record_prices(
@@ -36,6 +81,10 @@ async def record_prices(
     async for doc in current_cursor:
         key = (doc["game_id"], doc["store"], doc["region"])
         current_map[key] = doc
+
+    # Mức giảm sâu nhất từng ghi nhận ở nước ngoài, cho cả lô một lượt. Game
+    # nào CheapShark chưa đọc tới thì vắng mặt ở đây, không phải mang giá trị 0.
+    intl_floor = await deepest_discounts(db, [p.game_id for p in prices_data])
 
     current_ops = []
     history_ops = []
@@ -73,23 +122,15 @@ async def record_prices(
 
         new_price.lowest_ever = lowest_ever
         new_price.lowest_ever_date = lowest_ever_date
-        # "Đang ở đáy lịch sử" là một lời khẳng định với người dùng, và ở lượt
-        # quét ĐẦU TIÊN ta không có cơ sở nào để nói nó. Lúc đó `lowest_ever`
-        # chính là giá vừa đọc được, nên `price_final <= lowest_ever` luôn
-        # đúng — bản trước vì thế gắn cờ đáy cho **toàn bộ catalog** ngay lượt
-        # chạy đầu, và `/deals` sắp xếp theo đúng cái cờ đó.
-        #
-        # Ta chỉ có lịch sử từ lần đọc thứ hai trở đi. Bỏ sót một game thật sự
-        # đang ở đáy trong đúng một chu kỳ là cái giá rẻ; nói với cả triệu người
-        # rằng mọi game đều đang ở đáy thì không.
-        #
-        # (Đáy THẬT — trước khi ta bắt đầu theo dõi — phải lấy từ nguồn ngoài;
-        # `adapters/cheapshark` có `cheapestPriceEver` cho đúng việc này, chưa
-        # đấu vào đây.)
-        new_price.is_historical_low = (
-            observations >= MIN_OBSERVATIONS_FOR_LOW
-            and new_price.price_final <= lowest_ever
-            and new_price.price_final > 0
+        # "Đang ở đáy lịch sử" là một lời khẳng định với người dùng. Luật nằm
+        # trong `_is_historical_low` để test gọi thẳng được từng nhánh, không
+        # phải dựng cả một lô giá mới kiểm được một điều kiện.
+        new_price.is_historical_low = _is_historical_low(
+            price_final=new_price.price_final,
+            discount_percent=new_price.discount_percent,
+            observations=observations,
+            lowest_ever=lowest_ever,
+            best_ever_discount=intl_floor.get(new_price.game_id),
         )
         new_price.checked_at = now
         new_price.observations = observations

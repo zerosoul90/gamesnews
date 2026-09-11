@@ -15,6 +15,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.models.price import PriceCurrent
 from app.models.user import ConditionType, PriceAlert
+from app.services.intl_prices import deepest_discount_ever, save_intl_prices
 from app.services.pricing import mark_region_locked, record_prices
 
 Db = AsyncIOMotorDatabase[dict[str, Any]]
@@ -66,20 +67,37 @@ async def test_lan_quan_sat_thu_hai_moi_duoc_khang_dinh_day(
     mongo_db: Db, game_id: ObjectId
 ) -> None:
     """Và nó tự lành ở lượt sau, không kẹt False mãi mãi."""
-    await record_prices(mongo_db, [price(game_id, 500_000)])
-    await record_prices(mongo_db, [price(game_id, 500_000)])
+    await record_prices(mongo_db, [price(game_id, 500_000, initial=1_000_000, discount=50)])
+    await record_prices(mongo_db, [price(game_id, 500_000, initial=1_000_000, discount=50)])
 
     doc = await current(mongo_db, game_id)
     assert doc["is_historical_low"] is True
     assert doc["observations"] == 2
 
 
+async def test_gia_nguyen_doc_bao_nhieu_lan_cung_khong_phai_day(
+    mongo_db: Db, game_id: ObjectId
+) -> None:
+    """Lỗi đo được trên dữ liệu thật: 2.336/5.987 game gắn cờ đáy ở mức giảm 0%.
+
+    `observations >= 2` không chặn được, vì đọc đúng một cái giá đứng yên mười
+    lần vẫn là mười lần quan sát. Chốt phải là "có giảm giá thì mới có đáy".
+    """
+    for _ in range(5):
+        await record_prices(mongo_db, [price(game_id, 250_000, initial=250_000, discount=0)])
+
+    doc = await current(mongo_db, game_id)
+    assert doc["observations"] == 5
+    assert doc["lowest_ever"] == 250_000
+    assert doc["is_historical_low"] is False
+
+
 async def test_gia_tang_len_thi_mat_co_day_nhung_giu_lowest_ever(
     mongo_db: Db, game_id: ObjectId
 ) -> None:
-    await record_prices(mongo_db, [price(game_id, 300_000)])
-    await record_prices(mongo_db, [price(game_id, 300_000)])
-    await record_prices(mongo_db, [price(game_id, 900_000)])
+    await record_prices(mongo_db, [price(game_id, 300_000, initial=1_000_000, discount=70)])
+    await record_prices(mongo_db, [price(game_id, 300_000, initial=1_000_000, discount=70)])
+    await record_prices(mongo_db, [price(game_id, 900_000, initial=1_000_000, discount=10)])
 
     doc = await current(mongo_db, game_id)
     assert doc["is_historical_low"] is False
@@ -145,6 +163,83 @@ async def test_danh_dau_khoa_vung(mongo_db: Db) -> None:
     doc = await mongo_db.games.find_one({"_id": ids[0]})
     assert doc is not None
     assert doc["region_locked_vn"] is True
+
+
+# --- Mốc đáy từ nguồn ngoài ------------------------------------------------
+#
+# `lowest_ever` của riêng ta chỉ biết "đáy kể từ lúc ta bắt đầu nhìn", mà cái
+# nhãn thì hứa "đáy lịch sử". CheapShark có `cheapestPriceEver` lấp đúng khoảng
+# trống đó. So bằng PHẦN TRĂM giảm, không bằng tiền: CheapShark chỉ có USD, còn
+# Steam áp cùng mức giảm cho mọi khu vực.
+
+
+async def set_intl(db: Db, game_id: ObjectId, *, retail: int, lowest_ever: int) -> None:
+    """Ghi mốc ngoài đi qua đúng hàm mà job CheapShark dùng."""
+    await save_intl_prices(
+        db,
+        game_id,
+        "cheapshark",
+        {
+            "currency": "USD",
+            "deals": [{"store_id": "1", "price_cents": retail, "retail_price_cents": retail}],
+            "lowest_ever_cents": lowest_ever,
+        },
+    )
+
+
+def test_moc_ngoai_thieu_du_lieu_thi_khong_doan_bua() -> None:
+    """None chứ không phải 0: "không biết" khác hẳn "chưa từng giảm bao giờ"."""
+    khong_co_deal: dict[str, Any] = {"deals": [], "lowest_ever_cents": 1499}
+    khong_co_day: dict[str, Any] = {"deals": [{"retail_price_cents": 5999}]}
+    gia_niem_yet_bang_khong: dict[str, Any] = {
+        "deals": [{"retail_price_cents": 0}],
+        "lowest_ever_cents": 1,
+    }
+    # Giá gốc đã bị hạ kể từ đợt giảm đó — kẹp sàn 0, không ra phần trăm âm.
+    day_cao_hon_gia_goc: dict[str, Any] = {
+        "deals": [{"retail_price_cents": 1000}],
+        "lowest_ever_cents": 2000,
+    }
+
+    assert deepest_discount_ever(khong_co_deal) is None
+    assert deepest_discount_ever(khong_co_day) is None
+    assert deepest_discount_ever(gia_niem_yet_bang_khong) is None
+    assert deepest_discount_ever(day_cao_hon_gia_goc) == 0
+
+
+async def test_moc_ngoai_phu_quyet_khi_giam_chua_du_sau(mongo_db: Db, game_id: ObjectId) -> None:
+    """Từng giảm 75% ở nước ngoài, nay mới 50% — chưa phải đáy, dù luật cũ cho qua."""
+    await set_intl(mongo_db, game_id, retail=6000, lowest_ever=1500)
+
+    await record_prices(mongo_db, [price(game_id, 500_000, initial=1_000_000, discount=50)])
+    await record_prices(mongo_db, [price(game_id, 500_000, initial=1_000_000, discount=50)])
+
+    doc = await current(mongo_db, game_id)
+    assert doc["observations"] == 2, "luật cũ đã đủ điều kiện gắn cờ ở đây"
+    assert doc["is_historical_low"] is False
+
+
+async def test_moc_ngoai_cho_khang_dinh_day_ngay_luot_dau(mongo_db: Db, game_id: ObjectId) -> None:
+    """Có lịch sử từ nguồn ngoài thì không phải chờ đủ lượt quan sát nữa."""
+    await set_intl(mongo_db, game_id, retail=6000, lowest_ever=3000)  # sâu nhất: 50%
+
+    await record_prices(mongo_db, [price(game_id, 400_000, initial=1_000_000, discount=60)])
+
+    doc = await current(mongo_db, game_id)
+    assert doc["observations"] == 1
+    assert doc["is_historical_low"] is True
+
+
+async def test_lich_su_cua_ta_van_co_quyen_phu_quyet(mongo_db: Db, game_id: ObjectId) -> None:
+    """Ta từng thấy rẻ hơn thì "đang ở đáy" là sai, bất kể nguồn ngoài nói gì."""
+    await set_intl(mongo_db, game_id, retail=6000, lowest_ever=3000)  # sâu nhất: 50%
+
+    await record_prices(mongo_db, [price(game_id, 200_000, initial=1_000_000, discount=80)])
+    await record_prices(mongo_db, [price(game_id, 400_000, initial=1_000_000, discount=60)])
+
+    doc = await current(mongo_db, game_id)
+    assert doc["lowest_ever"] == 200_000
+    assert doc["is_historical_low"] is False
 
 
 # --- Cảnh báo giá ----------------------------------------------------------
