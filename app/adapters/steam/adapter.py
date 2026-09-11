@@ -28,6 +28,7 @@ import logging
 from typing import Any, ClassVar
 
 import httpx
+from bs4 import BeautifulSoup
 
 from app.adapters.base import (
     AdapterConfig,
@@ -37,7 +38,15 @@ from app.adapters.base import (
     TransientError,
     classify_http_status,
 )
-from app.models.game import ExternalIds, Game, GameType, Media, ReleaseDate, Titles
+from app.models.game import (
+    ExternalIds,
+    Game,
+    GameType,
+    Media,
+    ReleaseDate,
+    SystemRequirements,
+    Titles,
+)
 from app.services.normalize import slugify
 
 logger = logging.getLogger(__name__)
@@ -109,6 +118,97 @@ def _platforms(data: dict[str, Any]) -> list[str]:
     return ["pc"] if any(platforms.values()) else []
 
 
+# Nhãn cho phần mô tả không có khoá. Dùng đúng từ Steam vẫn dùng cho mục đó,
+# để nó đứng cạnh "OS"/"Processor" mà không lạc giọng.
+_NOTES_KEY = "Additional Notes"
+
+
+def _collapse(text: str) -> str:
+    """Gom mọi khoảng trắng về một dấu cách.
+
+    Steam trả value kèm tab và newline để thụt lề HTML (`Windows XP SP3
+    (32-bit),\\t\\t\\t\\t Vista`), và chúng đi thẳng vào giao diện nếu không dọn.
+    """
+    return " ".join(text.split())
+
+
+def _requirement_spec(html: Any) -> dict[str, str]:
+    """Một mức cấu hình (`minimum` hoặc `recommended`) -> dict khoá/giá trị.
+
+    `pc_requirements` của Steam có **ba** hình dạng thật, kiểm tay 2026-09-11:
+
+    1. `<ul><li><strong>OS:</strong> Windows 10</li>...` — đa số (Elden Ring,
+       Dota 2, Tropico 4). Parse được thành khoá/giá trị.
+    2. Chuỗi **phẳng, không có `<li>` nào**: Dark Messiah (appid 2130) trả
+       `<strong>Minimum:</strong> AMD Athlon, 512MB RAM, 7GB HDD...` rồi nhồi cả
+       phần Recommended vào cùng field `minimum`. Parser chỉ tìm `<li>` sẽ trả
+       về `{}` và mất sạch thông tin mà không báo gì. Nên nhánh này giữ nguyên
+       cả đoạn văn dưới một khoá, thà hiển thị thô còn hơn mất.
+    3. Cả field là `[]` thay vì dict — thấy rõ ở `mac_requirements` và
+       `linux_requirements` của game chỉ có bản PC. Lọc ở `_system_requirements`.
+
+    Khoá được cắt đuôi `:`, `*`, `®`, `™`. Steam viết `OS *:` với dấu sao là chú
+    thích về phiên bản Windows bị khai tử, và viết `DirectX®:` ở game này nhưng
+    `DirectX:` ở game khác — để nguyên thì cùng một trường sinh ra hai khoá khác
+    nhau tuỳ game, và giao diện hiện hai dòng cho một thứ. Chỉ cắt ở KHOÁ: trong
+    giá trị thì `AMD Athlon™` là tên thật của sản phẩm.
+
+    Không hợp nhất các khoá Steam tự gọi khác nhau (`Storage` vs `Hard Drive`,
+    `Sound` vs `Sound Card`): làm vậy là tự đặt ra ý nghĩa cho dữ liệu của nguồn,
+    và đoán sai một lần thì sai im lặng mãi.
+    """
+    if not isinstance(html, str) or not html.strip():
+        return {}
+
+    soup = BeautifulSoup(html, "html.parser")
+    items = soup.find_all("li")
+
+    if not items:
+        # Hình dạng 2. `get_text` lấy cả chữ "Minimum:"/"Recommended:" mà Steam
+        # đặt trong `<strong>` — giữ lại, vì ở đây chúng là phần duy nhất cho
+        # biết đoạn nào nói về mức nào.
+        return {_NOTES_KEY: text} if (text := _collapse(soup.get_text(" "))) else {}
+
+    spec: dict[str, str] = {}
+    notes: list[str] = []
+    for item in items:
+        label = item.find("strong")
+        if label is None:
+            # Dòng không có khoá, ví dụ "Requires a 64-bit processor and
+            # operating system" của Elden Ring.
+            if note := _collapse(item.get_text(" ")):
+                notes.append(note)
+            continue
+
+        key = _collapse(label.get_text(" ")).rstrip(": *®™")
+        # Bỏ nhãn khỏi cây để phần còn lại của `<li>` đúng là giá trị.
+        label.extract()
+        value = _collapse(item.get_text(" "))
+        # Steam hay gửi `<strong>Additional Notes:</strong>` với value rỗng. Một
+        # khoá không có giá trị chỉ là một dòng trống trong bảng cấu hình.
+        if key and value:
+            spec[key] = value
+
+    if notes:
+        # Cộng dồn, không ghi đè: Steam có thể đã gửi sẵn một "Additional Notes"
+        # có nội dung, và dòng không khoá cũng rơi vào đúng chỗ này.
+        joined = "; ".join(notes)
+        spec[_NOTES_KEY] = f"{existing}; {joined}" if (existing := spec.get(_NOTES_KEY)) else joined
+    return spec
+
+
+def _system_requirements(data: dict[str, Any]) -> SystemRequirements:
+    """`pc_requirements` -> `SystemRequirements`. Chỉ PC: `platforms` của ta
+    gồm cả console, nhưng Steam chỉ nói về máy tính."""
+    raw = data.get("pc_requirements")
+    if not isinstance(raw, dict):
+        return SystemRequirements()
+    return SystemRequirements(
+        minimum=_requirement_spec(raw.get("minimum")),
+        recommended=_requirement_spec(raw.get("recommended")),
+    )
+
+
 def to_game(data: dict[str, Any]) -> Game | None:
     """Payload `appdetails` -> entity `games`. None nghĩa là không phải game.
 
@@ -157,6 +257,7 @@ def to_game(data: dict[str, Any]) -> Game | None:
                 if shot.get("path_full")
             ],
         ),
+        system_requirements=_system_requirements(data),
     )
 
 

@@ -1,0 +1,40 @@
+{
+  "_comment": "pc_requirements that tu store.steampowered.com/api/appdetails?l=english, ghi lai 2026-09-11. Luc ghi, DNS tra IP Akamai bi chan nen phai ghim cache Steam tai VN (171.236.62.121) kem Host header - xem docker-compose.override.yml. Ba hinh dang: ul/li (1245620 co dong khong khoa, 57690 co \"OS *\" va tab thut le), chuoi phang khong co li (2130, nhoi ca Recommended vao field minimum), list rong (mac_requirements cua 431960).",
+  "1245620": {
+    "name": "ELDEN RING",
+    "pc_requirements": {
+      "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10<br></li><li><strong>Processor:</strong> INTEL CORE I5-8400 or AMD RYZEN 3 3300X<br></li><li><strong>Memory:</strong> 12 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA GEFORCE GTX 1060 3 GB or AMD RADEON RX 580 4 GB<br></li><li><strong>DirectX:</strong> Version 12<br></li><li><strong>Storage:</strong> 60 GB available space<br></li><li><strong>Sound Card:</strong> Windows Compatible Audio Device<br></li><li><strong>Additional Notes:</strong> </li></ul>",
+      "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10/11<br></li><li><strong>Processor:</strong> INTEL CORE I7-8700K or AMD RYZEN 5 3600X<br></li><li><strong>Memory:</strong> 16 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA GEFORCE GTX 1070 8 GB or AMD RADEON RX VEGA 56 8 GB<br></li><li><strong>DirectX:</strong> Version 12<br></li><li><strong>Storage:</strong> 60 GB available space<br></li><li><strong>Sound Card:</strong> Windows Compatible Audio Device<br></li><li><strong>Additional Notes:</strong> </li></ul>"
+    },
+    "mac_requirements": {
+      "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"></ul>",
+      "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"></ul>"
+    }
+  },
+  "57690": {
+    "name": "Tropico 4",
+    "pc_requirements": {
+      "minimum": "<ul class=\"bb_ul\"><li><strong>OS *:</strong> Windows XP SP3 (32-bit),  Vista / 7 (32 or 64-bit)<br>\t\t\t\t\t\t\t\t\t\t</li><li><strong>Processor:</strong> 2 GHz Dual Core CPU<br>\t\t\t\t\t\t\t\t\t\t</li><li><strong>Memory:</strong> 1 GB RAM<br>\t\t\t\t\t\t\t\t\t\t</li><li><strong>Graphics:</strong> Shader Model 3.0 (Geforce 6600 or higher, Radeon X1600-Series), 256 MB, DirectX 9.0c<br>\t\t\t\t\t\t\t\t\t\t</li><li><strong>DirectX\u00ae:</strong> 9.0c<br>\t\t\t\t\t\t\t\t\t\t</li><li><strong>Hard Drive:</strong> 5 GB free hard disk space<br>\t\t\t\t\t\t\t\t\t\t</li><li><strong>Sound:</strong> DirectX compatible<br>\t\t\t\t\t\t\t\t\t</li></ul>",
+      "recommended": "<ul class=\"bb_ul\"><li><strong>OS *:</strong> Windows Vista / 7 (32 or 64-bit)<br>\t\t\t\t\t\t\t\t\t\t</li><li><strong>Processor:</strong> 2 GHz Quad Core CPU<br>\t\t\t\t\t\t\t\t\t\t</li><li><strong>Memory:</strong> 2 GB RAM<br>\t\t\t\t\t\t\t\t\t\t</li><li><strong>Graphics:</strong> Shader Model 3.0 (Geforce 8800 or higher, Radeon HD4000-Series or higher), 512 MB, DirectX 9.0c<br>\t\t\t\t\t\t\t\t\t\t</li><li><strong>DirectX\u00ae:</strong> 9.0c<br>\t\t\t\t\t\t\t\t\t\t</li><li><strong>Hard Drive:</strong> 5 GB free hard disk space<br>\t\t\t\t\t\t\t\t\t\t</li><li><strong>Sound:</strong> DirectX compatible<br>\t\t\t\t\t\t\t\t\t</li></ul>"
+    },
+    "mac_requirements": {
+      "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li><strong>OS:</strong> 10.8.5<br>\t</li><li><strong>Processor:</strong> 2.0 GHz<br>\t</li><li><strong>Memory:</strong> 4 GB Memory<br>\t</li><li><strong>Graphics:</strong> 256 MB*<br>\t</li><li><strong>Hard Drive:</strong>6GB HD space<br>\t</li><li><strong>Other Requirements:</strong> The following graphics cards are not supported: ATI X1xxx series, ATI HD2xxx series, Intel GMA series, NVIDIA 7xxx series and NVIDIA 8xxx series. <br><br>The following cards require you to have 8GB of system RAM: Intel HD3000, NVIDIA 9400, Intel HD4000 and NVIDIA 320M.</li></ul>",
+      "recommended": "<strong> Recommended:</strong><br><ul class=\"bb_ul\"><li><strong>OS:</strong> 10.9.4<br>\t</li><li><strong>Processor:</strong> 2.4 GHz<br>\t</li><li><strong>Memory:</strong> 8 GB Memory<br>\t</li><li><strong>Graphics:</strong> 512 MB*<br>\t</li><li><strong>Hard Drive:</strong> 6GB HD space<br>\t</li><li><strong>Other Requirements:</strong> The following graphics cards are not supported: ATI X1xxx series, ATI HD2xxx series, Intel GMA series, NVIDIA 7xxx series and NVIDIA 8xxx series. <br><br>The following cards require you to have 8GB of system RAM: Intel HD3000, NVIDIA 9400, Intel HD4000 and NVIDIA 320M.</li></ul>"
+    }
+  },
+  "2130": {
+    "name": "Dark Messiah of Might & Magic",
+    "pc_requirements": {
+      "minimum": "<strong>Minimum:</strong> AMD Athlon\u2122, Pentium\u00ae 2.4 GHz, 512MB RAM, 128MB video card, 7GB HDD Space, Windows XP, Mouse, Keyboard, Internet Connection<br><br>\t\t\t\t\t\t\t<strong>Recommended:</strong> AMD Athlon\u2122, Pentium\u00ae 3.0 GHz, 256mb dx9 video card, 7GB HDD Space, Windows XP, Mouse, Keyboard, Internet Connection"
+    },
+    "mac_requirements": []
+  },
+  "431960": {
+    "name": "Wallpaper Engine",
+    "pc_requirements": {
+      "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li><strong>OS:</strong> Windows 10, Windows 11<br></li><li><strong>Processor:</strong> 1.66 GHz Intel i5 or equivalent<br></li><li><strong>Memory:</strong> 1024 MB RAM<br></li><li><strong>Graphics:</strong> HD Graphics 4000 or above<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Storage:</strong> 512 MB available space<br></li><li><strong>Additional Notes:</strong> Windows N versions require the 'Media Feature Pack' from Microsoft.</li></ul>",
+      "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li><strong>OS:</strong> Windows 10, Windows 11<br></li><li><strong>Processor:</strong> 2.0 GHz Intel i7 or equivalent<br></li><li><strong>Memory:</strong> 2048 MB RAM<br></li><li><strong>Graphics:</strong> NVIDIA GeForce GTX 660, AMD HD7870, 2 GB VRAM or above<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Storage:</strong> 1024 MB available space<br></li><li><strong>Additional Notes:</strong> Mobile App requires Android 10 or newer</li></ul>"
+    },
+    "mac_requirements": []
+  }
+}
