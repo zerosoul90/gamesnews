@@ -20,6 +20,7 @@ import logging
 from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo.errors import DuplicateKeyError
 
 from app.adapters.base import AdapterConfig, AdapterError, RedisTokenBucket
 from app.adapters.steam.adapter import (
@@ -113,14 +114,16 @@ async def sync_steam_details(ctx: dict[str, Any], batch: int = DETAILS_BATCH) ->
     adapter = _adapter(ctx, keyed=False)
 
     appids = await steam_queue.take_pending(db, batch)
-    tally = {"done": 0, "skipped": 0, "missing": 0, "failed": 0}
+    tally = {"done": 0, "skipped": 0, "missing": 0, "failed": 0, "conflict": 0}
 
     for appid in appids:
         try:
             data = await adapter.details(appid)
         except AdapterError as exc:
-            # Để nguyên trạng thái pending: lần sau thử lại. Lỗi mạng không
-            # phải bằng chứng app này có vấn đề.
+            # Trả về `pending` để lần sau thử lại. Lỗi mạng không phải bằng chứng
+            # app này có vấn đề — nhưng từ khi hàng đợi giành việc thì không trả
+            # lại là app treo ở `taken` tới hết lease.
+            await steam_queue.release(db, appid)
             tally["failed"] += 1
             logger.warning("steam: lấy chi tiết hỏng", extra={"appid": appid, "error": repr(exc)})
             continue
@@ -145,7 +148,28 @@ async def sync_steam_details(ctx: dict[str, Any], batch: int = DETAILS_BATCH) ->
             continue
 
         game = await _with_parent(db, game, data)
-        await store_game(db, game, key="steam_appid")
+        try:
+            await store_game(db, game, key="steam_appid")
+        except DuplicateKeyError as exc:
+            # Một app không được giết cả lô 200 app còn lại. Trước lượt này lỗi
+            # này thoát ra khỏi job, nên việc bồi 185k app dừng hẳn tại đúng app
+            # đó mỗi lần chạy.
+            #
+            # Nguyên nhân đã biết là hai lượt chạy chồng nhau, và `take_pending`
+            # giành việc nên nhánh này lẽ ra không còn với tới được. Nếu nó vẫn
+            # hiện trong log thì là chuyện khác, chưa biết — nên ghi `reason` vào
+            # hàng đợi để tra được sau, chứ không chỉ ghi log rồi thả ra.
+            #
+            # Đánh `skipped` chứ không trả về `pending`: nếu đây là lỗi dữ liệu
+            # bền thì trả lại là vòng lặp retry vô tận, đốt quota Steam mà không
+            # bao giờ xong.
+            await steam_queue.mark(db, appid, "skipped", reason=f"duplicate_key: {exc!s:.180}")
+            tally["conflict"] += 1
+            logger.warning(
+                "steam: đụng khoá unique khi ghi entity",
+                extra={"appid": appid, "slug": game.slug, "error": repr(exc)},
+            )
+            continue
         await steam_queue.mark(db, appid, "done")
         tally["done"] += 1
 

@@ -6,6 +6,8 @@ trí nhớ: mục 5 đã cho thấy fixture tự dựng che mất bốn lỗi th
 
 from __future__ import annotations
 
+import asyncio
+import datetime as dt
 import json
 import pathlib
 from typing import Any
@@ -202,7 +204,8 @@ async def test_hang_doi_chay_lai_khong_dat_lai_trang_thai(mongo_db: Db) -> None:
     assert await steam_queue.enqueue(mongo_db, [(10, "Counter-Strike"), (20, "TFC")]) == 0
 
     assert await steam_queue.take_pending(mongo_db, 10) == [20]
-    assert await steam_queue.counts(mongo_db) == {"done": 1, "pending": 1}
+    # `taken`, không còn `pending`: `take_pending` giành việc chứ không chỉ đọc.
+    assert await steam_queue.counts(mongo_db) == {"done": 1, "taken": 1}
 
 
 async def test_hang_doi_lay_viec_theo_appid_tang_dan(mongo_db: Db) -> None:
@@ -210,6 +213,99 @@ async def test_hang_doi_lay_viec_theo_appid_tang_dan(mongo_db: Db) -> None:
     await steam_queue.enqueue(mongo_db, [(300, "c"), (100, "a"), (200, "b")])
 
     assert await steam_queue.take_pending(mongo_db, 2) == [100, 200]
+
+
+async def test_hai_luot_chong_nhau_khong_nhan_cung_mot_app(mongo_db: Db) -> None:
+    """Chốt chính.
+
+    Bản trước chỉ `find({"status": "pending"})` rồi trả về, còn status chỉ đổi
+    SAU khi xử lý xong từng app. Nên hai lượt chạy chồng nhau đọc đúng cùng một
+    danh sách và cùng gọi appdetails cho cùng những app đó: gấp đôi request Steam
+    cho cùng kết quả, rồi cả hai tính ra cùng một slug cho một entity mới và bên
+    chậm hơn đổ `DuplicateKeyError` giữa lượt, giết cả lô.
+    """
+    await steam_queue.ensure_indexes(mongo_db)
+    await steam_queue.enqueue(mongo_db, [(10, "a"), (20, "b"), (30, "c"), (40, "d")])
+
+    first = await steam_queue.take_pending(mongo_db, 2)
+    second = await steam_queue.take_pending(mongo_db, 2)
+
+    assert first == [10, 20]
+    assert second == [30, 40]
+    assert not set(first) & set(second), "hai lượt nhận trùng app"
+
+
+async def test_bi_gianh_mat_ung_vien_thi_lay_lo_khac_chu_khong_bo_khong(
+    mongo_db: Db,
+) -> None:
+    """Hai lượt song song thường đọc ra cùng một tập ứng viên, nên bên chậm hơn
+    mất trắng cả lô. Đo thật 2026-09-11: lượt thứ hai nhận về 0 app và bỏ không
+    cả lượt cron, trong khi hàng đợi còn 180.283 mục đang chờ.
+    """
+    await steam_queue.ensure_indexes(mongo_db)
+    await steam_queue.enqueue(mongo_db, [(i, f"g{i}") for i in range(1, 9)])
+
+    first, second = await asyncio.gather(
+        steam_queue.take_pending(mongo_db, 4),
+        steam_queue.take_pending(mongo_db, 4),
+    )
+
+    assert not set(first) & set(second), "hai lượt nhận trùng app"
+    # Chốt chính: cả hai đều có việc, không ai về tay không.
+    assert first and second
+    assert len(first) + len(second) == 8
+
+
+async def test_het_viec_thi_luot_sau_nhan_rong(mongo_db: Db) -> None:
+    await steam_queue.ensure_indexes(mongo_db)
+    await steam_queue.enqueue(mongo_db, [(10, "a")])
+
+    assert await steam_queue.take_pending(mongo_db, 5) == [10]
+    assert await steam_queue.take_pending(mongo_db, 5) == []
+
+
+async def test_loi_mang_thi_tra_viec_ve_pending(mongo_db: Db) -> None:
+    """Lỗi mạng không phải bằng chứng app có vấn đề. Trước khi có cơ chế giành
+    việc thì chỉ cần `continue`; giờ không trả lại là app treo tới hết lease."""
+    await steam_queue.ensure_indexes(mongo_db)
+    await steam_queue.enqueue(mongo_db, [(10, "a")])
+    await steam_queue.take_pending(mongo_db, 1)
+
+    await steam_queue.release(mongo_db, 10)
+
+    assert await steam_queue.counts(mongo_db) == {"pending": 1}
+    assert await steam_queue.take_pending(mongo_db, 1) == [10]
+
+
+async def test_luot_chet_giua_duong_khong_giu_viec_vinh_vien(mongo_db: Db) -> None:
+    """Không có bước thu hồi thì mỗi lần worker bị kill giữa lượt là 200 app nằm
+    `taken` vĩnh viễn, và hàng đợi rò rỉ dần tới lúc không còn việc nào chạy."""
+    await steam_queue.ensure_indexes(mongo_db)
+    await steam_queue.enqueue(mongo_db, [(10, "a")])
+
+    now = dt.datetime.now(dt.UTC)
+    assert await steam_queue.take_pending(mongo_db, 1, now=now) == [10]
+    # Lượt kế tiếp NGAY sau đó không được giật việc khỏi tay lượt đang chạy.
+    assert await steam_queue.take_pending(mongo_db, 1, now=now) == []
+
+    # Quá lease thì coi như lượt kia đã chết.
+    sau = now + steam_queue.CLAIM_LEASE + dt.timedelta(seconds=1)
+    assert await steam_queue.take_pending(mongo_db, 1, now=sau) == [10]
+
+
+async def test_mark_xoa_dau_gianh_viec(mongo_db: Db) -> None:
+    """Mục đã xong còn mang `claimed_by` thì `reclaim_abandoned` phải lọc thêm
+    theo status, và mọi mục done mang rác vĩnh viễn."""
+    await steam_queue.ensure_indexes(mongo_db)
+    await steam_queue.enqueue(mongo_db, [(10, "a")])
+    await steam_queue.take_pending(mongo_db, 1)
+
+    await steam_queue.mark(mongo_db, 10, "done")
+
+    doc = await mongo_db[steam_queue.STEAM_APPS].find_one({"_id": 10})
+    assert doc is not None
+    assert "claimed_by" not in doc
+    assert "claimed_at" not in doc
 
 
 # --- ghi vào catalog -------------------------------------------------------
