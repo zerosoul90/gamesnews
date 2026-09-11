@@ -1,7 +1,7 @@
 # PROGRESS.md — Tiến độ
 
 **Phase hiện tại:** Phase 1 — Catalog + Search
-**Cập nhật lần cuối:** 2026-09-09
+**Cập nhật lần cuối:** 2026-09-12
 
 Phase 0 đã đạt toàn bộ checkpoint nghiệm thu. Chỉ còn mục 7 (đăng ký key ngoài)
 là việc của người dùng, Phase 1 mới cần tới.
@@ -105,7 +105,8 @@ render đúng trên Facebook và Zalo.
 - [x] Trang game trả lời sẵn 4 câu hỏi dài tiếng Việt (GameComponent tĩnh)
 - [x] Trang deal, trang free tuần này (DealComponent, FreeComponent)
 - [x] Thẻ chia sẻ dạng ảnh sinh phía server (Pillow FastAPI /api/v1/og-image)
-- [x] Sitemap, structured data, i18n route (Meta service Angular)
+- [x] Sitemap (`api/sitemap.py`, dạng index + phân trang), structured data
+      (JSON-LD `VideoGame` + canonical), meta tag động. **i18n route chưa làm**
 - [x] Umami self-host (Thêm Postgres & Umami vào Docker Compose)
 
 ---
@@ -125,7 +126,7 @@ render đúng trên Facebook và Zalo.
 **Checkpoint:** gắn entity tự động ≥ 85%; tin quốc tế lên feed tiếng Việt
 trong 2 giờ.
 
-- [x] Quản lý nguồn + 10–15 RSS
+- [x] Quản lý nguồn + 15 RSS (`jobs/news_sources.json`, mồi qua `ensure_storage`)
 - [x] Khử trùng lặp simhash
 - [x] Gắn entity 3 tầng + hàng đợi duyệt
 - [x] Vòng phản hồi sinh alias từ mỗi lần duyệt tay
@@ -969,3 +970,172 @@ test nhưng chưa ai gọi ở môi trường thật. Lần này `core/bootstrap
 dựng deploy trắng** — và cách kiểm rẻ, không phá dữ liệu dev:
 `APP_PORT=8001 docker compose -p gamesnews-fresh -f docker-compose.yml up -d`
 (phải chỉ rõ `-f` để bỏ qua override file đang bind cổng), xong thì `down -v`.
+
+### 2026-09-10 → 2026-09-11 — Web SSR và bồi dữ liệu thật cho trang game
+
+Mười sáu commit không kịp vào nhật ký, ghi gộp lại đây. Chủ đề chung: **trang
+game đi từ mock sang dữ liệu thật**, và vá những chỗ chỉ lộ ra khi chạy thật.
+
+| Nhóm | Việc |
+|---|---|
+| Web | Angular SSR lên cùng một lệnh `docker compose` với backend; SSR gọi API qua mạng nội bộ còn bản production đi qua proxy `/api` của `server.ts`; URL không khớp route trả **404** thay vì 200 kèm trang trắng; tắt transfer cache (nhẹ 19% và hết lộ host nội bộ trong HTML) |
+| Trang game | `/game/:slug` đọc dữ liệu thật thay cho Elden Ring viết cứng; biểu đồ người chơi theo ngày từ CCU đã thu sẵn; `system_requirements` parse từ `pc_requirements` của Steam; điểm đánh giá Steam — **nguồn điểm thật đầu tiên**; sparkline giá quy chiếu về 0 |
+| Giá | Job Epic free games (store thứ hai trong `price_current`); job CheapShark + `price_intl` cho giá nhiều store quốc tế |
+| Hạ tầng job | Sàn token cho job bồi catalog để nó không vét sạch bucket dùng chung; hàng đợi Steam giành việc bằng khoá, hai lượt chồng nhau không còn giết cả lô; index `game_reviews` chuyển về `ensure_storage` |
+| Mobile | Gọi đúng path API, bỏ dữ liệu bịa khi lỗi |
+
+Một quyết định ghi trong `adapters/gog/adapter.py`: **không viết job giá GOG.**
+GOG không có giá VND và không có endpoint lô; CheapShark đã bao được GOG trong
+bảng giá quốc tế, nên một job riêng chỉ tốn request để lấy lại thứ đã có.
+
+### 2026-09-12 — Cờ "Đáy lịch sử" nói dối 2.336 game, và Phase 6 chạy rỗng
+
+Lượt rà soát "còn gì xử lý nốt". Ba cổng đều sạch từ đầu (ruff, `mypy --strict`,
+523 test), nên thứ hỏng không nằm ở chỗ test nhìn thấy.
+
+#### Lỗi: 44% catalog đeo nhãn "Đáy lịch sử" ở giá nguyên
+
+Đo trên dữ liệu đang chạy: **2.613/5.987** bản ghi giá gắn `is_historical_low`,
+trong đó **2.336 game giảm 0%**. Kiểm qua HTTP, `GET /games/by-slug/ground-branch`:
+
+```json
+{"price_final": 250000, "price_initial": 250000, "discount_percent": 0,
+ "is_historical_low": true, "lowest_ever": 250000, "observations": 2}
+```
+
+Luật cũ là `observations >= 2 and price_final <= lowest_ever`. Nó **không chặn
+được** nguyên nhân ở đây: đọc đúng một cái giá đứng yên hai lần vẫn là hai lần
+quan sát, và `lowest_ever` khi đó chính là cái giá nguyên đó.
+
+Đây là **lần thứ hai** cùng một cái nhãn nói dối. Lần trước (09-09) là 189/196,
+do lỗi quota thổi `observations`; đã dọn nhưng chốt `MIN_OBSERVATIONS_FOR_LOW`
+để lại chỉ chữa được triệu chứng của lần đó. Bài học: chốt "đủ số lần quan sát"
+không thay được chốt "có gì để mà nói đáy".
+
+`/deals` lọc `discount > 0` nên chỉ 277 game lọt ra trang deal — nhưng
+`game.component.html` in dòng "đáy lịch sử" **không kèm điều kiện giảm giá**, nên
+cả 2.336 trang game đều nói sai.
+
+**Đã sửa** — `_is_historical_low` trong `services/pricing.py`, hai chốt:
+
+1. **Giảm 0% thì không bao giờ là đáy.** Nghe hiển nhiên; nó là chốt thiếu.
+2. **Có mốc ngoài thì tin mốc ngoài.** `cheapestPriceEver` của CheapShark cuối
+   cùng đã được đấu vào — món nợ ghi từ 09-09 ("adapter đã viết và có test, chưa
+   có job nào gọi", rồi 09-11 có job nhưng chưa nối vào cờ đáy).
+
+   So bằng **phần trăm giảm**, không bằng tiền: CheapShark chỉ có USD và không
+   có tham số quốc gia, mà cắm một tỉ giá vào mã nguồn thì tới lúc tỉ giá đổi là
+   cờ đáy lệch theo mà không ai hay. Phần trăm thì không có đơn vị, và Steam áp
+   cùng mức giảm cho mọi khu vực — đó là thứ duy nhất so được. Khi có mốc ngoài
+   thì **không cần chờ đủ lượt quan sát** nữa: nguồn ngoài đã đóng vai lịch sử.
+
+Lịch sử của chính ta vẫn giữ quyền phủ quyết: từng thấy rẻ hơn thì "đang ở đáy"
+là sai, bất kể nguồn ngoài nói gì.
+
+**Đã dọn dữ liệu:** gỡ cờ ở mọi dòng `discount_percent <= 0` — đúng tập mà luật
+mới loại, không đoán thêm. 2.653 dòng lượt đầu, rồi **577 dòng nữa mọc lại**
+trong khoảng giữa lúc dọn và lúc rebuild image, vì job giá vẫn đang chạy bằng
+code cũ. Đáng ghi: **dọn dữ liệu trước khi deploy code sửa thì phải dọn lại.**
+Sau cùng: 385 cờ đáy, **0 cờ ở mức giảm 0%**.
+
+#### Phase 6 chạy rỗng mỗi 15 phút suốt nhiều ngày
+
+`crawl_all_sources` lượt nào cũng trả `{"sources": 0, "fetched": 0, "stored": 0}`
+và `articles` có đúng 0 bản ghi. Mọi mảnh đều xong; thiếu đúng **danh sách
+nguồn** — collection `sources` chưa từng có dòng nào.
+
+Đã thử thật 40 feed ứng viên trước khi chọn 15 (`app/jobs/news_sources.json`),
+vì "fixture của nguồn ngoài phải chép từ phản hồi thật". Những cái rụng:
+Polygon ngắt kết nối, Kotaku và Mot Game trả 403, Vietgame.asia / Gamehub /
+Thanh Niên 404, 2Game parse ra 0 bài.
+
+**Bẫy riêng của GameK:** `mobile.rss`, `esports.rss`, `tin-tuc.rss`,
+`the-gioi-game.rss` đều trả **y hệt** `home.rss` — thêm nhiều chuyên mục chỉ tổ
+nhân bản cùng một tập tin. Chỉ `pc-console.rss` khác thật, và cũng chỉ nó là nội
+dung game; mấy feed kia đầy tin showbiz, đưa vào là mỗi lượt crawl đổ rác vào
+hàng đợi duyệt tay.
+
+Mồi qua `ensure_storage`, và **chỉ khi collection rỗng hoàn toàn**: sau lượt đầu
+đây là dữ liệu của người vận hành, admin tắt hay xoá một nguồn thì lần khởi động
+sau không được dựng nó dậy.
+
+**Chạy thật một lượt:** 15 nguồn, 669 bài, 82 trùng, **587 bài lưu mới**, 71 gắn
+được entity, 516 vào hàng đợi duyệt tay.
+
+Tỉ lệ gắn tự động **12%**, xa checkpoint 85%. Đã truy nguyên nhân, và **không
+phải lỗi matcher**: chỉ 7/669 bài có link Steam trong nội dung (tầng 1 gần như
+không có việc), tầng 3 tắt vì thiếu `GEMINI_API_KEY`, và cả 7 bài kia trỏ tới
+appid **chưa có trong catalog** — catalog mới bồi 7.520/185.231. Nói cách khác
+checkpoint Phase 6 bị chặn bởi độ phủ catalog và bởi key LLM, không bởi thuật
+toán.
+
+#### Sitemap và structured data — Phase 4 mục 5
+
+Đánh dấu xong từ 09-08 nhưng `/sitemap.xml`, `/robots.txt` đều 404 và không có
+một dòng `ld+json` nào. Nay có `app/api/sitemap.py`:
+
+- `/sitemap.xml` là **sitemap index**. Chuẩn cho tối đa 50.000 URL mỗi file, mà
+  catalog đang trên đường tới ~185.000 game.
+- **DLC không vào sitemap.** Trang DLC gần như không có nội dung riêng, và đẩy
+  vài chục nghìn trang mỏng cho Google index là cách nhanh nhất để bị đánh giá
+  thấp cả tên miền.
+- Sắp theo `_id` chứ không theo `updated_at`: thứ tự phải ổn định giữa hai lần
+  gọi, nếu không thì một game bị đẩy từ trang 2 sang trang 1 trong lúc Google
+  đang đọc dở và nó không bao giờ thấy được.
+- **Thiếu `PUBLIC_BASE_URL` thì trả 503**, không đoán origin từ header `Host`:
+  Express ghi đè `host` thành `app:8000` khi chuyển tiếp, nên đoán sẽ sinh ra
+  một sitemap đầy địa chỉ nội bộ rồi nộp cho Google. `robots.txt` thì ngược lại
+  — vẫn trả lời, chỉ bỏ dòng `Sitemap:`, vì robots.txt hỏng nghĩa là bot không
+  biết được phép đọc gì.
+- `server.ts` chuyển tiếp đúng ba đường dẫn đó về backend. Bắt buộc: Google chỉ
+  nhận sitemap nằm cùng host với các URL nó liệt kê, và `robots.txt` theo định
+  nghĩa chỉ được đọc ở gốc origin.
+
+**Một lỗi chỉ lộ khi nhìn XML thật:** `updated_at` nằm trong Mongo dưới dạng
+`datetime`, nên `str()` ra `2026-09-07 16:28:45.910000+00:00` — **dấu cách** thay
+cho `T`. Chuẩn sitemap đòi W3C Datetime; `lastmod` sai định dạng bị Google bỏ
+qua lặng lẽ, Search Console không có dòng lỗi nào. Nhìn từ ngoài thì sitemap vẫn
+"chạy". Đã có test chốt ở cả tầng hàm lẫn tầng XML.
+
+Structured data: `StructuredDataService` ghi `<script type="application/ld+json">`
+và `<link rel="canonical">` thẳng vào `<head>`. Không nhét vào template Angular
+vì mọi dấu ngoặc kép sẽ bị escape thành `&quot;` và Google đọc ra JSON hỏng — mà
+nó không báo lỗi, chỉ bỏ qua rich result. Mỗi loại một `id` cố định và **ghi
+đè**, không append: điều hướng trong app không tải lại trang, cứ append thì sang
+game thứ ba trong `<head>` có ba khối mô tả ba game khác nhau. Trang 404 gỡ khối
+JSON-LD, nếu không nó tự khai mình là một game có thật kèm giá.
+
+Chỉ khai trường ta **thật sự có** — bịa `aggregateRating` cho rich result trông
+đầy đặn hơn là đúng thứ Google phạt. `aggregateRating` lấy từ `positive_percent`
+của Steam: đó là dữ liệu công khai của Valve về chính game đó, khác hẳn điểm
+tổng hợp của Metacritic mà `CLAUDE.md` cấm.
+
+Nghiệm thu trên SSR thật, `GET /game/elden-ring` trả về trong HTML thô:
+`VideoGame` đủ `gamePlatform`, `genre`, `publisher`, `author`, `datePublished`,
+`offers` 990.000₫ và `aggregateRating` 93/100 trên 1.154.113 review.
+
+#### `pytest` ở máy dev: ERROR thay vì skip
+
+`tests/conftest.py` đọc `MEILI_MASTER_KEY` từ biến môi trường và **không đọc
+`.env`**. Máy dev để key trong `.env`, nên chạy `pytest` mà quên `export` thì 10
+test `test_search.py` không skip mà ERROR với `httpx.LocalProtocolError: Illegal
+header value b'Bearer '` — Meilisearch sống, chỉ là request mang key rỗng, và
+thông báo lỗi không hề nhắc tới key. CI không dính vì ở đó biến được đặt sẵn.
+Nay conftest đọc `.env` làm phương án dự phòng (đọc tay, không qua `Settings`:
+`Settings` có validator từ chối khởi tạo khi `APP_ENV` khác `dev`, và một biến
+còn sót lại sẽ làm cả bộ test không collect được).
+
+#### Số liệu
+
+**540 test xanh, 0 skip** (523 -> 540), ruff + `mypy --strict` sạch. Ba test mới
+của cờ đáy đã xác minh **đỏ khi gỡ fix ra**.
+
+**Còn nợ sau lượt này:**
+
+- `GEMINI_API_KEY` trống: tin không được tóm tắt/dịch, tầng 3 gắn entity tắt,
+  `sync_game_embeddings` log ERROR mỗi lượt và trả `embedded: 0`.
+- Catalog 7.520/185.231 — khoảng 9 ngày cron nữa mới qua mốc 50.000 của Phase 1.
+- Ảnh thẻ chia sẻ vẫn font bitmap, **không có dấu tiếng Việt**.
+- `POST /library/epic/bulk` vẫn 501: `price_current` mới có đúng 1 dòng
+  `store: epic`, chưa đủ lịch sử free theo tuần.
+- Twitch vẫn chặn mảng streamer của Phase 7 (2FA điện thoại), chưa có quyết định.
