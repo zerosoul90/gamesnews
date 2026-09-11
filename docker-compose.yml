@@ -42,11 +42,13 @@ services:
     ports:
       - "4200:4000"
     restart: unless-stopped
+    environment:
+      # Chỉ phía SSR đọc biến này. Browser vẫn gọi `http://localhost:8000` theo
+      # environment.ts vì nó chạy trên máy người dùng, nơi `app` không phân giải được.
+      API_BASE_URL: http://app:8000
     depends_on:
       app:
         condition: service_started
-    extra_hosts:
-      - "localhost:host-gateway"
 
   mongo:
     image: mongo:7

@@ -1,8 +1,8 @@
-import { Injectable } from '@angular/core';
+import { Inject, Injectable } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
-import { environment } from '../../environments/environment';
+import { API_BASE_URL } from '../api-base-url';
 
 /** Thông tin game gắn kèm mỗi dòng giá. `null` nghĩa là giá trỏ tới một game
  *  không còn trong catalog — hiếm, nhưng phải phân biệt được với "chưa có ảnh". */
@@ -31,9 +31,14 @@ export interface DealResponse {
   providedIn: 'root',
 })
 export class DealService {
-  private readonly apiUrl = `${environment.apiUrl}/deals`;
+  private readonly apiUrl: string;
 
-  constructor(private http: HttpClient) {}
+  constructor(
+    private http: HttpClient,
+    @Inject(API_BASE_URL) apiBaseUrl: string,
+  ) {
+    this.apiUrl = `${apiBaseUrl}/deals`;
+  }
 
   getDeals(limit = 20, filterBy?: string): Observable<DealResponse> {
     // HttpParams thay vì nối chuỗi: giá trị lọc được mã hoá đúng, và tham số
