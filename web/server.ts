@@ -6,6 +6,7 @@ import { dirname, join, resolve } from 'node:path';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import bootstrap from './src/main.server';
+import { RENDER_STATUS, RenderStatus } from './src/app/render-status';
 
 /**
  * Gắn proxy `/api` -> backend.
@@ -108,15 +109,24 @@ export function app(): express.Express {
   server.get('**', (req, res, next) => {
     const { protocol, originalUrl, baseUrl, headers } = req;
 
+    // Một object cho mỗi request, không dùng biến dùng chung: hai request đồng
+    // thời mà một cái 404 thì cái kia sẽ bị gán status theo.
+    const renderStatus: RenderStatus = { statusCode: 200 };
+
     commonEngine
       .render({
         bootstrap,
         documentFilePath: indexHtml,
         url: `${protocol}://${headers.host}${originalUrl}`,
         publicPath: browserDistFolder,
-        providers: [{ provide: APP_BASE_HREF, useValue: baseUrl }],
+        providers: [
+          { provide: APP_BASE_HREF, useValue: baseUrl },
+          { provide: RENDER_STATUS, useValue: renderStatus },
+        ],
       })
-      .then((html) => res.send(html))
+      // NotFoundComponent đã kịp ghi 404 vào `renderStatus` lúc render, nên URL
+      // không khớp route trả đúng 404 thay vì 200 kèm trang trắng.
+      .then((html) => res.status(renderStatus.statusCode).send(html))
       .catch((err) => next(err));
   });
 
