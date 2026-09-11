@@ -1,0 +1,17 @@
+[
+  { "name": "IGN", "url": "https://feeds.ign.com/ign/games-all", "language": "en" },
+  { "name": "PC Gamer", "url": "https://www.pcgamer.com/rss/", "language": "en" },
+  { "name": "Rock Paper Shotgun", "url": "https://www.rockpapershotgun.com/feed", "language": "en" },
+  { "name": "Eurogamer", "url": "https://www.eurogamer.net/feed", "language": "en" },
+  { "name": "GameSpot", "url": "https://www.gamespot.com/feeds/game-news", "language": "en" },
+  { "name": "VG247", "url": "https://www.vg247.com/feed", "language": "en" },
+  { "name": "Destructoid", "url": "https://www.destructoid.com/feed/", "language": "en" },
+  { "name": "PCGamesN", "url": "https://www.pcgamesn.com/mainrss.xml", "language": "en" },
+  { "name": "Gematsu", "url": "https://www.gematsu.com/feed", "language": "en" },
+  { "name": "GamesRadar+", "url": "https://www.gamesradar.com/rss/", "language": "en" },
+  { "name": "Nintendo Life", "url": "https://www.nintendolife.com/feeds/latest", "language": "en" },
+  { "name": "Push Square", "url": "https://www.pushsquare.com/feeds/latest", "language": "en" },
+  { "name": "Game Developer", "url": "https://www.gamedeveloper.com/rss.xml", "language": "en" },
+  { "name": "GameK — PC/Console", "url": "https://gamek.vn/pc-console.rss", "language": "vi" },
+  { "name": "GameLandVN", "url": "https://gamelandvn.com/feed", "language": "vi" }
+]

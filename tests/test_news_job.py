@@ -13,6 +13,7 @@ năng parse RSS của `feedparser`.
 from __future__ import annotations
 
 import datetime as dt
+import json
 from typing import Any
 
 import pytest
@@ -23,6 +24,7 @@ from app.jobs import news
 from app.models.article import NewsArticle
 from app.models.game import Game, Titles
 from app.models.source import Source, SourceStatus
+from app.services import sources
 from app.services.catalog import upsert_game, with_aliases
 from app.services.dedup import compute_simhash
 
@@ -196,3 +198,40 @@ async def test_thieu_key_gemini_van_chay_chi_la_khong_dich(
     doc = await mongo_db.articles.find_one({"url": "https://ign.example/5"})
     assert doc is not None
     assert doc["summary_vi"] is None
+
+
+# --- Mồi danh sách nguồn ---------------------------------------------------
+#
+# Job trên chạy đúng từ lâu rồi. Thứ thiếu là dữ liệu: `sources` rỗng, nên mỗi
+# 15 phút job trả `sources: 0` và Phase 6 đứng im trong khi `PROGRESS.md` ghi
+# là đã xong.
+
+
+def test_danh_sach_nguon_moi_dung_luoc_do() -> None:
+    """Một dấu phẩy sai trong JSON phải đỏ ở đây, đừng đợi tới lúc khởi động."""
+    raw = json.loads(sources.SEED_FILE.read_text(encoding="utf-8"))
+
+    parsed = [Source(**entry) for entry in raw]
+
+    assert len(parsed) >= 10, "PHASE-6 yêu cầu bắt đầu với 10-15 nguồn"
+    assert len(parsed) <= 15
+    assert {s.language for s in parsed} == {"en", "vi"}, "phải có cả hai ngôn ngữ"
+    assert len({s.url for s in parsed}) == len(parsed), "URL trùng thì crawl hai lần một nguồn"
+    assert all(s.status == "active" for s in parsed)
+
+
+async def test_moi_nguon_khi_collection_rong(mongo_db: Db) -> None:
+    added = await sources.seed_default_sources(mongo_db)
+
+    assert added >= 10
+    assert await mongo_db.sources.count_documents({}) == added
+
+
+async def test_khong_moi_de_len_lua_chon_cua_admin(mongo_db: Db) -> None:
+    """Admin tắt hoặc xoá một nguồn thì lần khởi động sau không được dựng lại."""
+    await add_source(mongo_db, status="inactive")
+
+    added = await sources.seed_default_sources(mongo_db)
+
+    assert added == 0
+    assert await mongo_db.sources.count_documents({}) == 1

@@ -34,6 +34,7 @@ from app.services import (
     price_tier,
     reviews,
     rollup,
+    sources,
     steam_queue,
 )
 
@@ -85,6 +86,17 @@ async def ensure_storage(db: Db, index: MeiliIndex | None = None) -> dict[str, i
         await rollup.ensure_indexes(db)
     except Exception:
         logger.exception("không dựng được time-series game_metrics")
+
+    # Mồi danh sách feed RSS. Không phải index, nhưng cùng một bệnh: job crawl
+    # đã chạy 15 phút một lần suốt nhiều ngày và lượt nào cũng `sources: 0` vì
+    # không có gì nạp danh sách nguồn. Hàm này tự bỏ qua khi collection đã có
+    # dữ liệu, nên nó không giẫm lên lựa chọn của admin.
+    try:
+        seeded = await sources.seed_default_sources(db)
+        if seeded:
+            created["sources_seeded"] = seeded
+    except Exception:
+        logger.exception("không mồi được nguồn tin")
 
     # Index Meilisearch cũng chưa từng được dựng ở môi trường thật: nó chỉ được
     # tạo bên trong `reindex()`, mà job đó chưa chạy lần nào trên một deploy
