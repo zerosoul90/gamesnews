@@ -1,3 +1,36 @@
+"""Adapter GOG — **chưa job nào gọi, và đã đo là KHÔNG nên viết job giá.**
+
+Đo tay 2026-09-11, ghi lại đây để người sau không phải đo lại:
+
+**1. GOG không bán bằng VND.** `currencyCode` có tác dụng thật — xin EUR nhận
+EUR, xin PLN nhận PLN — nhưng xin VND thì rơi về USD, kể cả khi kèm
+`countryCode=VN`. Nên dữ liệu này không vào được `price_current` (đang là VND đơn
+vị lớn); nó phải nằm ở `price_intl` như CheapShark.
+
+**2. Toàn bộ giá trị đã có sẵn qua CheapShark.** CheapShark có GOG trong danh
+sách store (storeID 7). Bốn game mà API GOG khớp được — Cyberpunk 2077 $59.99,
+Stardew Valley $14.99, Hollow Knight $14.99, Baldur's Gate 3 $59.99 — đều đã có
+dòng GOG trong `price_intl` với **giá trùng khít**.
+
+**3. CheapShark không bỏ sót.** 10 game mà CheapShark nói "không có GOG" (Elden
+Ring, Dark Souls III, Sekiro, RDR2, Persona 5, NieR: Automata...) — API GOG xác
+nhận **0/10** thật sự có trên GOG. Chúng không DRM-free nên GOG không bán.
+
+**4. Khớp theo tên ở đây rủi ro thật.** GOG không có khoá join nào sang Steam:
+
+- `like:NieR Automata` trả về "Star Fleet Deluxe", "Bombshell", "AI War 2" —
+  rác hoàn toàn. Lấy kết quả đầu tiên là gắn giá Star Fleet Deluxe cho NieR.
+- `like:Half-Life: Opposing Force` trả **HTTP 400** (`["Something went wrong..."]`):
+  dấu câu trong tên làm vỡ parser truy vấn của GOG.
+- `productType` không dùng để lọc được: Cyberpunk 2077 trên GOG là `pack`, nên
+  lọc `== "game"` loại oan chính game gốc.
+
+Kết luận: không viết job giá GOG. Thứ GOG có mà CheapShark không có là
+`external_ids.gog_id` — nó cho `entity_matcher.match_by_store_link` nhận ra entity
+từ một link GOG trong bài viết, tức tầng 1 của bộ khớp, chắc hơn khớp theo tên.
+Nếu sau này cần GOG thì làm đúng phần đó, đừng làm giá.
+"""
+
 import logging
 from typing import Any
 
@@ -50,9 +83,14 @@ class GogAdapter:
             })
         return results
 
-    async def get_price(self, gog_id: str, currency: str = "VND") -> dict[str, Any] | None:
-        """
-        Lấy thông tin giá hiện tại của game trên GOG.
+    async def get_price(self, gog_id: str, currency: str = "USD") -> dict[str, Any] | None:
+        """Giá hiện tại của một game trên GOG.
+
+        Mặc định là **USD, không phải VND**. Bản trước mặc định `"VND"`, và đó là
+        một cái bẫy: GOG nhận tham số nhưng lặng lẽ trả USD cho VND (xem docstring
+        của module), nên người gọi tin vào mặc định sẽ lưu số đô vào một cột đang
+        chứa đồng. Trường `currency` trả về đọc từ chính response, nên nó luôn nói
+        thật — nhưng tên tham số thì đừng hứa điều API không làm.
         """
         params = {
             "id": gog_id,
