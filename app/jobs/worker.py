@@ -26,6 +26,7 @@ from app.core.db import close_clients, create_clients
 from app.core.deps import build_meili
 from app.core.logging import new_request_id, request_id_var, setup_logging
 from app.jobs.embeddings import sync_game_embeddings
+from app.jobs.epic_pricing import sync_epic_free_games
 from app.jobs.metrics import job_compute_hotness, job_fetch_steam_ccu, job_rollup_metrics
 from app.jobs.mobile_catalog import sync_app_store, sync_google_play
 from app.jobs.news import crawl_all_sources
@@ -97,6 +98,10 @@ CRON_JOBS: list[CronJob] = [
     cron(sync_steam_prices, minute=EVERY_15_MIN),
     # Tầng đổi chậm; tính lại mỗi ngày là đủ.
     cron(recompute_price_tiers, hour=3, minute=30),
+    # Epic đổi game tặng lúc 15:00 UTC thứ năm, nhưng chạy mỗi giờ chứ không
+    # canh đúng mốc đó: một lượt hỏng vào đúng giờ đổi sẽ làm cả tuần thiếu
+    # game free, mà đây cũng chỉ là MỘT request sau CDN.
+    cron(sync_epic_free_games, minute=10),
     # --- Catalog (Phase 1) ---
     # Bồi chi tiết 185k app mất vài ngày, nên phải chạy đều đặn và liên tục.
     cron(sync_steam_details, minute={5, 20, 35, 50}),
@@ -135,6 +140,7 @@ class WorkerSettings:
         sync_steam_details,
         sync_steam_prices,
         recompute_price_tiers,
+        sync_epic_free_games,
         send_notification_digest,
         job_rollup_metrics,
         job_fetch_steam_ccu,

@@ -94,10 +94,17 @@ export class GameComponent implements OnInit {
     return this.minimumRows.length > 0 || this.recommendedRows.length > 0;
   }
 
-  /** Link store. `price_current` không có URL, nên chỉ dựng được cho Steam từ
-   *  `steam_appid` — store khác thì trả null và template không vẽ nút, thay vì
-   *  vẽ một nút dẫn đi đâu không biết. */
+  /** Link tới trang sản phẩm ở store.
+   *
+   *  Ưu tiên `url` mà nguồn tự trả (job Epic điền sẵn), rồi mới suy ra từ
+   *  `steam_appid`. Trước đây chỉ có nhánh Steam, nên khi giá rẻ nhất là một đợt
+   *  tặng miễn phí của Epic thì trang không vẽ nút mua nào cả — đúng lúc người
+   *  đọc cần bấm nhất. Không có cả hai thì trả null và template không vẽ nút,
+   *  thay vì vẽ một nút dẫn đi đâu không biết. */
   storeUrl(price: GamePrice): string | null {
+    if (price.url) {
+      return price.url;
+    }
     if (price.store === 'steam' && this.game?.steam_appid) {
       return `https://store.steampowered.com/app/${this.game.steam_appid}/`;
     }

@@ -116,13 +116,27 @@
           <div *ngIf="best.is_historical_low" class="text-orange-400 text-sm font-semibold mt-2">
             Đang ở mức thấp nhất từng ghi nhận
           </div>
+          <!-- Đợt tặng miễn phí có hạn chót, và đó là thông tin quan trọng nhất
+               của cả khối: quá hạn thì game về giá gốc. -->
+          <div *ngIf="best.is_free_promo" class="text-green-400 text-sm font-semibold mt-2">
+            Đang được tặng miễn phí<span *ngIf="best.promo_ends_at">
+              <!-- Timezone phải ghi rõ `+0700`. Không ghi thì pipe `date` dùng
+                   múi giờ của nơi render: UTC trong container SSR, nhưng giờ máy
+                   người dùng khi hydrate — hai giá trị khác nhau cho cùng một
+                   mốc. Epic trả `2026-09-17T15:00:00Z`, để mặc định thì người
+                   Việt đọc "15:00" trong khi hạn thật là 22:00 giờ VN, tức mất
+                   7 tiếng trên một hạn chót mà họ phải hành động theo. -->
+              — hạn nhận
+              {{ best.promo_ends_at | date: 'dd/MM/yyyy HH:mm' : '+0700' }} (giờ VN)</span
+            >
+          </div>
           <a
             *ngIf="storeUrl(best) as url"
             [href]="url"
             rel="noopener nofollow"
             target="_blank"
             class="inline-block mt-4 bg-blue-600 hover:bg-blue-500 text-white font-bold px-6 py-3 rounded-xl transition-colors"
-            >Mua trên {{ best.store }}</a
+            >{{ best.is_free_promo ? 'Nhận miễn phí trên' : 'Mua trên' }} {{ best.store }}</a
           >
         </div>
         <ng-template #noPrice>

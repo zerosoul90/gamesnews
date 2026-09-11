@@ -20,6 +20,11 @@ export interface GamePrice {
   price_initial: number;
   discount_percent: number;
   is_historical_low: boolean;
+  /** Đợt tặng miễn phí (Epic). `promo_ends_at` là hạn chót nhận. */
+  is_free_promo?: boolean;
+  promo_ends_at?: string | null;
+  /** URL trang sản phẩm ở store, khi nguồn có trả. */
+  url?: string | null;
 }
 
 export interface PriceHistoryPoint {
