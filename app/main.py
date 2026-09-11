@@ -20,6 +20,7 @@ from app.api.prices import router as prices_router
 from app.api.promotions import router as promotions_router
 from app.api.search import router as search_router
 from app.api.seo import router as seo_router
+from app.api.sitemap import router as sitemap_router
 from app.api.sources import router as sources_router
 from app.api.user import router as user_router
 from app.api.webhooks import router as webhooks_router
@@ -102,6 +103,7 @@ app.include_router(search_router)
 app.include_router(prices_router)
 app.include_router(games_router)
 app.include_router(seo_router)
+app.include_router(sitemap_router)
 app.include_router(admin_router)
 app.include_router(sources_router)
 app.include_router(webhooks_router, prefix="/webhooks", tags=["webhooks"])

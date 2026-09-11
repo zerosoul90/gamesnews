@@ -7,6 +7,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { RENDER_STATUS, RenderStatus } from '../../render-status';
 import { SITE_ORIGIN } from '../../site-origin';
 import { GameDetail, GamePrice, GameService, PlayerCountDay } from '../../services/game.service';
+import { StructuredDataService } from '../../services/structured-data.service';
 
 /** Một cột của biểu đồ người chơi, toạ độ đã tính sẵn trong viewBox 100x40. */
 interface PlayerBar {
@@ -39,6 +40,7 @@ export class GameComponent implements OnInit {
     private metaService: Meta,
     private route: ActivatedRoute,
     private gameService: GameService,
+    private structuredData: StructuredDataService,
     @Inject(SITE_ORIGIN) private siteOrigin: string,
     @Optional() @Inject(RENDER_STATUS) private renderStatus: RenderStatus | null,
   ) {}
@@ -195,6 +197,83 @@ export class GameComponent implements OnInit {
     }
     this.titleService.setTitle('Không tìm thấy game - GameNews');
     this.metaService.updateTag({ name: 'robots', content: 'noindex' });
+    // Điều hướng từ một trang game sang một slug không tồn tại không tải lại
+    // trang, nên khối JSON-LD của game trước vẫn còn trong `<head>`: trang 404
+    // sẽ khai báo mình là một game có thật, kèm giá.
+    this.structuredData.clearJsonLd();
+  }
+
+  /**
+   * JSON-LD `VideoGame` cho trang game.
+   *
+   * Chỉ khai những trường ta THẬT SỰ có. Schema.org không bắt buộc trường nào
+   * ngoài `name`, và bịa ra `aggregateRating` hay `datePublished` để rich result
+   * trông đầy đặn hơn là đúng thứ Google phạt — ngoài chuyện nó nói dối người
+   * đọc, vốn là ranh giới của cả dự án này.
+   */
+  private buildJsonLd(game: GameDetail, url: string): Record<string, unknown> {
+    const data: Record<string, unknown> = {
+      '@context': 'https://schema.org',
+      '@type': 'VideoGame',
+      name: game.title,
+      url,
+    };
+
+    if (game.cover_image_url) {
+      data['image'] = game.cover_image_url;
+    }
+    if (game.platforms.length) {
+      data['gamePlatform'] = game.platforms;
+    }
+    if (game.genres.length) {
+      data['genre'] = game.genres;
+    }
+    if (game.publishers.length) {
+      data['publisher'] = game.publishers.map((name) => ({ '@type': 'Organization', name }));
+    }
+    // `developers` rỗng với mọi game mobile — store chỉ lộ tên tài khoản bán.
+    if (game.developers.length) {
+      data['author'] = game.developers.map((name) => ({ '@type': 'Organization', name }));
+    }
+    const released = this.releaseDate;
+    if (released) {
+      data['datePublished'] = released;
+    }
+
+    const price = this.cheapest;
+    if (price) {
+      const offer: Record<string, unknown> = {
+        '@type': 'Offer',
+        // Schema.org đòi `price` là số ở dạng chuỗi, không có dấu ngăn nghìn.
+        price: String(price.price_final),
+        priceCurrency: price.currency,
+        availability: game.region_locked_vn
+          ? 'https://schema.org/OutOfStock'
+          : 'https://schema.org/InStock',
+      };
+      const storeUrl = this.storeUrl(price);
+      if (storeUrl) {
+        offer['url'] = storeUrl;
+      }
+      data['offers'] = offer;
+    }
+
+    // Điểm Steam là dữ liệu công khai của Valve và là điểm của CHÍNH game, khác
+    // hẳn điểm tổng hợp của Metacritic mà `CLAUDE.md` cấm dùng. Thang 0-100 theo
+    // phần trăm review tích cực, khai rõ `bestRating` để không ai đọc nhầm là
+    // thang 5 sao.
+    const review = game.steam_review;
+    if (review && review.total > 0) {
+      data['aggregateRating'] = {
+        '@type': 'AggregateRating',
+        ratingValue: review.positive_percent,
+        bestRating: 100,
+        worstRating: 0,
+        ratingCount: review.total,
+      };
+    }
+
+    return data;
   }
 
   private applySeoTags(game: GameDetail): void {
@@ -216,10 +295,10 @@ export class GameComponent implements OnInit {
 
     // URL tuyệt đối, và là origin người ngoài gọi được — xem site-origin.ts.
     if (this.siteOrigin) {
-      this.metaService.updateTag({
-        property: 'og:url',
-        content: `${this.siteOrigin}/game/${game.slug}`,
-      });
+      const pageUrl = `${this.siteOrigin}/game/${game.slug}`;
+      this.metaService.updateTag({ property: 'og:url', content: pageUrl });
+      this.structuredData.setCanonical(pageUrl);
+      this.structuredData.setJsonLd(this.buildJsonLd(game, pageUrl));
       // Hai lần "api" là đúng, đừng rút gọn: `/api` là chỗ proxy của server.ts
       // nhận, còn `/api/v1` là prefix mà `seo_router` của backend tự khai
       // (mọi router khác nằm ở root). Bỏ một lớp là 404, và Facebook sẽ cache

@@ -41,15 +41,13 @@ function mountApiProxy(server: express.Express): void {
   // `new URL('http://app:8000').pathname` là '/', nối thẳng sẽ ra '//deals'.
   const basePath = upstream.pathname.replace(/\/$/, '');
 
-  server.use('/api', (req, res) => {
-    // Trong `use('/api', ...)`, `req.url` đã bị cắt mất '/api' và còn đúng phần
-    // đuôi kèm query — khớp cách DealService dựng `${apiBaseUrl}/deals`.
+  const forward = (req: express.Request, res: express.Response, path: string): void => {
     const proxied = sendUpstream(
       {
         protocol: upstream.protocol,
         hostname: upstream.hostname,
         port: upstream.port,
-        path: `${basePath}${req.url}`,
+        path,
         method: req.method,
         // Ghi đè `host`: giữ 'localhost:4200' thì backend nào route theo virtual
         // host sẽ không tìm ra ứng dụng.
@@ -62,7 +60,7 @@ function mountApiProxy(server: express.Express): void {
     );
 
     proxied.on('error', (err) => {
-      console.error(`proxy /api -> ${apiBaseUrl} lỗi:`, err.message);
+      console.error(`proxy -> ${apiBaseUrl} lỗi:`, err.message);
       if (res.headersSent) {
         res.destroy();
       } else {
@@ -71,7 +69,31 @@ function mountApiProxy(server: express.Express): void {
     });
 
     req.pipe(proxied);
+  };
+
+  server.use('/api', (req, res) => {
+    // Trong `use('/api', ...)`, `req.url` đã bị cắt mất '/api' và còn đúng phần
+    // đuôi kèm query — khớp cách DealService dựng `${apiBaseUrl}/deals`.
+    forward(req, res, `${basePath}${req.url}`);
   });
+
+  /**
+   * `robots.txt` và sitemap do backend sinh, nhưng **phải** xuất hiện trên origin
+   * của trang: Google chỉ nhận sitemap nằm cùng host với các URL nó liệt kê, và
+   * `robots.txt` theo định nghĩa chỉ được đọc ở gốc origin. Thiếu proxy này thì
+   * cả hai rơi xuống route SSR bên dưới và trả về HTML kèm status 200 — đúng
+   * kiểu hỏng mà Search Console báo là "sitemap không đọc được" chứ không nói
+   * vì sao.
+   *
+   * Liệt kê tường minh từng đường dẫn, không dùng tiền tố: `/sitemap` làm tiền
+   * tố sẽ nuốt luôn mọi URL người dùng bắt đầu bằng chữ đó.
+   */
+  server.get(
+    ['/robots.txt', '/sitemap.xml', '/sitemap-pages.xml', /^\/sitemap-games-\d+\.xml$/],
+    (req, res) => {
+      forward(req, res, `${basePath}${req.originalUrl}`);
+    },
+  );
 }
 
 // The Express app is exported so that it can be used by serverless Functions.
