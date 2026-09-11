@@ -27,9 +27,7 @@ Db = AsyncIOMotorDatabase[dict[str, Any]]
 # --- ensure_storage dựng cả index Meilisearch ------------------------------
 
 
-async def test_ensure_storage_dung_index_meili(
-    mongo_db: Db, meili_index: MeiliIndex
-) -> None:
+async def test_ensure_storage_dung_index_meili(mongo_db: Db, meili_index: MeiliIndex) -> None:
     """`meili_index` xoá index trước khi yield, nên điểm xuất phát đúng bằng
     một deploy trắng: trước bootstrap thì tìm kiếm ném `index_not_found`."""
     with pytest.raises(MeiliError) as chua_dung:
@@ -42,9 +40,7 @@ async def test_ensure_storage_dung_index_meili(
     assert (await meili_index.search("elden ring"))["hits"] == []
 
 
-async def test_ensure_storage_chay_lai_duoc(
-    mongo_db: Db, meili_index: MeiliIndex
-) -> None:
+async def test_ensure_storage_chay_lai_duoc(mongo_db: Db, meili_index: MeiliIndex) -> None:
     """API và worker cùng gọi `ensure_storage` mỗi lần khởi động, nên lượt thứ
     hai không được đỏ.
 
@@ -63,6 +59,28 @@ async def test_ensure_storage_khong_co_meili_van_dung_mongo(mongo_db: Db) -> Non
 
     assert "meili_games" not in created
     assert created["games"] > 0
+
+
+async def test_ensure_storage_dung_index_cho_moi_collection(mongo_db: Db) -> None:
+    """Mỗi collection có index phải nằm trong danh sách của `ensure_storage`.
+
+    Đây là lý do module này tồn tại: trước nó, service tự khai `ensure_indexes`
+    mà không ai gọi, nên index unique chỉ có trong test. Một collection mới mà
+    chỉ gọi `ensure_indexes` trong job của nó thì lặp lại đúng lỗi đó — index
+    nằm ngoài chỗ duy nhất liệt kê mọi index của hệ thống.
+    """
+    created = await ensure_storage(mongo_db)
+
+    for group in (
+        "games",
+        "games_price_tier",
+        "steam_apps",
+        "user_devices",
+        "entity_review_queue",
+        "articles",
+        "game_reviews",
+    ):
+        assert created.get(group, 0) > 0, f"{group} không được dựng index"
 
 
 # --- /search nói đúng chuyện gì đang xảy ra --------------------------------

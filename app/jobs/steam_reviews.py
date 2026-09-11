@@ -20,7 +20,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.adapters.base import AdapterConfig, AdapterError, RateLimitedError, RedisTokenBucket
 from app.adapters.steam.adapter import DETAILS_RATE_LIMIT
 from app.adapters.steam.reviews import SteamReviewsAdapter
-from app.services.reviews import REVIEWS, ensure_indexes, save_review_score
+from app.services.reviews import REVIEWS, save_review_score
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +36,11 @@ async def sync_steam_reviews(ctx: dict[str, Any]) -> dict[str, int]:
     """Đọc điểm đánh giá cho nhóm game lâu chưa đọc nhất."""
     clients = ctx["clients"]
     db: Db = clients.db
-    await ensure_indexes(db)
-
+    # Index do `core/bootstrap.ensure_storage` dựng lúc khởi động, cả ở API lẫn
+    # worker — không gọi `ensure_indexes` ở đây nữa. Gọi trong job thì mỗi lượt
+    # chạy lại một lượt `create_indexes`, và quan trọng hơn là nó đặt index ra
+    # ngoài chỗ duy nhất liệt kê mọi index của hệ thống, đúng cái mà
+    # `bootstrap.py` được dựng ra để chấm dứt.
     adapter = SteamReviewsAdapter(
         AdapterConfig(
             limiter=RedisTokenBucket(clients.redis, "steam_appdetails", DETAILS_RATE_LIMIT)

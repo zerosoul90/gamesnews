@@ -26,7 +26,15 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.jobs import news
 from app.search.meili import MeiliIndex
-from app.services import catalog, devices, entity_review, price_tier, rollup, steam_queue
+from app.services import (
+    catalog,
+    devices,
+    entity_review,
+    price_tier,
+    reviews,
+    rollup,
+    steam_queue,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +59,10 @@ async def ensure_storage(db: Db, index: MeiliIndex | None = None) -> dict[str, i
         ("user_devices", devices.ensure_indexes),
         ("entity_review_queue", entity_review.ensure_indexes),
         ("articles", news.ensure_indexes),
+        # `game_reviews` có index unique `(game_id, store)`. Thiếu nó thì mỗi lượt
+        # đọc điểm lại thêm một dòng cho cùng một game thay vì cập nhật, và trang
+        # game lấy một dòng tuỳ ý trong đống đó.
+        ("game_reviews", reviews.ensure_indexes),
     ]
 
     for name, ensure in steps:

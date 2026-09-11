@@ -20,6 +20,7 @@ import httpx
 import pytest
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo.errors import DuplicateKeyError
 
 from app.adapters.base import AdapterConfig
 from app.adapters.steam.reviews import SteamReviewsAdapter
@@ -28,6 +29,7 @@ from app.models.game import ExternalIds, Game, Titles
 from app.services.catalog import ensure_indexes as ensure_game_indexes
 from app.services.catalog import games, upsert_game, with_aliases
 from app.services.reviews import REVIEWS, review_score_of, save_review_score
+from app.services.reviews import ensure_indexes as ensure_review_indexes
 
 Db = AsyncIOMotorDatabase[dict[str, Any]]
 
@@ -130,6 +132,25 @@ async def test_doc_lai_khong_nhan_doi_dong(mongo_db: Db) -> None:
 
 async def test_chua_doc_lan_nao_tra_none(mongo_db: Db) -> None:
     assert await review_score_of(mongo_db, ObjectId(), "steam") is None
+
+
+async def test_index_unique_chan_hai_dong_cho_cung_mot_game(mongo_db: Db) -> None:
+    """Index `(game_id, store)` phải là unique, không chỉ là index để tra nhanh.
+
+    `save_review_score` dùng upsert theo đúng cặp đó nên tự nó không sinh trùng,
+    nhưng bất cứ đường ghi nào khác (script dọn dữ liệu, một job sau này) thì
+    index mới là thứ chặn. Index do `core/bootstrap.ensure_storage` dựng —
+    `sync_steam_reviews` không còn tự gọi `ensure_indexes`, nên test phải gọi
+    tay đúng như API và worker làm lúc khởi động.
+    """
+    await ensure_review_indexes(mongo_db)
+    game_id = ObjectId()
+    row = {"game_id": game_id, "store": "steam", "score": 8, "total": 10}
+
+    await mongo_db[REVIEWS].insert_one(dict(row))
+
+    with pytest.raises(DuplicateKeyError):
+        await mongo_db[REVIEWS].insert_one(dict(row))
 
 
 # --- job --------------------------------------------------------------------
