@@ -33,6 +33,7 @@ from app.jobs.news import crawl_all_sources
 from app.jobs.notification_digest import send_notification_digest
 from app.jobs.steam_catalog import sync_steam_app_list, sync_steam_details
 from app.jobs.steam_pricing import recompute_price_tiers, sync_steam_prices
+from app.jobs.steam_reviews import sync_steam_reviews
 from app.jobs.streamer import job_renew_youtube_websub, job_sync_streamers
 
 logger = logging.getLogger(__name__)
@@ -105,6 +106,9 @@ CRON_JOBS: list[CronJob] = [
     # --- Catalog (Phase 1) ---
     # Bồi chi tiết 185k app mất vài ngày, nên phải chạy đều đặn và liên tục.
     cron(sync_steam_details, minute={5, 20, 35, 50}),
+    # Điểm review đổi chậm hơn giá nhiều, và job tự dừng khi bucket Steam cạn —
+    # đặt lệch khỏi các mốc của job giá để không hai job cùng xông vào bucket.
+    cron(sync_steam_reviews, minute={8, 38}),
     # Danh sách app đầy đủ đổi chậm; kéo lại mỗi tuần.
     cron(sync_steam_app_list, weekday="sun", hour=2, minute=0),
     cron(sync_app_store, weekday="sun", hour=4, minute=0),
@@ -141,6 +145,7 @@ class WorkerSettings:
         sync_steam_prices,
         recompute_price_tiers,
         sync_epic_free_games,
+        sync_steam_reviews,
         send_notification_digest,
         job_rollup_metrics,
         job_fetch_steam_ccu,

@@ -1,0 +1,55 @@
+{
+ "_comment": "appreviews?json=1&language=all&purchase_type=all&num_per_page=0 that, ghi lai 2026-09-11. Luc ghi DNS tra IP Akamai bi chan nen phai ghim cache Steam tai VN (171.236.62.121) kem Host header. CA BIEN QUAN TRONG: appid 999999999 khong ton tai nhung Steam van tra http 200 success 1 voi review_score 0 va \"No user reviews\" - khong the phan biet voi game that chua co review.",
+ "1245620": {
+  "success": 1,
+  "query_summary": {
+   "num_reviews": 0,
+   "review_score": 8,
+   "review_score_desc": "Very Positive",
+   "total_positive": 1073777,
+   "total_negative": 80336,
+   "total_reviews": 1154113
+  },
+  "reviews": [],
+  "cursor": "*"
+ },
+ "233150": {
+  "success": 1,
+  "query_summary": {
+   "num_reviews": 0,
+   "review_score": 8,
+   "review_score_desc": "Very Positive",
+   "total_positive": 4095,
+   "total_negative": 426,
+   "total_reviews": 4521
+  },
+  "reviews": [],
+  "cursor": "*"
+ },
+ "2130": {
+  "success": 1,
+  "query_summary": {
+   "num_reviews": 0,
+   "review_score": 8,
+   "review_score_desc": "Very Positive",
+   "total_positive": 71,
+   "total_negative": 13,
+   "total_reviews": 84
+  },
+  "reviews": [],
+  "cursor": "*"
+ },
+ "999999999": {
+  "success": 1,
+  "query_summary": {
+   "num_reviews": 0,
+   "review_score": 0,
+   "review_score_desc": "No user reviews",
+   "total_positive": 0,
+   "total_negative": 0,
+   "total_reviews": 0
+  },
+  "reviews": [],
+  "cursor": "*"
+ }
+}

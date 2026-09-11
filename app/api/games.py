@@ -20,6 +20,7 @@ from fastapi import APIRouter, HTTPException, Query
 from app.core.deps import MongoDep
 from app.core.serialization import jsonify_docs
 from app.services.community import calculate_game_score
+from app.services.reviews import review_score_of
 from app.services.rollup import DAILY
 
 router = APIRouter(tags=["Games"])
@@ -140,6 +141,10 @@ async def get_game_by_slug(
     }
 
     player_counts = await _daily_player_counts(db, game_id, ccu_days)
+    # Tách hẳn khỏi `community_score`: đây là điểm của người dùng Steam, thang
+    # khác, nhóm người khác. Gộp hai thứ vào một con số là nói với người đọc một
+    # điều không nguồn nào nói.
+    steam_review = await review_score_of(db, game_id, "steam")
 
     titles = doc.get("titles") or {}
     media = doc.get("media") or {}
@@ -169,5 +174,8 @@ async def get_game_by_slug(
         "prices": jsonify_docs(prices),
         "price_history": jsonify_docs(history),
         "community_score": score,
+        # None khi chưa đọc được lần nào. Không trả `{"score": 0}` — trang sẽ
+        # hiện "0/10" và người đọc hiểu là game bị chấm 0 điểm.
+        "steam_review": steam_review,
         "player_counts": player_counts,
     }

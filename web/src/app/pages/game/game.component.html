@@ -83,8 +83,20 @@
             <dt class="text-slate-500">Nền tảng</dt>
             <dd class="text-slate-200">{{ g.platforms.join(', ') }}</dd>
           </div>
+          <!-- Hai điểm, hai nguồn, KHÔNG gộp: điểm Steam là của người dùng
+               Steam, điểm cộng đồng là của người dùng trang này. -->
+          <div *ngIf="g.steam_review as review">
+            <dt class="text-slate-500">Đánh giá trên Steam</dt>
+            <dd class="text-slate-200">
+              <!-- `toLocaleString` chứ không nội suy thẳng: số thô ra "98.7%"
+                   với dấu chấm, lệch quy ước vi-VN mà cả trang đang dùng cho
+                   giá và lượt đánh giá ngay bên cạnh. -->
+              {{ review.positive_percent.toLocaleString('vi-VN') }}% tích cực
+              <span class="text-slate-500">({{ review.total.toLocaleString('vi-VN') }} lượt)</span>
+            </dd>
+          </div>
           <div *ngIf="g.community_score.average_score !== null">
-            <dt class="text-slate-500">Điểm cộng đồng</dt>
+            <dt class="text-slate-500">Điểm cộng đồng GameNews</dt>
             <dd class="text-slate-200">
               {{ g.community_score.average_score }}/10
               <span class="text-slate-500">({{ g.community_score.review_count }} lượt)</span>

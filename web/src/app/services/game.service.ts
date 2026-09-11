@@ -57,6 +57,20 @@ export interface PlayerCountDay {
   samples: number | null;
 }
 
+/** Điểm đánh giá từ Steam. Là một thứ KHÁC `CommunityScore`: thang khác, nhóm
+ *  người khác. `positive_percent` mới là con số phân biệt được — `score` của
+ *  Steam chỉ là nhóm thô 0-9, cả game 1,15 triệu review và game 84 review đều
+ *  ra 8 / "Very Positive". `null` nghĩa là chưa đọc được, không phải 0 điểm. */
+export interface SteamReview {
+  score: number;
+  score_desc: string;
+  positive: number;
+  negative: number;
+  total: number;
+  positive_percent: number;
+  checked_at?: string;
+}
+
 export interface GameDetail {
   id: string;
   slug: string;
@@ -80,6 +94,7 @@ export interface GameDetail {
   prices: GamePrice[];
   price_history: PriceHistoryPoint[];
   community_score: CommunityScore;
+  steam_review: SteamReview | null;
   player_counts: PlayerCountDay[];
 }
 
