@@ -203,6 +203,71 @@
       </div>
     </section>
 
+    <!-- Section: Số người đang chơi, từ game_metrics_1d (steam_ccu) -->
+    <section *ngIf="playerChart as chart" class="mb-12">
+      <h2 class="text-2xl font-bold text-white mb-6 border-b border-slate-700 pb-2">
+        {{ g.title }} còn nhiều người chơi không?
+      </h2>
+      <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
+        <div class="text-sm text-slate-400 mb-1">Cao nhất trong kỳ</div>
+        <div class="text-3xl font-bold text-blue-400 mb-6">
+          {{ chart.maxPeak.toLocaleString('vi-VN') }}
+          <span class="text-base font-normal text-slate-400">người chơi cùng lúc</span>
+        </div>
+
+        <svg
+          viewBox="0 0 100 40"
+          preserveAspectRatio="none"
+          class="w-full h-32"
+          role="img"
+          [attr.aria-label]="
+            'Biểu đồ số người chơi theo ngày, cao nhất ' + chart.maxPeak + ' người'
+          "
+        >
+          <rect
+            *ngFor="let bar of chart.bars"
+            [attr.x]="bar.x"
+            [attr.y]="bar.y"
+            [attr.width]="bar.width"
+            [attr.height]="bar.height"
+            class="fill-blue-500"
+          />
+        </svg>
+
+        <!-- Bảng số: câu hỏi là "theo ngày tháng năm" nên con số phải đọc được,
+             không chỉ suy từ chiều cao cột. -->
+        <div class="overflow-x-auto mt-6">
+          <table class="w-full text-sm">
+            <thead class="text-slate-400">
+              <tr>
+                <th class="text-left font-semibold py-2">Ngày</th>
+                <th class="text-right font-semibold py-2">Trung bình</th>
+                <th class="text-right font-semibold py-2">Cao nhất</th>
+                <th class="text-right font-semibold py-2">Số lần đo</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let bar of chart.bars" class="border-t border-slate-700/60">
+                <td class="py-2 text-slate-200">{{ bar.day.date }}</td>
+                <td class="py-2 text-right text-slate-200">
+                  {{ bar.day.avg !== null ? bar.day.avg.toLocaleString('vi-VN') : '—' }}
+                </td>
+                <td class="py-2 text-right font-semibold text-blue-400">
+                  {{ bar.day.peak !== null ? bar.day.peak.toLocaleString('vi-VN') : '—' }}
+                </td>
+                <!-- Ngày đo được 1 lượt không đọc ngang ngày đủ 96 lượt, nên
+                     con số này hiện ra chứ không giấu đi. -->
+                <td class="py-2 text-right text-slate-500">{{ bar.day.samples ?? '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="text-slate-500 text-xs mt-3">
+          Nguồn: Steam, đo 15 phút một lần rồi gộp theo ngày.
+        </p>
+      </div>
+    </section>
+
     <!-- Section 3: Yêu cầu cấu hình -->
     <section *ngIf="hasRequirements" class="mb-12">
       <h2 class="text-2xl font-bold text-white mb-6 border-b border-slate-700 pb-2">

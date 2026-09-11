@@ -40,6 +40,18 @@ export interface CommunityScore {
   is_hidden: boolean;
 }
 
+/** Một ngày trong chuỗi số người chơi đồng thời, từ bảng gộp ngày của backend.
+ *  `samples` là số lần đo thật trong ngày — ngày job chỉ chạy được 1 lượt không
+ *  nên đọc ngang với ngày đủ 96 lượt. */
+export interface PlayerCountDay {
+  date: string;
+  avg: number | null;
+  peak: number | null;
+  min: number | null;
+  max: number | null;
+  samples: number | null;
+}
+
 export interface GameDetail {
   id: string;
   slug: string;
@@ -63,6 +75,7 @@ export interface GameDetail {
   prices: GamePrice[];
   price_history: PriceHistoryPoint[];
   community_score: CommunityScore;
+  player_counts: PlayerCountDay[];
 }
 
 @Injectable({

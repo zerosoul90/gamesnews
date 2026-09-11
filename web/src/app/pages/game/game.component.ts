@@ -6,7 +6,16 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { RENDER_STATUS, RenderStatus } from '../../render-status';
 import { SITE_ORIGIN } from '../../site-origin';
-import { GameDetail, GamePrice, GameService } from '../../services/game.service';
+import { GameDetail, GamePrice, GameService, PlayerCountDay } from '../../services/game.service';
+
+/** Một cột của biểu đồ người chơi, toạ độ đã tính sẵn trong viewBox 100x40. */
+interface PlayerBar {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  day: PlayerCountDay;
+}
 
 @Component({
   selector: 'app-game',
@@ -116,6 +125,37 @@ export class GameComponent implements OnInit {
         return `${x.toFixed(2)},${y.toFixed(2)}`;
       })
       .join(' ');
+  }
+
+  /** Cột cho biểu đồ số người chơi, trong hệ toạ độ 100x40 của viewBox.
+   *
+   *  Chiều cao tỉ lệ với `peak` và quy chiếu về **0**, không về giá trị nhỏ
+   *  nhất trong kỳ: trục bắt đầu từ min làm một dao động 2% trông như sụp đổ.
+   *  Đó là sai lệch kinh điển của biểu đồ cột, và ở đây người đọc đang cố trả
+   *  lời "game này còn ai chơi không". */
+  get playerChart(): { bars: PlayerBar[]; maxPeak: number } | null {
+    const days = this.game?.player_counts ?? [];
+    const peaks = days.map((d) => d.peak ?? 0);
+    const maxPeak = Math.max(0, ...peaks);
+    if (!days.length || maxPeak === 0) {
+      return null;
+    }
+    // Chừa khe giữa các cột, nhưng không để khe rộng hơn cột khi chỉ có 1-2 ngày.
+    const slot = 100 / days.length;
+    const width = slot * 0.7;
+    return {
+      maxPeak,
+      bars: days.map((day, index) => {
+        const height = ((day.peak ?? 0) / maxPeak) * 40;
+        return {
+          x: index * slot + (slot - width) / 2,
+          y: 40 - height,
+          width,
+          height,
+          day,
+        };
+      }),
+    };
   }
 
   private requirementRows(spec: Record<string, string>): { key: string; value: string }[] {

@@ -179,3 +179,87 @@ async def test_lich_su_gia_cat_theo_history_days(client: httpx.AsyncClient, mong
     body = (await client.get("/games/by-slug/hades?history_days=30")).json()
 
     assert [row["price_final"] for row in body["price_history"]] == [200000]
+
+
+async def add_daily_ccu(
+    db: Db,
+    game_id: ObjectId,
+    days_ago: int,
+    *,
+    avg: float,
+    peak: int,
+    channel: str = "steam_ccu",
+    samples: int = 4,
+) -> None:
+    """Một bucket ngày như `job_rollup_metrics` sinh ra.
+
+    `game_id` ép sang **chuỗi** và `bucket` để **datetime** — đúng kiểu mà
+    `MetricMeta` và time-series của Mongo dùng. Nếu endpoint tra bằng ObjectId
+    hoặc bằng chuỗi ISO thì không khớp và trả rỗng, không báo lỗi.
+    """
+    bucket = (dt.datetime.now(dt.UTC) - dt.timedelta(days=days_ago)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    await db.game_metrics_1d.insert_one(
+        {
+            "_id": {"game_id": str(game_id), "channel": channel, "bucket": bucket},
+            "min": int(avg),
+            "max": peak,
+            "avg": avg,
+            "samples": samples,
+            "last": int(avg),
+            "peak": peak,
+        }
+    )
+
+
+async def test_so_nguoi_choi_theo_ngay_tang_dan_theo_thoi_gian(
+    client: httpx.AsyncClient, mongo_db: Db
+) -> None:
+    """Chốt chính của CCU: dữ liệu đã được `job_fetch_steam_ccu` ghi từ lâu
+    nhưng không endpoint nào đọc, nên trang game không có gì để vẽ.
+
+    Cũng khoá luôn kiểu khoá tra: `_id.game_id` là chuỗi và `_id.bucket` là
+    datetime. Tra sai kiểu thì trả về mảng rỗng *im lặng* — trông y như "game
+    này chưa có ai chơi".
+    """
+    game_id = await add_game(mongo_db, "dota-2", "Dota 2")
+    await add_daily_ccu(mongo_db, game_id, days_ago=2, avg=500000.4, peak=620000)
+    await add_daily_ccu(mongo_db, game_id, days_ago=1, avg=510000.6, peak=640000)
+
+    body = (await client.get("/games/by-slug/dota-2")).json()
+
+    series = body["player_counts"]
+    assert len(series) == 2, "tra sai kiểu khoá thì chỗ này rỗng"
+    # Cũ trước, mới sau: biểu đồ đọc theo thứ tự trả về.
+    assert series[0]["date"] < series[1]["date"]
+    # `avg` làm tròn về số người nguyên.
+    assert [row["avg"] for row in series] == [500000, 510001]
+    assert [row["peak"] for row in series] == [620000, 640000]
+    assert series[0]["samples"] == 4
+
+
+async def test_ccu_khong_lan_kenh_khac(client: httpx.AsyncClient, mongo_db: Db) -> None:
+    """`game_metrics_1d` chứa mọi kênh chung một bảng — twitch_viewers,
+    vn_articles... Thiếu điều kiện `channel` thì số người xem Twitch bị cộng
+    thẳng vào biểu đồ "người đang chơi"."""
+    game_id = await add_game(mongo_db, "cs2", "Counter-Strike 2")
+    await add_daily_ccu(mongo_db, game_id, days_ago=1, avg=900000, peak=1000000)
+    await add_daily_ccu(
+        mongo_db, game_id, days_ago=1, avg=12345, peak=20000, channel="twitch_viewers"
+    )
+
+    body = (await client.get("/games/by-slug/cs2")).json()
+
+    assert [row["avg"] for row in body["player_counts"]] == [900000]
+
+
+async def test_ccu_cat_theo_ccu_days(client: httpx.AsyncClient, mongo_db: Db) -> None:
+    """Bảng ngày giữ vĩnh viễn, nên không cắt là kéo về toàn bộ lịch sử."""
+    game_id = await add_game(mongo_db, "terraria", "Terraria")
+    await add_daily_ccu(mongo_db, game_id, days_ago=200, avg=1000, peak=1200)
+    await add_daily_ccu(mongo_db, game_id, days_ago=3, avg=2000, peak=2400)
+
+    body = (await client.get("/games/by-slug/terraria?ccu_days=30")).json()
+
+    assert [row["avg"] for row in body["player_counts"]] == [2000]

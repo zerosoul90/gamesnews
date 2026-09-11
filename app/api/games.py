@@ -20,8 +20,12 @@ from fastapi import APIRouter, HTTPException, Query
 from app.core.deps import MongoDep
 from app.core.serialization import jsonify_docs
 from app.services.community import calculate_game_score
+from app.services.rollup import DAILY
 
 router = APIRouter(tags=["Games"])
+
+# Kênh CCU trong time-series. `job_fetch_steam_ccu` ghi đúng tên này.
+CCU_CHANNEL = "steam_ccu"
 
 # Chỉ lấy field trang này dùng. Trả thẳng document thì lộ `aliases_normalized`,
 # `content_hash` và mọi thứ thêm sau này — nội bộ của hệ thống khớp entity,
@@ -46,12 +50,65 @@ _PROJECTION = {
 }
 
 
+async def _daily_player_counts(db: Any, game_id: Any, days: int) -> list[dict[str, Any]]:
+    """Số người chơi đồng thời theo từng ngày, từ bảng gộp `game_metrics_1d`.
+
+    Đọc mức NGÀY chứ không đọc raw: raw giữ 15 phút một điểm nên 30 ngày là
+    ~2.880 điểm cho một game — vẽ ra cùng một đường nhưng tải về gấp 90 lần.
+    Bảng ngày lại giữ vĩnh viễn, còn raw bị job rollup xoá theo chính sách giữ
+    dữ liệu của SCHEMA.md, nên đây cũng là nguồn duy nhất trả lời được câu
+    "tháng trước bao nhiêu người chơi".
+
+    Hai điều dễ sai về kiểu, khác hẳn `price_history` ngay bên trên:
+
+    - `_id.bucket` là `datetime` thật (bắt buộc với time-series của Mongo), nên
+      mốc cắt phải là datetime. Truyền chuỗi ISO như bảng giá thì so sánh không
+      khớp kiểu và trả về rỗng — im lặng, không lỗi.
+    - `_id.game_id` là **chuỗi**, không phải ObjectId (xem `MetricMeta`). Tra
+      bằng ObjectId cũng ra rỗng, cũng im lặng.
+    """
+    cutoff = dt.datetime.now(dt.UTC) - dt.timedelta(days=days)
+    cursor = (
+        db[DAILY]
+        .find(
+            {
+                "_id.game_id": str(game_id),
+                "_id.channel": CCU_CHANNEL,
+                "_id.bucket": {"$gte": cutoff},
+            }
+        )
+        .sort("_id.bucket", 1)
+    )
+
+    out: list[dict[str, Any]] = []
+    async for row in cursor:
+        bucket = row["_id"]["bucket"]
+        out.append(
+            {
+                # Bucket ngày, nên trả ngày thôi: giờ/phút trong đó luôn là
+                # 00:00 và chỉ làm client tưởng có độ phân giải cao hơn thật.
+                "date": bucket.date().isoformat(),
+                # CCU là số người. Làm tròn `avg`: 68681.666 không có nghĩa gì
+                # hơn 68682, mà lại đẩy rác vào payload và vào nhãn biểu đồ.
+                "avg": round(row["avg"]) if row.get("avg") is not None else None,
+                "peak": row.get("peak"),
+                "min": row.get("min"),
+                "max": row.get("max"),
+                # Số lần đo thật trong ngày. Ngày mà job chỉ chạy được 1 lượt
+                # không nên bị đọc ngang với ngày đủ 96 lượt.
+                "samples": row.get("samples"),
+            }
+        )
+    return out
+
+
 @router.get("/games/by-slug/{slug}")
 async def get_game_by_slug(
     slug: str,
     db: MongoDep,
     region: str = Query("vn", description="Region của bảng giá"),
     history_days: int = Query(30, ge=1, le=365),
+    ccu_days: int = Query(30, ge=1, le=365, description="Số ngày CCU theo mức ngày"),
 ) -> dict[str, Any]:
     """Dữ liệu cho trang `/game/:slug` của web."""
     doc = await db.games.find_one({"slug": slug}, _PROJECTION)
@@ -82,6 +139,8 @@ async def get_game_by_slug(
         "is_hidden": True,
     }
 
+    player_counts = await _daily_player_counts(db, game_id, ccu_days)
+
     titles = doc.get("titles") or {}
     media = doc.get("media") or {}
     return {
@@ -110,4 +169,5 @@ async def get_game_by_slug(
         "prices": jsonify_docs(prices),
         "price_history": jsonify_docs(history),
         "community_score": score,
+        "player_counts": player_counts,
     }
