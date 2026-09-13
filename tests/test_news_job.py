@@ -19,7 +19,9 @@ from typing import Any
 import pytest
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from pydantic import SecretStr
 
+from app.core.config import get_settings
 from app.jobs import news
 from app.models.article import NewsArticle
 from app.models.game import Game, Titles
@@ -51,6 +53,22 @@ def article(title: str, url: str, content: str) -> NewsArticle:
         published_at=now,
         created_at=now,
     )
+
+
+@pytest.fixture(autouse=True)
+def khong_co_key_llm(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ép `GEMINI_API_KEY` rỗng cho cả file này.
+
+    `autouse` và không thể bỏ: `FakeClients.http` là `None`, nên nếu adapter
+    thấy có key thì nó đi tới `self._http.post` và nổ `AttributeError`. Cả file
+    này trước đây xanh **chỉ vì máy dev không có key** — đặt key thật vào `.env`
+    là năm test đỏ ngay, dù không dòng code nào của job đổi.
+
+    Điều đáng sợ hơn cái đỏ: nếu `FakeClients` có một http client thật thì test
+    sẽ gọi thẳng Gemini qua Internet mỗi lần chạy suite, tiêu quota thật cho
+    những bài viết bịa.
+    """
+    monkeypatch.setattr(get_settings(), "gemini_api_key", SecretStr(""))
 
 
 @pytest.fixture
