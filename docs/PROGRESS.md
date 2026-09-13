@@ -1393,9 +1393,74 @@ nạp), 843 bài, 24 có tiếng Việt.
   20/phút. `MAX_LLM_CALLS_PER_RUN = 60` nhân 96 lượt/ngày là 5.760, chắc chắn
   vượt; nhưng ở trạng thái ổn định mỗi lượt chỉ có vài chục bài mới nên chưa
   chạm tới. Cần đo khi có dịp.
-- **Chưa có job tóm tắt bù** cho 819 bài đang không có `summary_vi`. Chúng vào
-  kho từ trước khi có key, và không đường nào quay lại dịch.
+- ~~**Chưa có job tóm tắt bù**~~ — đã làm, xem entry ngay dưới.
 - `EMBEDDING_THRESHOLD = 0.82` vẫn chưa hiệu chỉnh trên cách so mới (tên với tên).
+- Catalog 14.699/185.231.
+- Ảnh thẻ chia sẻ vẫn font bitmap, **không có dấu tiếng Việt**.
+- `POST /library/epic/bulk` vẫn 501.
+- Twitch vẫn chặn mảng streamer của Phase 7.
+
+### 2026-09-13 (lượt 3) — Job tóm tắt bù
+
+Trả nốt món nợ vừa ghi ở entry trên. `crawl_all_sources` chỉ dịch bài **ngay
+lúc ghi nó xuống**, không có đường nào quay lại — nên 819/843 bài nằm trong kho
+dưới dạng tiêu đề tiếng Anh, vào từ những ngày `GEMINI_API_KEY` còn trống.
+
+Job này cũng là mảnh còn thiếu của luật thêm ở lượt 2 (*"hết trần LLM thì để
+bài lại cho lượt sau, không lưu dạng chưa dịch"*): luật đó **chỉ đúng chừng nào
+có đường quay lại**. Trước khi có `backfill_summaries`, nó chỉ là một cách khác
+để mất bài.
+
+`jobs/summaries.py`, cron phút 52 — lệch khỏi cả bốn mốc của `crawl_all_sources`.
+
+| quyết định | vì sao |
+|---|---|
+| Bỏ qua bài trùng | 144 bài mang `status: duplicate`, không bao giờ hiện ra cho ai đọc. Dịch chúng là ném 17% hạn mức qua cửa sổ |
+| Bài **mới nhất** trước | Ngược với `entity_review.pending` (cũ trước): ở đó thứ tự công bằng mới đúng, ở đây tin cũ đã mất giá trị. Hàng tồn không vơi hết cũng không sao — phần không bao giờ tới lượt chính là phần không ai cần nữa |
+| Gắn lại entity | 601/682 bài cần dịch cũng chưa có entity, mà `suggested_alias` đi kèm sẵn trong chính lời gọi tóm tắt. Vứt nó đi là lặp lại đúng cái sai vừa sửa ở lượt 1 |
+| `reserve=6` trên bucket dùng chung | Hai job chia **một hạn mức thật** nhưng không ngang hàng: crawl phải đưa tin mới ra trong 2 giờ, job này xử lý hàng tồn nên chậm một lượt không ai thấy |
+
+#### Vì sao KHÔNG dùng lại `entity_review.resolve()`
+
+Hàm đó trông vừa vặn, nhưng nó làm hai việc **máy không được phép làm**:
+
+1. Đặt `matching_tier: "manual"` — khai rằng đã có người nhìn bài này. Không có
+   ai cả, và sau này truy ngược một lần gắn sai sẽ chỉ vào một người không tồn
+   tại.
+2. Nối alias vào entity. Alias **dạy** tầng 2 cho mọi bài về sau; dạy nó bằng
+   một phỏng đoán của máy thì một lần sai nhân lên mãi. Luật "alias do người
+   duyệt chỉ định" có từ 2026-09-09 và vẫn đúng.
+
+Nên thêm `entity_review.auto_resolve()` riêng, kèm `resolved_by: "auto"` để về
+sau phân biệt được hàng đợi ngắn lại **vì người làm** hay **vì máy tự nhận** —
+hai con số đó nói hai chuyện khác nhau. Có test riêng cho cả hai chốt.
+
+#### Nghiệm thu
+
+**579 test** (566 -> 579), ruff + `mypy app tests` sạch, CI xanh. Ba test đã
+xác minh **đỏ khi gỡ từng luật ra**: bỏ lọc bài trùng, đảo thứ tự, bỏ điều kiện
+"chỉ gắn cho bài chưa có entity".
+
+Chạy thật: `{'checked': 2, 'summarized': 1, 'matched': 0, 'failed': 1}` — dịch
+được một bài rồi **dừng sạch** khi chạm hạn mức, thay vì hỏng thêm 24 lần. Bản
+dịch đọc được:
+
+> *StarCraft Devs Promise New Game Will Definitely Release in 2030*
+> → **Các nhà phát triển StarCraft hứa hẹn tựa game mới chắc chắn sẽ ra mắt vào
+> năm 2030**, kèm tóm tắt 3 câu (đúng trần bản quyền của `PHASE-6.md`).
+
+**Một bài không chứng minh được gì về năng suất.** Hạn mức generate hôm nay đã
+bị các lượt trước tiêu gần hết. Còn 683 bài tồn; ở nhịp 25/lượt x 24 lượt thì
+mất khoảng một ngày — con số đó **chưa được kiểm**, và hạn mức *ngày* của
+`generateContent` vẫn chưa đo được. Lượt cron ngày hôm sau mới nói được.
+
+Số liệu lúc chốt: 856 bài, 29 có tiếng Việt, 683 còn tồn (144 bài trùng bị bỏ
+qua có chủ ý), 629 dòng chờ duyệt tay, 0 dòng `resolved_by: auto`.
+
+**Còn nợ:**
+
+- Hạn mức **ngày** của `generateContent` vẫn chưa đo được.
+- `EMBEDDING_THRESHOLD = 0.82` chưa hiệu chỉnh trên cách so mới (tên với tên).
 - Catalog 14.699/185.231.
 - Ảnh thẻ chia sẻ vẫn font bitmap, **không có dấu tiếng Việt**.
 - `POST /library/epic/bulk` vẫn 501.
