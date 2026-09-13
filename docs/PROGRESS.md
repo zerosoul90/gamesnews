@@ -1301,3 +1301,102 @@ nhiều hơn. Cần một lượt tin thật với quota còn.
 > **Việc cần làm của người dùng:** `GEMINI_API_KEY` đã bị dán vào hội thoại nên
 > coi như lộ — cùng chuyện đã xảy ra với `STEAM_API_KEY`. Vào
 > <https://aistudio.google.com/apikey>, xoá key cũ, tạo key mới, cập nhật `.env`.
+
+### 2026-09-13 (lượt 2) — Giãn nhịp Gemini, và một hạn mức suýt bị bỏ sót
+
+Trả nốt món nợ ghi ngay trên: *"bước tóm tắt không có nhịp nào, trong khi trần
+là 20 request/phút"*.
+
+`GeminiAdapter` nhận `RateLimiter` — Protocol vốn đã có, `RedisTokenBucket` là
+bản cài, đúng đường Steam đang đi — và xin token **trước** khi gọi. Bắn hết tốc
+rồi ăn 429 thì vẫn tốn đúng ngần ấy lượt gọi, chỉ khác là không lượt nào trả về
+gì.
+
+**Chốt đắt nhất: `cost` bằng SỐ CONTENT, không phải 1.** Google tính mỗi content
+là một request dù chúng đi chung một lời gọi HTTP — chính API nói ra điều đó khi
+từ chối lô 120: `at most 100 requests can be in one batch`. Đặt `cost=1` thì
+bucket đếm thiếu 25 lần và cái trần thành đồ trang trí.
+
+Hai bucket tách biệt vì hai quota tách biệt:
+
+| quota | trần đo được | capacity đặt |
+|---|---|---|
+| `generate_content_free_tier_requests` | 20/phút | 16 |
+| `embed_content_free_tier_requests` | ~100/phút | 80 |
+
+Cả hai đặt ở **80% trần**, có chủ ý: token bucket nạp lại liên tục còn Google
+đếm theo cửa sổ, hai cái không khớp pha, nên một lượt bắn đầy bucket sát ranh
+giới có thể rơi trọn vào một cửa sổ của họ.
+
+#### Thứ suýt bị bỏ sót: embedding có HAI hạn mức
+
+Gắn bucket xong, chạy thử, **vẫn 429 ngay lô đầu**. Dò tiếp:
+
+```
+n=  1: 429  trần=1000  thử lại sau 57s
+n=  2: 429  trần=1000  thử lại sau 54s
+n=  5: 429  trần=1000  thử lại sau 51s
+n= 25: 429  trần=1000  thử lại sau 47s
+```
+
+Kể cả lô **một** content cũng bị từ chối, và `retryDelay` đếm ngược về mốc cửa
+sổ. Đó là hạn mức **NGÀY** (1000), không phải phút — mà token bucket chỉ biết
+nhịp nên không đỡ được nó.
+
+Hệ quả cụ thể: cron chạy 24 lượt/ngày, nên `MAX_TEXTS_PER_RUN` phải là **40**
+(960/ngày), không phải 80 (1920/ngày — nửa ngày sau là mọi lời gọi đều 429).
+Vẫn đúng cái `CLAUDE.md` cấm, chỉ chậm hơn.
+
+**Bài học:** "đã gắn token bucket" không có nghĩa là đã tôn trọng hạn mức. Bucket
+canh *nhịp*; hạn mức *ngày* phải canh bằng một con số khác, ở một chỗ khác. Dừng
+lại sau khi gắn bucket là giao một thứ trông đúng mà nửa ngày sau vẫn hỏng.
+
+#### Ba thứ trong `jobs/news.py`
+
+- **`MAX_LLM_CALLS_PER_RUN = 60`.** Bucket giãn nhịp nhưng không chặn tổng: một
+  lượt gặp 587 bài mới (đúng con số lượt crawl đầu tiên) sẽ ngồi chờ 29 phút,
+  trong khi Arq mặc định giết job ở 300 giây.
+- **Hết trần thì DỪNG HẲN, không lưu bài dạng chưa dịch.** Lưu nó là để nó vĩnh
+  viễn không có tiếng Việt, vì chưa có job nào quay lại tóm tắt bù. Bỏ qua thì
+  lượt sau nhặt lại từ feed — `already_seen` tra theo URL mà URL đó chưa vào kho.
+  Có test cho đúng chiều đó, không chỉ cho việc dừng.
+- **Nguồn lâu chưa crawl nhất đi trước** (`sort("last_crawled_at", 1)`). Thứ tự
+  cố định thì mỗi lần chạm trần là **đúng những nguồn cuối bảng** bị bỏ lại, lần
+  nào cũng thế, và tin của họ già đi rồi rụng khỏi feed trước khi tới lượt.
+
+`deferred` vào tally: luôn khác 0 nghĩa là hệ thống đang tụt lại so với lượng
+tin về, và đó là thứ phải thấy được.
+
+Không dựng bucket khi thiếu key: `RedisTokenBucket.__init__` gọi
+`register_script` ngay lúc khởi tạo, tức nó **đòi một Redis thật** kể cả khi sẽ
+chẳng bao giờ được dùng tới — và đó là thứ làm năm test của `test_news_job.py`
+đỏ ngay khi vừa gắn bucket vào.
+
+#### Nghiệm thu, và phần tự làm hỏng
+
+**566 test xanh** (558 -> 566), ruff + `mypy app tests` sạch, CI xanh. Ba test
+mới đã xác minh **đỏ khi gỡ fix ra**. Hằng số trên container đang chạy:
+`embed 40/lượt x 24 = 960/ngày`, `generate 60/lượt, nhịp 16/60s`.
+
+**Chưa chạy được một lượt job sạch để chứng minh hết 429**, vì chính mấy lượt đo
+tay ở trên đã tiêu hết hạn mức embed 1000/ngày. Ba lượt chạy cuối đều
+`embedded: 0`. Phép đo dò trần là thứ đáng làm — không có nó thì
+`MAX_TEXTS_PER_RUN` đã sai gấp đôi — nhưng cái giá là hôm nay không nạp thêm
+vector được nữa. Lượt cron ngày hôm sau mới là lần nghiệm thu thật.
+
+Số liệu lúc chốt: 14.699 game (848 có vector; tập ưu tiên 1.166, còn 468 chưa
+nạp), 843 bài, 24 có tiếng Việt.
+
+**Còn nợ sau lượt này:**
+
+- Hạn mức **ngày** của `generateContent` chưa đo được — mới chỉ thấy trần
+  20/phút. `MAX_LLM_CALLS_PER_RUN = 60` nhân 96 lượt/ngày là 5.760, chắc chắn
+  vượt; nhưng ở trạng thái ổn định mỗi lượt chỉ có vài chục bài mới nên chưa
+  chạm tới. Cần đo khi có dịp.
+- **Chưa có job tóm tắt bù** cho 819 bài đang không có `summary_vi`. Chúng vào
+  kho từ trước khi có key, và không đường nào quay lại dịch.
+- `EMBEDDING_THRESHOLD = 0.82` vẫn chưa hiệu chỉnh trên cách so mới (tên với tên).
+- Catalog 14.699/185.231.
+- Ảnh thẻ chia sẻ vẫn font bitmap, **không có dấu tiếng Việt**.
+- `POST /library/epic/bulk` vẫn 501.
+- Twitch vẫn chặn mảng streamer của Phase 7.
