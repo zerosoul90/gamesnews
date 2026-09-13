@@ -94,9 +94,7 @@ async def add_source(db: Db, *, status: SourceStatus = "active") -> ObjectId:
 
 
 async def add_game(db: Db, appid: int, name: str) -> ObjectId:
-    game = with_aliases(
-        Game(slug=name.lower().replace(" ", "-"), titles=Titles(primary=name))
-    )
+    game = with_aliases(Game(slug=name.lower().replace(" ", "-"), titles=Titles(primary=name)))
     game.external_ids.steam_appid = appid
     await upsert_game(db, game, key="steam_appid")
     doc = await db.games.find_one({"external_ids.steam_appid": appid})
@@ -132,9 +130,7 @@ async def test_ghi_bai_va_gan_entity_qua_link_store(mongo_db: Db, no_network: An
     assert doc["source_id"] == str(source_id)
 
 
-async def test_bai_khong_gan_duoc_thi_vao_hang_doi_duyet_tay(
-    mongo_db: Db, no_network: Any
-) -> None:
+async def test_bai_khong_gan_duoc_thi_vao_hang_doi_duyet_tay(mongo_db: Db, no_network: Any) -> None:
     await add_source(mongo_db)
     no_network([article("Tin về một hãng phần cứng", "https://ign.example/2", "không có gì")])
 
@@ -158,9 +154,7 @@ async def test_chay_lai_khong_ghi_trung_bai(mongo_db: Db, no_network: Any) -> No
     assert await mongo_db.articles.count_documents({}) == 1
 
 
-async def test_hai_trang_chep_cua_nhau_thi_danh_dau_trung(
-    mongo_db: Db, no_network: Any
-) -> None:
+async def test_hai_trang_chep_cua_nhau_thi_danh_dau_trung(mongo_db: Db, no_network: Any) -> None:
     await add_source(mongo_db)
     body = "Bom tấn mới lộ ngày ra mắt chính thức vào tháng sau, kèm bản mở rộng lớn."
     no_network(
@@ -202,9 +196,7 @@ async def test_ghi_lai_moc_da_crawl(mongo_db: Db, no_network: Any) -> None:
     assert doc["last_crawled_at"] is not None
 
 
-async def test_thieu_key_gemini_van_chay_chi_la_khong_dich(
-    mongo_db: Db, no_network: Any
-) -> None:
+async def test_thieu_key_gemini_van_chay_chi_la_khong_dich(mongo_db: Db, no_network: Any) -> None:
     """Thiếu LLM làm mất bản tiếng Việt, không được làm mất cả bài."""
     await add_source(mongo_db)
     no_network([article("Tin tiếng Anh", "https://ign.example/5", "nội dung")])
@@ -271,6 +263,73 @@ async def test_ten_llm_trich_ra_gan_duoc_entity(
     assert doc is not None
     assert doc["game_id"] == str(game_id)
     assert doc["matching_tier"] == "llm_alias"
+
+
+async def test_het_tran_llm_thi_de_lai_cho_luot_sau_chu_khong_luu_dang_chua_dich(
+    mongo_db: Db, no_network: Any, fake_gemini: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bài dôi ra phải **không được lưu**, chứ không phải lưu dạng chưa dịch.
+
+    Lưu nó là để nó vĩnh viễn không có tiếng Việt: chưa có job nào quay lại tóm
+    tắt bù. Bỏ qua thì lượt sau nhặt lại từ feed, vì `already_seen` tra theo URL
+    mà URL đó chưa vào kho.
+    """
+    monkeypatch.setattr(news, "MAX_LLM_CALLS_PER_RUN", 2)
+    await add_source(mongo_db)
+    no_network(
+        [article(f"Tin {i}", f"https://ign.example/tran-{i}", f"nội dung {i}") for i in range(5)]
+    )
+    fake = fake_gemini(None)
+
+    tally = await news.crawl_all_sources({"clients": FakeClients(mongo_db)})
+
+    assert fake.calls == 2, "không được gọi LLM quá trần"
+    assert tally["stored"] == 2
+    assert tally["deferred"] == 3
+    assert await mongo_db.articles.count_documents({}) == 2
+
+
+async def test_luot_sau_nhat_lai_dung_nhung_bai_bi_de_lai(
+    mongo_db: Db, no_network: Any, fake_gemini: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Chốt đi kèm: "để lại cho lượt sau" chỉ đúng nếu lượt sau thật sự nhặt."""
+    monkeypatch.setattr(news, "MAX_LLM_CALLS_PER_RUN", 2)
+    await add_source(mongo_db)
+    no_network(
+        [article(f"Tin {i}", f"https://ign.example/lap-{i}", f"nội dung {i}") for i in range(5)]
+    )
+    fake_gemini(None)
+
+    await news.crawl_all_sources({"clients": FakeClients(mongo_db)})
+    lan_hai = await news.crawl_all_sources({"clients": FakeClients(mongo_db)})
+
+    assert lan_hai["already_seen"] == 2, "hai bài lượt trước đã lưu"
+    assert lan_hai["stored"] == 2, "hai bài tiếp theo được nhặt lại"
+    assert await mongo_db.articles.count_documents({}) == 4
+
+
+async def test_nguon_lau_chua_crawl_nhat_di_truoc(
+    mongo_db: Db, no_network: Any, fake_gemini: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Thứ tự cố định thì mỗi lần chạm trần là ĐÚNG những nguồn cuối bảng bị bỏ
+    lại — lần nào cũng thế, và tin của họ rụng khỏi feed trước khi tới lượt."""
+    moi = await add_source(mongo_db)
+    await mongo_db.sources.update_one({"_id": moi}, {"$set": {"last_crawled_at": "2026-09-13"}})
+    cu = await add_source(mongo_db)
+    await mongo_db.sources.update_one({"_id": cu}, {"$set": {"last_crawled_at": "2026-01-01"}})
+    no_network([])
+    fake_gemini(None)
+
+    thu_tu: list[ObjectId] = []
+
+    async def ghi_lai(db: Db, source_id: ObjectId) -> None:
+        thu_tu.append(source_id)
+
+    monkeypatch.setattr(news, "update_last_crawled", ghi_lai)
+
+    await news.crawl_all_sources({"clients": FakeClients(mongo_db)})
+
+    assert thu_tu == [cu, moi]
 
 
 async def test_van_tom_tat_ca_khi_da_gan_duoc_o_tang_1(

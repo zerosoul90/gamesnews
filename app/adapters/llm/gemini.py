@@ -27,7 +27,13 @@ from typing import Any
 import httpx
 from pydantic import BaseModel, Field, ValidationError
 
-from app.adapters.base import PermanentError, TransientError, classify_http_status
+from app.adapters.base import (
+    PermanentError,
+    RateLimit,
+    RateLimiter,
+    TransientError,
+    classify_http_status,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +57,39 @@ EMBED_DIM = 768
 # Cắt bớt thân bài trước khi gửi. Bài tin dài hàng chục nghìn ký tự không làm
 # bản tóm tắt tốt hơn, chỉ làm hoá đơn dài ra.
 MAX_CONTENT_CHARS = 8000
+
+# --- Hạn mức, đo tay 2026-09-13 với key free -------------------------------
+#
+# Hai quota TÁCH BIỆT, nên hai bucket tách biệt. Gộp chung thì việc dịch tin và
+# việc nạp vector ăn lẫn hạn mức của nhau mà không cần thiết.
+#
+# Cả hai đặt ở **80% trần đo được**, có chủ ý. Token bucket nạp lại liên tục,
+# còn Google đếm theo cửa sổ; hai cái đó không khớp pha nhau, nên một lượt bắn
+# đầy bucket ngay sát ranh giới có thể rơi trọn vào MỘT cửa sổ của họ và vượt
+# trần dù bucket vẫn "đúng luật". Chừa 20% là cái giá rẻ để khỏi ăn 429 — mà
+# 429 thì vừa mất lượt gọi vừa không nạp được gì.
+#
+# `generate_content_free_tier_requests` trần **20**, `retryDelay` 36 giây. Đây
+# là lời giải thích cho 46/50 lời gọi hỏng ở lượt crawl đầu tiên: job bắn 50
+# request liên tiếp vào một cái trần 20.
+GENERATE_RATE = RateLimit(capacity=16, per_seconds=60.0)
+
+# Embedding có **HAI** hạn mức, và chỉ một trong hai thuộc về bucket này:
+#
+# - theo phút: đo được ~100 content mới trôi (lượt đầu qua đúng 100 rồi 429,
+#   lượt sau qua 50 rồi 429). Đây là cái `EMBED_RATE` canh.
+# - theo ngày: `trần=1000` trong thân lỗi. Tới lúc cạn thì **kể cả lô một
+#   content cũng bị từ chối** và `retryDelay` đếm ngược về mốc cửa sổ — token
+#   bucket không đỡ được, vì nó chỉ biết nhịp. Cái đó do
+#   `jobs/embeddings.MAX_TEXTS_PER_RUN` canh.
+#
+# Nhầm hai thứ này là bẫy: bucket "đúng luật" suốt mà nửa ngày sau vẫn 429 hết.
+EMBED_RATE = RateLimit(capacity=80, per_seconds=60.0)
+
+# Trần cứng của chính API, không phải hạn mức nhịp: gửi 120 thì trả **400**
+# `at most 100 requests can be in one batch`. Chính câu đó cũng xác nhận mô
+# hình tính phí — mỗi content là một "request", không phải mỗi lời gọi HTTP.
+MAX_EMBED_BATCH = 100
 
 PROMPT = """\
 Bạn là trợ lý biên tập tin game cho độc giả Việt Nam.
@@ -118,9 +157,18 @@ class LLMParsedArticle(BaseModel):
 class GeminiAdapter:
     """Nói chuyện với Gemini. Không biết gì về Mongo hay về nghiệp vụ tin tức."""
 
-    def __init__(self, http: httpx.AsyncClient, api_key: str) -> None:
+    def __init__(
+        self,
+        http: httpx.AsyncClient,
+        api_key: str,
+        limiter: RateLimiter | None = None,
+    ) -> None:
         self._http = http
         self._api_key = api_key
+        # `None` nghĩa là không giãn nhịp — chỉ dùng trong test và trong những
+        # đoạn đo tay. Job chạy thật LUÔN phải truyền bucket vào; hai hằng số
+        # `GENERATE_RATE` / `EMBED_RATE` ngay dưới đây nói vì sao.
+        self._limiter = limiter
 
     @property
     def configured(self) -> bool:
@@ -132,9 +180,19 @@ class GeminiAdapter:
         """
         return bool(self._api_key)
 
-    async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    async def _post(self, path: str, payload: dict[str, Any], *, cost: int = 1) -> dict[str, Any]:
         if not self._api_key:
             raise PermanentError("GEMINI_API_KEY chưa được cấu hình")
+
+        # Giãn nhịp TRƯỚC khi gọi, không phải sau khi ăn 429. Bắn hết tốc rồi
+        # nhận 429 thì vẫn tốn đúng ngần ấy lượt gọi, chỉ khác là không lượt nào
+        # trả về gì — đo được ở lượt crawl đầu: 46/50 lời gọi hỏng.
+        #
+        # `cost` chứ không phải 1: `batchEmbedContents` gửi 25 content trong một
+        # lời gọi HTTP thì Google tính **25 request**, không phải một. Đặt cost=1
+        # ở đây là bucket đếm thiếu 25 lần và trần trở thành trang trí.
+        if self._limiter is not None:
+            await self._limiter.acquire(cost)
 
         url = f"{API_ROOT}/{path}"
         try:
@@ -205,11 +263,18 @@ class GeminiAdapter:
     async def embed(self, texts: list[str]) -> list[list[float]]:
         """Sinh vector cho một lô văn bản. Giữ nguyên thứ tự đầu vào.
 
-        Gộp lô bằng `batchEmbedContents`: nạp vector cho cả catalog mà gọi từng
-        cái một thì số request bằng số game.
+        Gộp lô bằng `batchEmbedContents` để tiết kiệm **vòng mạng**, không phải
+        quota: Google tính mỗi content là một request dù chúng đi chung một lời
+        gọi HTTP. Vì vậy `cost` truyền xuống bucket là `len(texts)`.
         """
         if not texts:
             return []
+        if len(texts) > MAX_EMBED_BATCH:
+            # Trần cứng của API. Để nó tự ném 400 thì lỗi hiện ra ở tận tầng
+            # HTTP, còn người gọi thì mất cả lô mà không biết vì sao.
+            raise PermanentError(
+                f"batchEmbedContents nhận tối đa {MAX_EMBED_BATCH} đoạn, được đưa {len(texts)}"
+            )
 
         payload = {
             "requests": [
@@ -223,7 +288,9 @@ class GeminiAdapter:
                 for text in texts
             ]
         }
-        data = await self._post(f"models/{EMBED_MODEL}:batchEmbedContents", payload)
+        data = await self._post(
+            f"models/{EMBED_MODEL}:batchEmbedContents", payload, cost=len(texts)
+        )
 
         embeddings = data.get("embeddings") or []
         if len(embeddings) != len(texts):

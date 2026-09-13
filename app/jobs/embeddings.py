@@ -33,8 +33,8 @@ from typing import Any
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.adapters.base import AdapterError
-from app.adapters.llm.gemini import GeminiAdapter
+from app.adapters.base import AdapterError, RedisTokenBucket
+from app.adapters.llm.gemini import EMBED_RATE, GeminiAdapter
 from app.core.config import get_settings
 from app.services import embeddings
 from app.services.catalog import games
@@ -53,11 +53,18 @@ Db = AsyncIOMotorDatabase[dict[str, Any]]
 # Vì vậy lô nhỏ lại: một lô hỏng là mất cả lô, mà lô to không đổi lại được gì.
 BATCH_SIZE = 25
 
-# Trần văn bản mỗi lượt job, đặt theo QUOTA chứ không theo thời gian. Vượt trần
-# này thì phần dư chỉ sinh ra 429 — vừa không nạp được gì, vừa ăn mất hạn mức
-# mà `crawl_all_sources` cần để tóm tắt và dịch tin. `CLAUDE.md`: "không được
-# để một job làm cạn quota của job khác".
-MAX_TEXTS_PER_RUN = 100
+# Trần văn bản mỗi lượt job. Con số này canh hạn mức **NGÀY**, không phải phút.
+#
+# Token bucket chỉ biết nhịp; nó không đỡ được hạn mức ngày. Đo 2026-09-13:
+# `embed_content_free_tier_requests` báo `trần=1000` và tới lúc cạn thì **kể cả
+# lô một content cũng bị từ chối**, `retryDelay` đếm ngược về mốc cửa sổ. 1000
+# khớp đúng hạn mức ngày của tầng free.
+#
+# Cron chạy mỗi giờ, tức 24 lượt mỗi ngày. `40 x 24 = 960`, vừa dưới 1000 và
+# còn chừa chỗ cho tầng 4 gắn entity — nó embed tên game trên cùng hạn mức này.
+# Đặt bằng sức chứa một phút (80) thì ra 1920/ngày, tức nửa ngày sau là mọi lời
+# gọi đều 429: vẫn là "một job làm cạn quota của job khác", chỉ chậm hơn.
+MAX_TEXTS_PER_RUN = 40
 
 # Ngưỡng "đủ nổi tiếng để có ngày được nhắc trong một bài tin game".
 #
@@ -158,7 +165,14 @@ async def sync_game_embeddings(ctx: dict[str, Any]) -> dict[str, int]:
     """Nạp vector cho những game chưa có, hoặc có mà tên đã đổi."""
     db: Db = ctx["clients"].db
     settings = get_settings()
-    gemini = GeminiAdapter(ctx["clients"].http, settings.gemini_api_key.get_secret_value())
+    api_key = settings.gemini_api_key.get_secret_value()
+    # Cùng lý do như `jobs/news.py`: `RedisTokenBucket` đòi một Redis thật ngay
+    # lúc khởi tạo, mà không key thì chẳng có lời gọi nào để giãn nhịp.
+    gemini = GeminiAdapter(
+        ctx["clients"].http,
+        api_key,
+        RedisTokenBucket(ctx["clients"].redis, "gemini_embed", EMBED_RATE) if api_key else None,
+    )
 
     if not gemini.configured:
         logger.error("GEMINI_API_KEY chưa cấu hình, không nạp được vector")

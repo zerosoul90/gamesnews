@@ -37,8 +37,8 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING, IndexModel
 from pymongo.errors import DuplicateKeyError
 
-from app.adapters.base import AdapterError
-from app.adapters.llm.gemini import GeminiAdapter
+from app.adapters.base import AdapterError, RedisTokenBucket
+from app.adapters.llm.gemini import GENERATE_RATE, GeminiAdapter
 from app.core.config import get_settings
 from app.models.article import NewsArticle
 from app.models.source import Source
@@ -59,6 +59,18 @@ ARTICLES = "articles"
 DEDUP_WINDOW = dt.timedelta(days=3)
 # Trần số bài đem ra so simhash. So là O(n) trên từng bài mới, nên phải có trần.
 DEDUP_CANDIDATES = 500
+
+# Trần số bài gọi LLM mỗi lượt.
+#
+# Token bucket giãn nhịp nhưng KHÔNG chặn tổng: với trần 20/phút, một lượt gặp
+# 587 bài mới (đúng con số lượt crawl đầu tiên) sẽ ngồi chờ **29 phút**, trong
+# khi Arq mặc định giết job ở 300 giây. Job bị giết giữa chừng không mất dữ
+# liệu — bài đã ghi thì ở lại, bài chưa ghi vẫn còn trong feed và lượt sau nhặt
+# lại — nhưng nó chết kèm traceback mỗi lượt, che mất những lỗi thật.
+#
+# 60 bài ở 20/phút là ~3 phút, còn dư chỗ cho phần crawl và Mongo trong cùng
+# 300 giây đó. Phần dôi ra để lượt sau; cron chạy mỗi 15 phút nên nó bắt kịp.
+MAX_LLM_CALLS_PER_RUN = 60
 
 INDEXES: list[IndexModel] = [
     # Chốt chống trùng rẻ nhất: cùng một URL không bao giờ vào kho hai lần, kể
@@ -101,7 +113,17 @@ async def crawl_all_sources(ctx: dict[str, Any]) -> dict[str, int]:
     await ensure_indexes(db)
     await entity_review.ensure_indexes(db)
 
-    gemini = GeminiAdapter(ctx["clients"].http, settings.gemini_api_key.get_secret_value())
+    api_key = settings.gemini_api_key.get_secret_value()
+    # Không key thì không có lời gọi nào để mà giãn nhịp, nên không dựng bucket.
+    # `RedisTokenBucket.__init__` gọi `register_script` ngay lúc khởi tạo, tức
+    # là nó ĐÒI một Redis thật kể cả khi sẽ chẳng bao giờ được dùng tới.
+    gemini = GeminiAdapter(
+        ctx["clients"].http,
+        api_key,
+        RedisTokenBucket(ctx["clients"].redis, "gemini_generate", GENERATE_RATE)
+        if api_key
+        else None,
+    )
     if not gemini.configured:
         # Vẫn chạy: crawl và gắn entity ở tầng 1-2 không cần LLM. Nhưng phải
         # báo to, vì bản tin sẽ ra feed dưới dạng tiếng Anh chưa tóm tắt và
@@ -123,9 +145,18 @@ async def crawl_all_sources(ctx: dict[str, Any]) -> dict[str, int]:
         "embedding": 0,
         "manual": 0,
         "summarized": 0,
+        # Bài phải để lại cho lượt sau vì hết trần LLM của lượt này. Nằm trong
+        # tally chứ không chỉ trong log: nếu con số này luôn khác 0 thì hệ thống
+        # đang tụt lại so với lượng tin về, và đó là thứ phải thấy được.
+        "deferred": 0,
     }
+    llm_calls = 0
 
-    async for source_doc in db.sources.find({"status": "active"}):
+    # Nguồn lâu chưa crawl nhất đi trước. Không có `sort` này thì thứ tự luôn
+    # cố định, nên mỗi lần chạm trần LLM là **đúng những nguồn cuối bảng** bị
+    # bỏ lại — lần nào cũng thế, và tin của họ già đi rồi rụng khỏi feed trước
+    # khi tới lượt. Mongo xếp null lên đầu, nên nguồn chưa crawl bao giờ đi đầu.
+    async for source_doc in db.sources.find({"status": "active"}).sort("last_crawled_at", 1):
         source_id: ObjectId = source_doc["_id"]
         try:
             source = Source(**{k: v for k, v in source_doc.items() if k != "_id"})
@@ -161,8 +192,17 @@ async def crawl_all_sources(ctx: dict[str, Any]) -> dict[str, int]:
             # vẫn luôn trả về mà trước nay không ai đọc — kịp làm đầu vào cho
             # hai tầng cuối. Nó còn TIẾT KIỆM: tầng cuối chỉ phải sinh vector
             # khi tầng alias của chính cái tên đó cũng trượt.
+            if gemini.configured and llm_calls >= MAX_LLM_CALLS_PER_RUN:
+                # Hết trần thì DỪNG HẲN, không lưu bài dạng chưa dịch. Lưu nó
+                # nghĩa là bài đó vĩnh viễn không có tiếng Việt: chưa có job nào
+                # quay lại tóm tắt bù. Bỏ qua thì lượt sau nhặt lại từ feed, vì
+                # `already_seen` tra theo URL mà URL này chưa vào kho.
+                tally["deferred"] += 1
+                continue
+
             parsed = None
             if gemini.configured:
+                llm_calls += 1
                 try:
                     parsed = await gemini.summarize_and_translate(
                         title=article.title, content=article.original_content

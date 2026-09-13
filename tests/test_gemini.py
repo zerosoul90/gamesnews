@@ -18,10 +18,10 @@ from app.adapters.llm.gemini import EMBED_DIM, GeminiAdapter
 
 
 def adapter_with(
-    handler: Any, *, api_key: str = "khoa-gia"
+    handler: Any, *, api_key: str = "khoa-gia", limiter: Any = None
 ) -> tuple[GeminiAdapter, httpx.AsyncClient]:
     http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    return GeminiAdapter(http, api_key), http
+    return GeminiAdapter(http, api_key, limiter), http
 
 
 def reply(payload: dict[str, Any], status: int = 200) -> Any:
@@ -137,6 +137,96 @@ async def test_embed_giu_dung_thu_tu_va_so_luong() -> None:
     assert len(vectors) == 3
     assert vectors[0][0] == 0.0
     assert vectors[2][0] == 2.0
+
+
+# --- Giãn nhịp -------------------------------------------------------------
+#
+# Trần đo tay 2026-09-13: `generateContent` 20/phút, `batchEmbedContents` ~100
+# content/phút. Bắn hết tốc rồi ăn 429 thì vẫn tốn đúng ngần ấy lượt gọi, chỉ
+# khác là không lượt nào trả về gì — 46/50 ở lượt crawl đầu tiên.
+
+
+class FakeLimiter:
+    """Ghi lại từng lần xin token. Không cần Redis — `RateLimiter` là Protocol."""
+
+    def __init__(self) -> None:
+        self.acquired: list[int] = []
+
+    async def acquire(self, tokens: int = 1) -> None:
+        self.acquired.append(tokens)
+
+
+async def test_embed_tinh_cost_bang_so_content() -> None:
+    """Chốt đắt nhất của cả file.
+
+    Google tính MỖI CONTENT là một request dù chúng đi chung một lời gọi HTTP —
+    chính API nói ra điều đó khi từ chối lô 120: "at most 100 requests can be in
+    one batch". Đặt cost=1 ở đây thì bucket đếm thiếu 25 lần và cái trần trở
+    thành đồ trang trí.
+    """
+    limiter = FakeLimiter()
+    adapter, http = adapter_with(
+        reply({"embeddings": [{"values": [0.1] * EMBED_DIM} for _ in range(25)]}),
+        limiter=limiter,
+    )
+
+    await adapter.embed([f"game {i}" for i in range(25)])
+    await http.aclose()
+
+    assert limiter.acquired == [25]
+
+
+async def test_tom_tat_tinh_cost_bang_mot() -> None:
+    limiter = FakeLimiter()
+    adapter, http = adapter_with(
+        reply(gemini_text('{"translated_title":"a","summary_vi":"b"}')), limiter=limiter
+    )
+
+    await adapter.summarize_and_translate(title="x", content="y")
+    await http.aclose()
+
+    assert limiter.acquired == [1]
+
+
+async def test_xin_token_truoc_khi_goi_mang() -> None:
+    """Xin sau khi gọi thì token đã tiêu rồi, giãn nhịp thành vô nghĩa."""
+    thu_tu: list[str] = []
+
+    class GhiThuTu(FakeLimiter):
+        async def acquire(self, tokens: int = 1) -> None:
+            thu_tu.append("token")
+            await super().acquire(tokens)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        thu_tu.append("http")
+        return httpx.Response(200, json={"embeddings": [{"values": [0.1] * EMBED_DIM}]})
+
+    adapter, http = adapter_with(handler, limiter=GhiThuTu())
+    await adapter.embed(["Elden Ring"])
+    await http.aclose()
+
+    assert thu_tu == ["token", "http"]
+
+
+async def test_lo_qua_tran_cua_api_thi_bao_ngay() -> None:
+    """API từ chối lô > 100 bằng 400. Để nó tự ném thì lỗi hiện ở tận tầng HTTP,
+    còn người gọi mất cả lô mà không biết vì sao."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("không được gọi API với lô quá trần")
+
+    adapter, http = adapter_with(handler)
+    with pytest.raises(PermanentError, match="100"):
+        await adapter.embed([f"game {i}" for i in range(101)])
+    await http.aclose()
+
+
+async def test_khong_co_limiter_thi_van_goi_duoc() -> None:
+    """Đoạn đo tay và test không phải dựng Redis mới gọi được adapter."""
+    adapter, http = adapter_with(reply({"embeddings": [{"values": [0.1] * EMBED_DIM}]}))
+
+    assert len(await adapter.embed(["Elden Ring"])) == 1
+    await http.aclose()
 
 
 async def test_embed_khai_so_chieu_va_dung_model_con_song() -> None:
