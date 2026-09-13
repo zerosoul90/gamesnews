@@ -12,11 +12,18 @@ Thứ tự các bước không phải tuỳ tiện, mỗi bước đứng trư�
 
 1. **Đã thấy URL này chưa** — index unique, rẻ nhất, loại phần lớn.
 2. **Simhash** — cùng một tin do năm trang chép lại của nhau. Còn ở trong máy.
-3. **Gắn entity** — tầng 1 và 2 chỉ đọc Mongo; tầng 3 mới gọi Gemini.
-4. **Tóm tắt + dịch** — đắt nhất, và chỉ chạy cho bài đã qua được ba bước trên.
+3. **Tóm tắt + dịch** — lời gọi LLM duy nhất, và chỉ cho bài đã qua hai bước trên.
+4. **Gắn entity** — tầng 1 và 2 chỉ đọc Mongo; hai tầng cuối dùng
+   `suggested_alias` mà bước 3 vừa trả về.
 
-Đảo thứ tự này thì hoá đơn LLM tính cả trên những bài trùng lặp sẽ bị vứt đi
+Đảo hai bước đầu thì hoá đơn LLM tính cả trên những bài trùng lặp sẽ bị vứt đi
 ngay sau đó.
+
+**Bước 3 đứng trước bước 4 chứ không ngược lại** — khác bản đầu. Không phải vì
+nó rẻ hơn mà vì bước 4 CẦN đầu ra của nó: `suggested_alias`, tên game do LLM
+trích từ bài. Và việc đổi chỗ không tốn thêm đồng nào, vì tóm tắt vốn chạy cho
+mọi bài được lưu bất kể gắn được entity hay không. Nó còn tiết kiệm: tầng cuối
+chỉ phải sinh vector khi tầng alias của chính cái tên đó cũng trượt.
 """
 
 from __future__ import annotations
@@ -112,6 +119,7 @@ async def crawl_all_sources(ctx: dict[str, Any]) -> dict[str, int]:
         "stored": 0,
         "exact": 0,
         "alias": 0,
+        "llm_alias": 0,
         "embedding": 0,
         "manual": 0,
         "summarized": 0,
@@ -147,18 +155,13 @@ async def crawl_all_sources(ctx: dict[str, Any]) -> dict[str, int]:
                 await _insert(db, article)
                 continue
 
-            match = await match_entity(
-                db,
-                article.title,
-                article.original_content,
-                qdrant_client=ctx["clients"].qdrant,
-                gemini=gemini if gemini.configured else None,
-            )
-            article.matching_tier = match.tier if match.matched else "none"
-            article.confidence_score = match.confidence
-            article.game_id = str(match.game_id) if match.game_id else None
-            tally[match.tier if match.matched else "manual"] += 1
-
+            # LLM chạy TRƯỚC bước gắn entity, và điều đó không làm hoá đơn dài
+            # thêm một đồng: bước tóm tắt vốn chạy cho mọi bài được lưu, bất kể
+            # gắn được entity hay không. Đổi lại, `suggested_alias` — thứ model
+            # vẫn luôn trả về mà trước nay không ai đọc — kịp làm đầu vào cho
+            # hai tầng cuối. Nó còn TIẾT KIỆM: tầng cuối chỉ phải sinh vector
+            # khi tầng alias của chính cái tên đó cũng trượt.
+            parsed = None
             if gemini.configured:
                 try:
                     parsed = await gemini.summarize_and_translate(
@@ -167,7 +170,6 @@ async def crawl_all_sources(ctx: dict[str, Any]) -> dict[str, int]:
                 except AdapterError as exc:
                     # Bài vẫn được lưu, chỉ là chưa có bản tiếng Việt. Vứt cả
                     # bài đi vì một lần gọi LLM hỏng là mất tin thật.
-                    parsed = None
                     logger.warning(
                         "gọi LLM hỏng, lưu bài dạng chưa dịch",
                         extra={"url": article.url, "error": repr(exc)},
@@ -176,6 +178,19 @@ async def crawl_all_sources(ctx: dict[str, Any]) -> dict[str, int]:
                     article.translated_title = parsed.translated_title
                     article.summary_vi = parsed.summary_vi
                     tally["summarized"] += 1
+
+            match = await match_entity(
+                db,
+                article.title,
+                article.original_content,
+                qdrant_client=ctx["clients"].qdrant,
+                gemini=gemini if gemini.configured else None,
+                suggested_alias=parsed.suggested_alias if parsed else None,
+            )
+            article.matching_tier = match.tier if match.matched else "none"
+            article.confidence_score = match.confidence
+            article.game_id = str(match.game_id) if match.game_id else None
+            tally[match.tier if match.matched else "manual"] += 1
 
             article_id = await _insert(db, article)
             if article_id is None:

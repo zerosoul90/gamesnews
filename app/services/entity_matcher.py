@@ -9,14 +9,40 @@ Lý do: bài bị bỏ sót thì nằm trong hàng đợi duyệt tay, ai cũng 
 được trong mười giây. Bài bị gắn nhầm thì hiển thị lặng lẽ dưới trang một game
 khác, không ai báo, và còn kéo theo chỉ số hot của Phase 7 sai theo.
 
-Ba tầng, tin cậy giảm dần:
+Bốn tầng, tin cậy giảm dần:
 
 1. **Exact** — có link store trong bài, tra ngược ra entity. Chắc chắn nhất.
 2. **Alias** — một cụm từ trong tiêu đề trùng khít một alias đã chuẩn hoá.
-3. **Embedding** — vector tên game trong Qdrant (`services/embeddings.py`).
+3. **LLM alias** — LLM đọc bài và nói tên game, rồi tên đó đi qua đúng bộ máy
+   alias của tầng 2.
+4. **Embedding** — vector **tên game** trong Qdrant (`services/embeddings.py`).
 
 Không tầng nào đủ tin cậy thì trả `manual`, và người gọi có nghĩa vụ đẩy bài
 vào `entity_review_queue` (xem `services/entity_review.py`). Không đoán bừa.
+
+**Vì sao tầng 3 và 4 nhận TÊN chứ không nhận tiêu đề.** Bản trước đem cả câu
+tiêu đề đi so với vector của một cái tên. Đo thật 2026-09-13 trên 20 bài trong
+hàng đợi duyệt tay, so với 450 vector:
+
+| điểm | entity gần nhất | tiêu đề |
+|---|---|---|
+| 0.671 | Sniper Elite V2 | "Aliens: Fireteam Elite 2 Review" |
+| 0.620 | Warhammer 40,000: Space Marine | "How Warhammer 40,000: Space Marine 3 Will Benefit…" |
+| 0.515 | Monsters! | "The 9 Biggest Trailers Worth Watching This Week" |
+
+Toàn bộ nằm trong 0.49 tới 0.67, và **điểm cao nhất cả mẫu lại là một cặp SAI** —
+khớp nhau chỉ vì chữ "Elite". Cặp đúng duy nhất còn xếp dưới nó. Nghĩa là hạ
+ngưỡng để tầng cuối "chạy được" sẽ rước cái sai vào trước cái đúng, ngược hẳn
+nguyên tắc đầu file.
+
+Đó chính là sai lầm `PROGRESS.md` đã ghi cho tầng 2 hôm 2026-09-09 — *"so CẢ
+tiêu đề với alias bằng SequenceMatcher nên tiêu đề tin thật luôn ra ~0.4"* —
+lặp lại dưới dạng vector. Không ngưỡng nào chữa được chuyện so sai thứ.
+
+Thuốc vốn đã nằm trong nhà: prompt ở `adapters/llm/gemini.py` từ đầu đã bảo LLM
+trả `suggested_alias` ("tên gốc của game được nhắc tới nhiều nhất"), model vẫn
+điền nó ở mỗi bài, và **không chỗ nào đọc tới**. Nay nó là đầu vào của tầng 3
+và 4 — so tên với tên, không tốn thêm một lời gọi nào.
 """
 
 from __future__ import annotations
@@ -40,7 +66,7 @@ logger = logging.getLogger(__name__)
 
 Db = AsyncIOMotorDatabase[dict[str, Any]]
 
-MatchTier = Literal["exact", "alias", "embedding", "manual"]
+MatchTier = Literal["exact", "alias", "llm_alias", "embedding", "manual"]
 
 # Cụm dài nhất đem đi dò alias. Tên game dài nhất trong catalog cũng hiếm khi
 # quá 8 từ, mà mỗi từ thêm vào là một cụm nữa phải sinh.
@@ -54,6 +80,13 @@ MIN_SINGLE_WORD_CHARS = 8
 # Khớp alias là khớp CHÍNH XÁC trên chuỗi đã chuẩn hoá, nên độ tin cậy cao;
 # nhưng vẫn dưới 1.0 để tầng exact luôn thắng khi cả hai cùng khớp.
 ALIAS_CONFIDENCE = 0.95
+
+# Cùng phép khớp khít như trên, nhưng chuỗi đem đi khớp do LLM đọc bài rồi
+# **viết ra**, chứ không trích từ bài. Model có thể viết sai tên, hoặc viết tên
+# một game chỉ được nhắc thoáng qua. Phép khớp thì chắc; nguồn của chuỗi thì
+# không — nên thấp hơn một bậc, và người duyệt tay nhìn số này biết ngay là
+# entity đến từ đâu.
+LLM_ALIAS_CONFIDENCE = 0.85
 
 # Ngưỡng cosine của tầng 3.
 #
@@ -164,8 +197,20 @@ def is_specific_enough(alias: str) -> bool:
     return len(alias.split()) >= 2 or len(alias) >= MIN_SINGLE_WORD_CHARS
 
 
-async def match_by_alias(db: Db, title: str) -> EntityMatch | None:
+async def match_by_alias(
+    db: Db,
+    title: str,
+    *,
+    tier: MatchTier = "alias",
+    confidence: float = ALIAS_CONFIDENCE,
+) -> EntityMatch | None:
     """Tầng 2: một cụm trong tiêu đề trùng khít một alias đã chuẩn hoá.
+
+    `tier` và `confidence` tham số hoá được vì tầng 3 dùng **đúng phép khớp
+    này**, chỉ khác chuỗi đầu vào là tên do LLM viết ra chứ không phải tiêu đề.
+    Viết lại một bản thứ hai cho tầng 3 thì hai bản sẽ trôi khỏi nhau, mà luật
+    "hai game cùng khớp thì không chọn cái nào" là thứ không được phép chỉ đúng
+    ở một trong hai đường.
 
     Trùng khít chứ không phải "gần giống": `normalize_vi` đã lo phần bỏ dấu,
     thường hoá và bỏ ký tự đặc biệt — tức phần lớn khác biệt thật giữa cách
@@ -215,41 +260,41 @@ async def match_by_alias(db: Db, title: str) -> EntityMatch | None:
         return None
 
     game_id, alias = best[0]
-    return EntityMatch(
-        game_id=game_id, tier="alias", confidence=ALIAS_CONFIDENCE, matched_on=alias
-    )
+    return EntityMatch(game_id=game_id, tier=tier, confidence=confidence, matched_on=alias)
 
 
 # --- Tầng 3: embedding -----------------------------------------------------
 
 
 async def embedding_match(
-    title: str,
+    game_name: str,
     qdrant_client: AsyncQdrantClient | None,
     gemini: GeminiAdapter | None,
 ) -> EntityMatch | None:
-    """Tầng 3 — so vector tiêu đề bài với vector tên game trong Qdrant.
+    """Tầng 4 — so vector một TÊN GAME với vector tên game trong Qdrant.
 
-    Nhận **tiêu đề**, không phải toàn văn bài. Vector của cả bài trôi về phía
-    chủ đề chung của bài chứ không về phía cái tên trong đó; mà thứ ta đang tìm
-    là một cái tên. Đây cũng đúng thứ `embedding_text` bên `services/embeddings`
-    nạp vào, nên hai bên so cùng một loại nội dung.
+    `game_name` là tên do LLM trích ra, **không phải tiêu đề bài**. Bản trước
+    nhận tiêu đề, và phép đo ở đầu file cho thấy đó là so sai thứ: cả câu tiêu
+    đề đem so với một cái tên thì điểm dồn hết vào 0.49 tới 0.67, và cặp điểm cao
+    nhất lại là cặp sai. `embedding_text` bên `services/embeddings` nạp vào
+    Qdrant đúng **tên và alias**, nên đầu kia cũng phải là một cái tên thì hai
+    bên mới so cùng một loại nội dung.
 
-    Thiếu Qdrant hoặc thiếu key Gemini thì trả None, **không** ném lỗi: tầng 3
-    hỏng chỉ nên làm giảm tỉ lệ tự động, còn bài thì đã có sẵn đường đi tiếp là
-    hàng đợi duyệt tay.
+    Thiếu Qdrant hoặc thiếu key Gemini thì trả None, **không** ném lỗi: tầng
+    này hỏng chỉ nên làm giảm tỉ lệ tự động, còn bài thì đã có sẵn đường đi tiếp
+    là hàng đợi duyệt tay.
     """
     if qdrant_client is None or gemini is None or not gemini.configured:
         return None
 
-    text = title.strip()
+    text = game_name.strip()
     if not text:
         return None
 
     try:
         vectors = await gemini.embed([text])
     except AdapterError as exc:
-        logger.warning("không sinh được vector cho tiêu đề", extra={"error": repr(exc)})
+        logger.warning("không sinh được vector cho tên game", extra={"error": repr(exc)})
         return None
     if not vectors or not vectors[0]:
         return None
@@ -276,7 +321,7 @@ async def embedding_match(
     if len(hits) > 1 and (hits[0][1] - hits[1][1]) < EMBEDDING_MARGIN:
         logger.info(
             "hai entity sát điểm nhau ở tầng embedding, chuyển duyệt tay",
-            extra={"title": title[:120], "top": hits[0][1], "second": hits[1][1]},
+            extra={"game_name": text[:120], "top": hits[0][1], "second": hits[1][1]},
         )
         return None
 
@@ -289,7 +334,7 @@ async def embedding_match(
     )
 
 
-# --- Ghép ba tầng ----------------------------------------------------------
+# --- Ghép bốn tầng ---------------------------------------------------------
 
 
 async def match_entity(
@@ -298,8 +343,16 @@ async def match_entity(
     article_content: str,
     qdrant_client: AsyncQdrantClient | None = None,
     gemini: GeminiAdapter | None = None,
+    *,
+    suggested_alias: str | None = None,
 ) -> EntityMatch:
-    """Chạy lần lượt ba tầng, dừng ở tầng đầu tiên đủ tin cậy."""
+    """Chạy lần lượt bốn tầng, dừng ở tầng đầu tiên đủ tin cậy.
+
+    `suggested_alias` là tên game do LLM đọc bài rồi trích ra. Thiếu nó thì hai
+    tầng cuối **không chạy** và bài rơi thẳng xuống duyệt tay — đó là hành vi
+    đúng, không phải thiếu sót: không có tên thì không có gì để so, mà đem tiêu
+    đề ra so thay thì đã đo là sai (xem đầu file).
+    """
     if (exact := await match_by_store_link(db, article_content)) is not None:
         logger.info(
             "gắn entity qua link store",
@@ -314,12 +367,36 @@ async def match_entity(
         )
         return alias
 
-    if (embed := await embedding_match(article_title, qdrant_client, gemini)) is not None:
-        logger.info(
-            "gắn entity qua embedding",
-            extra={"game_id": str(embed.game_id), "matched_on": embed.matched_on},
-        )
-        return embed
+    name = (suggested_alias or "").strip()
+    if name:
+        # Tầng 3 trước tầng 4: cùng một cái tên, nhưng khớp khít trên chuỗi đã
+        # chuẩn hoá thì chắc hơn hẳn so vector, và không tốn lời gọi nào.
+        llm = await match_by_alias(db, name, tier="llm_alias", confidence=LLM_ALIAS_CONFIDENCE)
+        if llm is not None:
+            logger.info(
+                "gắn entity qua tên LLM trích ra",
+                # `game_name`, KHÔNG phải `name`: `name` là thuộc tính dành
+                # riêng của `LogRecord` và `logging` ném `KeyError` khi bị ghi
+                # đè. Nó chỉ nổ khi logger đang bật ở mức INFO — tức là ở
+                # production, còn chạy test lẻ thì `logger.info` thoát sớm nên
+                # không ai thấy.
+                extra={
+                    "game_id": str(llm.game_id),
+                    "matched_on": llm.matched_on,
+                    "game_name": name,
+                },
+            )
+            return llm
 
-    logger.info("không gắn được entity, chuyển duyệt tay", extra={"title": article_title[:120]})
+        if (embed := await embedding_match(name, qdrant_client, gemini)) is not None:
+            logger.info(
+                "gắn entity qua embedding",
+                extra={"game_id": str(embed.game_id), "matched_on": embed.matched_on},
+            )
+            return embed
+
+    logger.info(
+        "không gắn được entity, chuyển duyệt tay",
+        extra={"title": article_title[:120], "suggested_alias": name or None},
+    )
     return NO_MATCH

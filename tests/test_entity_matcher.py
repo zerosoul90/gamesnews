@@ -217,6 +217,83 @@ async def test_khong_tang_nao_khop_thi_tra_manual(mongo_db: Db) -> None:
     assert match.confidence == 0.0
 
 
+# --- Tầng 3: tên game do LLM trích ra --------------------------------------
+#
+# Prompt vẫn luôn bảo model trả `suggested_alias`, model vẫn luôn điền, và
+# trước lượt 2026-09-13 thì **không chỗ nào trong app/ đọc tới**. Grep ra đúng
+# ba dòng, cả ba nằm trong chính adapter.
+
+
+async def test_tang_3_ten_llm_trich_ra_gan_duoc_entity(mongo_db: Db) -> None:
+    """Tiêu đề không chứa tên game ở dạng khớp được, nhưng LLM đọc ra được."""
+    ids = await seed(mongo_db)
+
+    khong_co_ten = await match_entity(
+        mongo_db, "Hãng phát hành hé lộ kế hoạch cho bom tấn sắp tới", "không có link"
+    )
+    assert khong_co_ten.matched is False
+
+    match = await match_entity(
+        mongo_db,
+        "Hãng phát hành hé lộ kế hoạch cho bom tấn sắp tới",
+        "không có link",
+        suggested_alias="Elden Ring",
+    )
+
+    assert match.game_id == ids["elden-ring"]
+    assert match.tier == "llm_alias"
+
+
+async def test_tang_3_tin_thap_hon_tang_2(mongo_db: Db) -> None:
+    """Phép khớp thì chắc như nhau; nguồn của chuỗi thì không.
+
+    Tầng 2 lấy cụm từ CHÍNH bài viết, tầng 3 lấy chuỗi model tự viết ra — model
+    viết sai tên, hoặc nêu tên một game chỉ được nhắc thoáng qua, đều có thật.
+    """
+    await seed(mongo_db)
+
+    tu_tieu_de = await match_entity(mongo_db, "Elden Ring ra bản mới", "x")
+    tu_llm = await match_entity(mongo_db, "Bom tấn ra bản mới", "x", suggested_alias="Elden Ring")
+
+    assert tu_llm.confidence < tu_tieu_de.confidence
+
+
+async def test_tieu_de_van_thang_ten_llm_khi_ca_hai_cung_khop(mongo_db: Db) -> None:
+    """Model nêu game cha, tiêu đề nói rõ bản Nightreign — tin tiêu đề."""
+    ids = await seed(mongo_db)
+
+    match = await match_entity(
+        mongo_db,
+        "Elden Ring Nightreign chốt ngày ra mắt",
+        "không có link",
+        suggested_alias="Elden Ring",
+    )
+
+    assert match.game_id == ids["elden-ring-nightreign"]
+    assert match.tier == "alias"
+
+
+async def test_ten_llm_trung_hai_game_thi_khong_chon_cai_nao(mongo_db: Db) -> None:
+    """Luật "sát nhau thì để người nhìn" phải đúng ở CẢ hai đường vào alias."""
+    await seed(mongo_db)
+
+    match = await match_entity(mongo_db, "Tin game xếp số", "x", suggested_alias="Sudoku")
+
+    assert match.matched is False
+
+
+async def test_ten_llm_rong_thi_coi_nhu_khong_co(mongo_db: Db) -> None:
+    """Model trả null khi bài không nói về game nào — đó là câu trả lời hợp lệ."""
+    await seed(mongo_db)
+
+    for gia_tri in (None, "", "   "):
+        match = await match_entity(
+            mongo_db, "Tin về một hãng phần cứng", "x", suggested_alias=gia_tri
+        )
+        assert match.matched is False
+        assert match.tier == "manual"
+
+
 # --- hàng đợi duyệt tay + vòng phản hồi ------------------------------------
 
 

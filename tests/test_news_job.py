@@ -21,6 +21,7 @@ from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import SecretStr
 
+from app.adapters.llm.gemini import LLMParsedArticle
 from app.core.config import get_settings
 from app.jobs import news
 from app.models.article import NewsArticle
@@ -216,6 +217,92 @@ async def test_thieu_key_gemini_van_chay_chi_la_khong_dich(
     doc = await mongo_db.articles.find_one({"url": "https://ign.example/5"})
     assert doc is not None
     assert doc["summary_vi"] is None
+
+
+# --- `suggested_alias` đi từ LLM tới bước gắn entity -----------------------
+#
+# Đây là một sợi dây, và sợi dây đứt thì không có triệu chứng: tầng 3 chỉ lặng
+# lẽ không bao giờ khớp, y như hồi cả Phase 6 "đã xong" mà chưa hàm nào được
+# gọi. Nên phải kiểm CHIỀU ĐI, không chỉ kiểm từng đầu.
+
+
+class FakeGemini:
+    """Đủ hình dạng để `crawl_all_sources` dùng, không ra Internet."""
+
+    def __init__(self, alias: str | None) -> None:
+        self._alias = alias
+        self.configured = True
+        self.calls = 0
+
+    async def summarize_and_translate(self, *, title: str, content: str) -> Any:
+        self.calls += 1
+        return LLMParsedArticle(
+            translated_title=f"[vi] {title}",
+            summary_vi="tóm tắt",
+            suggested_alias=self._alias,
+        )
+
+
+@pytest.fixture
+def fake_gemini(monkeypatch: pytest.MonkeyPatch) -> Any:
+    def use(alias: str | None) -> FakeGemini:
+        fake = FakeGemini(alias)
+        monkeypatch.setattr(news, "GeminiAdapter", lambda *a, **kw: fake)
+        return fake
+
+    return use
+
+
+async def test_ten_llm_trich_ra_gan_duoc_entity(
+    mongo_db: Db, no_network: Any, fake_gemini: Any
+) -> None:
+    """Tiêu đề không khớp alias nào, nhưng model đọc ra được tên game."""
+    game_id = await add_game(mongo_db, 1245620, "Elden Ring")
+    await add_source(mongo_db)
+    no_network([article("Hãng phát hành hé lộ bom tấn", "https://ign.example/6", "nội dung")])
+    fake_gemini("Elden Ring")
+
+    tally = await news.crawl_all_sources({"clients": FakeClients(mongo_db)})
+
+    assert tally["llm_alias"] == 1
+    assert tally["manual"] == 0
+
+    doc = await mongo_db.articles.find_one({"url": "https://ign.example/6"})
+    assert doc is not None
+    assert doc["game_id"] == str(game_id)
+    assert doc["matching_tier"] == "llm_alias"
+
+
+async def test_van_tom_tat_ca_khi_da_gan_duoc_o_tang_1(
+    mongo_db: Db, no_network: Any, fake_gemini: Any
+) -> None:
+    """Đảo thứ tự hai bước KHÔNG được làm mất bản dịch của bài đã khớp sớm.
+
+    Và cũng không được gọi LLM thêm lần nào: bước tóm tắt vốn chạy cho mọi bài
+    được lưu, đó chính là lý do đổi chỗ nó không tốn thêm đồng nào.
+    """
+    await add_game(mongo_db, 1245620, "Elden Ring")
+    await add_source(mongo_db)
+    no_network(
+        [
+            article(
+                "Tin",
+                "https://ign.example/7",
+                "https://store.steampowered.com/app/1245620/",
+            )
+        ]
+    )
+    fake = fake_gemini(None)
+
+    tally = await news.crawl_all_sources({"clients": FakeClients(mongo_db)})
+
+    assert tally["exact"] == 1
+    assert tally["summarized"] == 1
+    assert fake.calls == 1
+
+    doc = await mongo_db.articles.find_one({"url": "https://ign.example/7"})
+    assert doc is not None
+    assert doc["summary_vi"] == "tóm tắt"
 
 
 # --- Mồi danh sách nguồn ---------------------------------------------------

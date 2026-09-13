@@ -21,7 +21,10 @@ class NewsArticle(BaseModel):
     # và thay bằng khớp CHÍNH XÁC trên cụm từ đã chuẩn hoá. Để tên cũ ở đây thì
     # tầng lưu trữ và tầng nghiệp vụ gọi cùng một thứ bằng hai tên.
     game_id: str | None = None
-    matching_tier: Literal["exact", "alias", "embedding", "manual", "none"] = "none"
+    # `llm_alias`: tên game do LLM trích từ bài, rồi khớp qua đúng bộ máy alias
+    # của tầng 2. Tách khỏi `alias` để đo được nó đóng góp bao nhiêu — và để
+    # người duyệt tay biết cái tên ấy đến từ bài hay từ model.
+    matching_tier: Literal["exact", "alias", "llm_alias", "embedding", "manual", "none"] = "none"
     confidence_score: float = 0.0 # Ngưỡng tin cậy
 
     # LLM Output
