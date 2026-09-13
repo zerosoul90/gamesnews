@@ -34,9 +34,18 @@ logger = logging.getLogger(__name__)
 API_ROOT = "https://generativelanguage.googleapis.com/v1beta"
 
 TEXT_MODEL = "gemini-2.5-flash"
-# 768 chiều. Đổi model là phải nạp lại toàn bộ vector trong Qdrant, vì vector
-# của hai model khác nhau không so sánh được với nhau.
-EMBED_MODEL = "text-embedding-004"
+# Đổi model là phải nạp lại toàn bộ vector trong Qdrant, vì vector của hai model
+# khác nhau không so sánh được với nhau.
+#
+# `text-embedding-004` đã bị Google GỠ HẲN: `ListModels` không còn liệt kê nó và
+# mọi lời gọi trả 404 "is not found for API version v1beta". Kiểm tay 2026-09-12
+# với key thật. Ba model embedding còn sống là `gemini-embedding-001` (GA),
+# `gemini-embedding-2` và bản preview của nó.
+EMBED_MODEL = "gemini-embedding-001"
+# Mặc định của `gemini-embedding-001` là 3072 chiều, nhưng nó nhận
+# `outputDimensionality`. Giữ 768 để **không phải nạp lại collection Qdrant
+# đang có** — và vì Qdrant ở đây dùng COSINE, chuyện Google không chuẩn hoá sẵn
+# vector ở số chiều rút gọn không ảnh hưởng tới thứ hạng.
 EMBED_DIM = 768
 
 # Cắt bớt thân bài trước khi gửi. Bài tin dài hàng chục nghìn ký tự không làm
@@ -63,6 +72,37 @@ Bài nói chuyện chung chung, nói về công ty, hay về phần cứng thì 
 --- NỘI DUNG ---
 {content}
 """
+
+
+def _describe_error(response: httpx.Response) -> str:
+    """Mô tả gọn một phản hồi lỗi, GIỮ LẠI phần nói về quota.
+
+    Bản trước cắt thân lỗi ở `response.text[:200]`, mà 200 ký tự đầu của một
+    lỗi Google chỉ là câu mẫu "You exceeded your current quota, please check
+    your plan and billing details" — vô dụng. Thứ cần đọc nằm trong
+    `error.details[].QuotaFailure`: **quota nào** và **trần bao nhiêu**. Không
+    có nó thì lúc dính 429 phải đi dò tay xem hạn mức là theo phút hay theo
+    ngày, đúng việc đã phải làm ngày 2026-09-13.
+    """
+    try:
+        err = response.json().get("error") or {}
+    except ValueError:
+        return response.text[:200]
+
+    phan: list[str] = [str(err.get("status") or response.status_code)]
+    for detail in err.get("details") or []:
+        kind = str(detail.get("@type", ""))
+        if kind.endswith("QuotaFailure"):
+            for vi_pham in detail.get("violations") or []:
+                metric = vi_pham.get("quotaMetric") or vi_pham.get("quotaId") or "?"
+                phan.append(f"quota={metric} trần={vi_pham.get('quotaValue', '?')}")
+        elif kind.endswith("RetryInfo") and detail.get("retryDelay"):
+            phan.append(f"thử lại sau {detail['retryDelay']}")
+
+    if len(phan) == 1:
+        # Không phải lỗi quota — giữ câu mô tả của Google.
+        phan.append(str(err.get("message", ""))[:200])
+    return " | ".join(p for p in phan if p)
 
 
 class LLMParsedArticle(BaseModel):
@@ -111,7 +151,7 @@ class GeminiAdapter:
 
         error = classify_http_status(response.status_code)
         if error is not None:
-            raise error(f"{path} -> {response.status_code}: {response.text[:200]}")
+            raise error(f"{path} -> {response.status_code}: {_describe_error(response)}")
 
         try:
             body: dict[str, Any] = response.json()
@@ -119,9 +159,7 @@ class GeminiAdapter:
             raise PermanentError(f"Gemini trả về không phải JSON: {exc}") from exc
         return body
 
-    async def summarize_and_translate(
-        self, *, title: str, content: str
-    ) -> LLMParsedArticle | None:
+    async def summarize_and_translate(self, *, title: str, content: str) -> LLMParsedArticle | None:
         """Dịch tiêu đề, tóm tắt, và đoán tên game — trong một lần gọi.
 
         Trả None khi model trả về thứ không đọc được. Ném `AdapterError` khi
@@ -131,11 +169,7 @@ class GeminiAdapter:
             "contents": [
                 {
                     "parts": [
-                        {
-                            "text": PROMPT.format(
-                                title=title, content=content[:MAX_CONTENT_CHARS]
-                            )
-                        }
+                        {"text": PROMPT.format(title=title, content=content[:MAX_CONTENT_CHARS])}
                     ]
                 }
             ],
@@ -182,6 +216,9 @@ class GeminiAdapter:
                 {
                     "model": f"models/{EMBED_MODEL}",
                     "content": {"parts": [{"text": text}]},
+                    # Bắt buộc khai: thiếu nó thì `gemini-embedding-001` trả 3072
+                    # chiều, và Qdrant từ chối cả lô vì collection dựng ở 768.
+                    "outputDimensionality": EMBED_DIM,
                 }
                 for text in texts
             ]

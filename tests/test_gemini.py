@@ -139,6 +139,29 @@ async def test_embed_giu_dung_thu_tu_va_so_luong() -> None:
     assert vectors[2][0] == 2.0
 
 
+async def test_embed_khai_so_chieu_va_dung_model_con_song() -> None:
+    """Hai thứ đều hỏng lặng lẽ nếu sai.
+
+    `text-embedding-004` đã bị Google gỡ hẳn (kiểm tay 2026-09-12: 404), nên tên
+    model phải là cái còn sống. Và `gemini-embedding-001` mặc định trả **3072**
+    chiều — quên `outputDimensionality` thì Gemini vẫn trả 200, chỉ tới lúc
+    Qdrant nhận lô mới từ chối vì collection dựng ở 768.
+    """
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"embeddings": [{"values": [0.1] * EMBED_DIM}]})
+
+    adapter, http = adapter_with(handler)
+    await adapter.embed(["Elden Ring"])
+    await http.aclose()
+
+    assert "text-embedding-004" not in seen["url"]
+    assert seen["body"]["requests"][0]["outputDimensionality"] == EMBED_DIM
+
+
 async def test_embed_lech_so_luong_thi_no_chu_khong_ghep_bua() -> None:
     """Ghép nhầm vector với game là gắn sai entity vĩnh viễn, im lặng."""
     adapter, http = adapter_with(reply({"embeddings": [{"values": [0.1] * EMBED_DIM}]}))
