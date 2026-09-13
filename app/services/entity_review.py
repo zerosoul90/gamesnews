@@ -86,6 +86,36 @@ async def enqueue(
     return result.upserted_id is not None
 
 
+async def auto_resolve(db: Db, *, article_id: ObjectId, game_id: ObjectId) -> None:
+    """Hệ thống tự gắn được entity ở một lượt SAU, không qua người duyệt.
+
+    Tách hẳn khỏi `resolve` chứ không dùng lại nó, vì `resolve` làm hai việc mà
+    máy không được phép làm:
+
+    1. Nó đặt `matching_tier: "manual"` — tức là khai rằng có người đã nhìn bài
+       này. Không có ai cả, và sau này truy ngược một lần gắn sai thì dòng đó
+       chỉ vào một người không tồn tại.
+    2. Nó nối alias vào entity. Alias là thứ **dạy** tầng 2 cho mọi bài về sau;
+       dạy nó bằng một phỏng đoán của máy thì một lần sai nhân lên mãi. Luật
+       "alias do người duyệt chỉ định" có từ lượt 2026-09-09 và vẫn đúng.
+
+    `resolved_by` để phân biệt được về sau: hàng đợi ngắn lại vì người làm, hay
+    vì máy tự nhận. Hai con số đó nói hai chuyện khác nhau.
+    """
+    now = dt.datetime.now(dt.UTC)
+    await queue(db).update_one(
+        {"article_id": article_id, "status": "pending"},
+        {
+            "$set": {
+                "status": "resolved",
+                "game_id": game_id,
+                "resolved_at": now,
+                "resolved_by": "auto",
+            }
+        },
+    )
+
+
 async def pending(db: Db, limit: int = 50) -> list[dict[str, Any]]:
     """Bài đang chờ duyệt, cũ trước — tin cũ mất giá trị nhanh nhất."""
     cursor = queue(db).find({"status": "pending"}).sort("created_at", ASCENDING).limit(limit)

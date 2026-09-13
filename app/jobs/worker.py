@@ -36,6 +36,7 @@ from app.jobs.steam_catalog import sync_steam_app_list, sync_steam_details
 from app.jobs.steam_pricing import recompute_price_tiers, sync_steam_prices
 from app.jobs.steam_reviews import sync_steam_reviews
 from app.jobs.streamer import job_renew_youtube_websub, job_sync_streamers
+from app.jobs.summaries import backfill_summaries
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +124,11 @@ CRON_JOBS: list[CronJob] = [
     cron(crawl_all_sources, minute=EVERY_15_MIN),
     # Nạp vector cho entity mới. Mỗi lượt có trần lô nên nó gặm dần.
     cron(sync_game_embeddings, minute=25),
+    # Dịch bù cho bài vào kho trong những ngày chưa có key. Đặt ở phút 52 —
+    # lệch khỏi cả bốn mốc của `crawl_all_sources` (:00 :15 :30 :45) — vì hai
+    # job này dùng chung bucket `gemini_generate`. Lệch giờ chỉ là lớp phòng
+    # hờ; lớp thật là `RESERVE_FOR_CRAWL` bên trong job.
+    cron(backfill_summaries, minute=52),
     # --- Chỉ số & streamer (Phase 7) ---
     cron(job_fetch_steam_ccu, minute=EVERY_15_MIN),
     cron(job_rollup_metrics, minute=5),
@@ -159,6 +165,7 @@ class WorkerSettings:
         job_renew_youtube_websub,
         crawl_all_sources,
         sync_game_embeddings,
+        backfill_summaries,
     ]
     cron_jobs: ClassVar[list[CronJob]] = CRON_JOBS
     on_startup = startup
