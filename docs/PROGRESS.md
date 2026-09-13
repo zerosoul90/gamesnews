@@ -1,7 +1,7 @@
 # PROGRESS.md — Tiến độ
 
 **Phase hiện tại:** Phase 1 — Catalog + Search
-**Cập nhật lần cuối:** 2026-09-12
+**Cập nhật lần cuối:** 2026-09-13
 
 Phase 0 đã đạt toàn bộ checkpoint nghiệm thu. Chỉ còn mục 7 (đăng ký key ngoài)
 là việc của người dùng, Phase 1 mới cần tới.
@@ -128,7 +128,7 @@ trong 2 giờ.
 
 - [x] Quản lý nguồn + 15 RSS (`jobs/news_sources.json`, mồi qua `ensure_storage`)
 - [x] Khử trùng lặp simhash
-- [x] Gắn entity 3 tầng + hàng đợi duyệt
+- [x] Gắn entity **4 tầng** (thêm `llm_alias`) + hàng đợi duyệt
 - [x] Vòng phản hồi sinh alias từ mỗi lần duyệt tay
 - [x] LLM adapter tóm tắt + dịch
 
@@ -1139,3 +1139,165 @@ của cờ đáy đã xác minh **đỏ khi gỡ fix ra**.
 - `POST /library/epic/bulk` vẫn 501: `price_current` mới có đúng 1 dòng
   `store: epic`, chưa đủ lịch sử free theo tuần.
 - Twitch vẫn chặn mảng streamer của Phase 7 (2FA điện thoại), chưa có quyết định.
+
+### 2026-09-13 — Có key Gemini, và bốn thứ chỉ lộ ra khi gọi thật
+
+Người dùng đưa `GEMINI_API_KEY`. Lượt này là bài học lặp lại của cả dự án: **có
+key không có nghĩa là chạy được**, và mỗi tầng phải nghiệm thu ở đúng tầng đó.
+
+#### 1. Model embedding trong mã nguồn đã bị Google gỡ hẳn
+
+`EMBED_MODEL = "text-embedding-004"` — `ListModels` không còn liệt kê nó, mọi
+lời gọi trả **404** `is not found for API version v1beta`. Nghĩa là kể cả khi có
+key, tầng 3 gắn entity vẫn không chạy được; chỉ đổi thông báo lỗi từ "chưa cấu
+hình" sang một lỗi khác.
+
+Chuyển sang `gemini-embedding-001` (GA) kèm `outputDimensionality: 768`. Chọn
+768 chứ không lấy mặc định 3072 để **không phải nạp lại collection Qdrant đang
+có**; Qdrant ở đây dùng COSINE nên chuyện Google không chuẩn hoá sẵn vector ở số
+chiều rút gọn không ảnh hưởng tới thứ hạng. Ba model embedding còn sống:
+`gemini-embedding-001`, `gemini-embedding-2` và bản preview của nó.
+
+#### 2. `batchEmbedContents` tính mỗi CONTENT là một request
+
+Chú thích trong `jobs/embeddings.py` tin ngược lại: *"gọi từng cái một thì số
+request bằng số game"*. Đo thật: lượt đầu nạp đúng **100** rồi 429, lượt sau nạp
+**50** rồi 429 — khớp trần ~100 request/phút. Lô chỉ tiết kiệm vòng mạng.
+
+Hệ quả số học: 185.231 game ở nhịp đó là **31 ngày quota thuần**, không làm gì
+khác. Mà phần lớn catalog — nhạc nền, công cụ, game vô danh — sẽ không bao giờ
+xuất hiện trong một bài tin nào.
+
+Nên job **bỏ hẳn ý định quét cả catalog** và đi theo tín hiệu (`_candidates`):
+
+1. Game đã từng được nhắc trong một bài tin, hoặc đang trong bảng hot. Tập nhỏ
+   nhưng đáng nhất — đã được nhắc một lần thì sẽ được nhắc lại.
+2. Game nhiều review Steam nhất trở xuống, từ ngưỡng 500. Đi TỪ `game_reviews`
+   chứ không từ `games`, để khỏi dựng một `$in` dài hàng chục nghìn id.
+
+Thêm `MAX_TEXTS_PER_RUN = 100`, trần đặt theo **quota** chứ không theo thời
+gian. Nghiệm thu: lượt sau khi sửa nạp 100 vector, 4 lô, **không một 429 nào** —
+job dừng ở trần thay vì đâm vào nó.
+
+`_as_object_ids` xử lý chuyện `game_hotness` và `articles` lưu `game_id` dạng
+**chuỗi** còn `game_reviews` lưu **ObjectId**. Tra sai kiểu thì truy vấn không
+lỗi, nó chỉ lặng lẽ không khớp gì.
+
+#### 3. Tầng 3 so sai thứ, và không ngưỡng nào chữa được
+
+Đo trên 20 bài trong hàng đợi duyệt tay, so với 450 vector:
+
+| điểm | entity gần nhất | tiêu đề |
+|---|---|---|
+| **0.671** | Sniper Elite V2 | "Aliens: Fireteam Elite 2 Review" |
+| 0.620 | Warhammer 40,000: Space Marine | "How … Space Marine 3 Will Benefit …" |
+| 0.515 | Monsters! | "The 9 Biggest Trailers Worth Watching This Week" |
+
+Toàn bộ dồn vào 0.49–0.67, và **điểm cao nhất cả mẫu lại là một cặp SAI** —
+khớp nhau chỉ vì chữ "Elite". Cặp đúng duy nhất còn xếp dưới nó. Hạ ngưỡng
+`0.82` để tầng cuối "chạy được" sẽ rước cái sai vào trước cái đúng.
+
+Nguyên nhân không nằm ở ngưỡng: bản trước đem **cả câu tiêu đề** so với vector
+của một **cái tên**. Đó đúng là sai lầm đã ghi cho tầng 2 hôm 09-09 (*"so CẢ
+tiêu đề với alias nên tiêu đề tin thật luôn ra ~0.4"*), lặp lại dưới dạng vector.
+
+Thuốc vốn nằm sẵn trong nhà: prompt từ đầu đã bảo LLM trả `suggested_alias`
+("tên gốc của game được nhắc tới nhiều nhất"), model vẫn điền ở mỗi bài, và
+**không chỗ nào trong `app/` đọc tới** — grep ra đúng ba dòng, cả ba trong chính
+adapter. Nay bốn tầng:
+
+| tầng | đầu vào | tin cậy |
+|---|---|---|
+| exact | link store trong bài | 1.00 |
+| alias | cụm từ trong tiêu đề | 0.95 |
+| **llm_alias** (mới) | tên LLM trích ra, qua ĐÚNG bộ máy alias của tầng 2 | 0.85 |
+| embedding | vector của cái **tên** đó, không phải tiêu đề | điểm cosine |
+
+`match_by_alias` tham số hoá `tier`/`confidence` thay vì viết bản thứ hai: luật
+"hai game cùng khớp thì không chọn cái nào" không được phép chỉ đúng ở một trong
+hai đường vào. `LLM_ALIAS_CONFIDENCE` thấp hơn một bậc vì phép khớp chắc như
+nhau nhưng chuỗi đem đi khớp do model **viết ra**, không trích từ bài.
+
+`jobs/news.py` đảo thứ tự tóm tắt ↔ gắn entity. **Không tốn thêm đồng nào** —
+tóm tắt vốn chạy cho mọi bài được lưu, bất kể gắn được entity hay không — và còn
+tiết kiệm: tầng 4 chỉ phải sinh vector khi tầng 3 của chính cái tên đó cũng
+trượt.
+
+#### 4. `_post` vứt mất đúng phần cần đọc của lỗi 429
+
+Cắt thân lỗi ở `response.text[:200]`, mà 200 ký tự đầu của một lỗi Google chỉ là
+câu mẫu "You exceeded your current quota…". Thứ cần đọc nằm trong
+`error.details[].QuotaFailure`, tức đúng phần bị cắt. Phải dò tay mới biết hạn
+mức theo phút hay theo ngày.
+
+Sau khi sửa, log nói thẳng con số:
+
+```
+429: RESOURCE_EXHAUSTED | quota=…/generate_content_free_tier_requests
+     trần=20 | thử lại sau 36s
+```
+
+**Trần 20 request/phút** cho `gemini-2.5-flash` — đó là lời giải thích cho 46/50
+lời gọi thất bại ở lượt crawl đầu: job bắn 50 request liên tiếp vào trần 20.
+
+#### Test: hai chỗ xanh vì lý do sai
+
+- **`mypy app tests` đỏ trên CI từ hai commit trước lượt này**, mà không ai đọc.
+  `tests/test_rate_limiter.py` khai `**kw: float` trong khi `reserve` là `int`,
+  vào từ `5e93e89`. Tôi cũng góp phần: chạy `mypy --strict app` ở local — hẹp
+  hơn lệnh CI thật sự chạy — nên tám lỗi của chính mình trong `tests/` cũng lọt.
+  **Lệnh đúng trước khi push: `ruff check .`, `mypy app tests`, `pytest`.**
+- **`tests/test_news_job.py` xanh suốt chỉ vì máy dev chưa bao giờ có key.** Đặt
+  key thật vào `.env` là năm test đỏ ngay, dù không dòng code nào của job đổi:
+  `get_settings()` đọc `.env`, adapter thấy có key nên đi tới `self._http.post`,
+  mà `FakeClients.http` là `None`. Đáng sợ hơn cái đỏ: nếu `FakeClients` có một
+  http client thật thì mỗi lần chạy suite là một loạt lời gọi Gemini qua
+  Internet, tiêu quota thật cho những bài viết bịa. Nay có fixture `autouse` ép
+  key rỗng — trạng thái mà những test này vẫn luôn giả định, nay nói ra thành lời.
+
+Và một lỗi **production** chỉ bắt được nhờ chạy đủ suite: `extra={"name": ...}`
+ném `KeyError: "Attempt to overwrite 'name' in LogRecord"`. Chạy test lẻ thì im,
+vì `logger.info` thoát sớm khi logger chưa bật INFO; còn production thì bật INFO.
+Đã quét toàn bộ `app/` tìm mọi key dành riêng khác của `LogRecord`.
+
+#### Nghiệm thu, và phần chưa chứng minh được
+
+**558 test xanh, 0 skip** (540 -> 558), ruff + `mypy app tests` sạch trên 143
+file, CI xanh.
+
+Trên dữ liệu thật: 649/11.309 game có vector (tập ưu tiên 833 game, còn 341
+chưa nạp); 823 bài, 20 có tiếng Việt, 81 gắn được entity, 615 chờ duyệt tay.
+
+**Chưa chứng minh được tầng `llm_alias` KÉO TỈ LỆ GẮN LÊN.** Lượt crawl sau khi
+sửa chỉ có 1 bài mới nên không đủ tín hiệu; đo bù trên hàng đợi duyệt tay thì
+13/15 mẫu dính 429, chỉ 2 bài đo được:
+
+| tiêu đề | LLM trích ra | kết quả |
+|---|---|---|
+| "Permanent New Drift Attack Feature Active Now in Forza…" | Forza Horizon 6 | manual |
+| "Aliens: Fireteam Elite 2 Review" | Aliens: Fireteam Elite 2 | manual |
+
+Hai mẫu, nhưng đúng thứ cần biết: LLM trích tên **chính xác** cả hai lần và hệ
+thống **đúng mực từ chối gắn** — cả hai game đều chưa có trong catalog. Bài thứ
+hai chính là ca mà cách cũ gán nhầm vào *Sniper Elite V2* ở 0.671.
+
+Tức là mới chứng minh được nó **không gắn sai**, chưa chứng minh nó gắn được
+nhiều hơn. Cần một lượt tin thật với quota còn.
+
+**Còn nợ sau lượt này:**
+
+- **Bước tóm tắt không có nhịp nào**, trong khi trần là 20 request/phút. Với vài
+  chục bài mới mỗi lượt thì chỉ cần giãn request là xong trong hai phút. Đã cân
+  nhắc token bucket Redis cho Gemini (như Steam đang có) nhưng chưa làm — hai
+  hộ tiêu thụ vẫn chia nhau một hạn mức mà không ai điều tiết ai.
+- `EMBEDDING_THRESHOLD = 0.82` vẫn chưa hiệu chỉnh trên dữ liệu thật **của đúng
+  cách so mới** (tên với tên). Con số cũ đo trên cách so cũ nên không mang sang
+  được.
+- Catalog 11.309/185.231.
+- Ảnh thẻ chia sẻ vẫn font bitmap, **không có dấu tiếng Việt**.
+- `POST /library/epic/bulk` vẫn 501.
+- Twitch vẫn chặn mảng streamer của Phase 7.
+
+> **Việc cần làm của người dùng:** `GEMINI_API_KEY` đã bị dán vào hội thoại nên
+> coi như lộ — cùng chuyện đã xảy ra với `STEAM_API_KEY`. Vào
+> <https://aistudio.google.com/apikey>, xoá key cũ, tạo key mới, cập nhật `.env`.
