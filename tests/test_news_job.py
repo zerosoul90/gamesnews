@@ -334,6 +334,35 @@ async def test_nguon_lau_chua_crawl_nhat_di_truoc(
     assert thu_tu == [cu, moi]
 
 
+async def test_nguon_tieng_viet_khong_ton_loi_goi_llm(
+    mongo_db: Db, no_network: Any, fake_gemini: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nguồn `language: "vi"` đã là tiếng Việt, dịch nó là ném hạn mức đi.
+
+    Và vì không tốn lời gọi nào, bài của nhóm này KHÔNG bao giờ bị hoãn vì hết
+    trần — kể cả khi trần đã cạn sạch. Đó là toàn bộ điểm của việc bỏ qua.
+    """
+    monkeypatch.setattr(news, "MAX_LLM_CALLS_PER_RUN", 0)
+    fake = fake_gemini(None)
+
+    await mongo_db.sources.insert_one(
+        Source(name="GameK", url="https://gamek.vn/rss", language="vi").to_mongo()
+    )
+    no_network([article("Tin tiếng Việt", "https://gamek.vn/1", "nội dung tiếng Việt")])
+
+    tally = await news.crawl_all_sources({"clients": FakeClients(mongo_db)})
+
+    assert fake.calls == 0, "không được gọi LLM cho nguồn tiếng Việt"
+    assert tally["stored"] == 1, "trần cạn sạch vẫn phải lưu, vì bài này không cần LLM"
+    assert tally["deferred"] == 0
+    assert tally["vi_skipped"] == 1
+
+    doc = await mongo_db.articles.find_one({"url": "https://gamek.vn/1"})
+    assert doc is not None
+    assert doc["summary_vi"] is None
+    assert doc["translated_title"] is None
+
+
 async def test_nguon_bi_bo_lai_khong_bi_dap_moc(
     mongo_db: Db, fake_gemini: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:

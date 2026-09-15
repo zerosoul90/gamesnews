@@ -24,6 +24,7 @@ from app.core.config import get_settings
 from app.jobs import summaries
 from app.models.article import ArticleStatus
 from app.models.game import ExternalIds, Game, Titles
+from app.models.source import Source
 from app.services import entity_review
 from app.services.catalog import ensure_indexes, games, upsert_game, with_aliases
 
@@ -85,10 +86,11 @@ async def add_article(
     summary_vi: str | None = None,
     status: ArticleStatus = "pending",
     game_id: str | None = None,
+    source_id: str = "tạm",
 ) -> ObjectId:
     result = await db.articles.insert_one(
         {
-            "source_id": "tạm",
+            "source_id": source_id,
             "url": url,
             "title": title,
             "original_content": "nội dung",
@@ -304,6 +306,44 @@ async def test_thieu_key_thi_bao_chu_khong_im_lang(
     tally = await summaries.backfill_summaries({"clients": FakeClients(mongo_db)})
 
     assert tally == {"checked": 0, "summarized": 0, "matched": 0, "failed": 0}
+
+
+async def test_khong_dich_bu_cho_nguon_tieng_viet(mongo_db: Db, fake_gemini: Any) -> None:
+    """Bài của nguồn `language: "vi"` phải bị loại khỏi hàng dịch bù.
+
+    `crawl_all_sources` bỏ qua bước LLM cho nhóm này có chủ ý, nên bài của họ
+    nằm trong kho với `summary_vi: None` VĨNH VIỄN. Không loại ra thì job này
+    gom đúng chúng về dịch, và khoản tiết kiệm bên kia chỉ là DỜI chi phí sang
+    đây chứ không bỏ đi.
+    """
+    fake = fake_gemini("Elden Ring")
+
+    nguon_vi = await mongo_db.sources.insert_one(
+        Source(name="GameK", url="https://gamek.vn/rss", language="vi").to_mongo()
+    )
+    nguon_en = await mongo_db.sources.insert_one(
+        Source(name="IGN", url="https://ign.example/rss", language="en").to_mongo()
+    )
+
+    await add_article(
+        mongo_db, title="Tin Viet", url="https://gamek.vn/1", source_id=str(nguon_vi.inserted_id)
+    )
+    await add_article(
+        mongo_db, title="Tin Anh", url="https://ign.example/1", source_id=str(nguon_en.inserted_id)
+    )
+
+    tally = await summaries.backfill_summaries({"clients": FakeClients(mongo_db)})
+
+    assert tally["checked"] == 1, "chỉ được đụng tới bài của nguồn tiếng Anh"
+    assert fake.titles == ["Tin Anh"]
+
+    viet = await mongo_db.articles.find_one({"url": "https://gamek.vn/1"})
+    assert viet is not None
+    assert viet["summary_vi"] is None, "bài tiếng Việt không được tốn lời gọi LLM nào"
+
+    anh = await mongo_db.articles.find_one({"url": "https://ign.example/1"})
+    assert anh is not None
+    assert anh["summary_vi"] is not None
 
 
 def test_san_token_nho_hon_suc_chua_bucket() -> None:

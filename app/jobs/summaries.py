@@ -83,6 +83,11 @@ async def _ung_vien(db: Db, limit: int) -> list[dict[str, Any]]:
                 "summary_vi": None,
                 # Bài trùng không bao giờ hiện ra, dịch là phí hạn mức.
                 "status": {"$ne": "duplicate"},
+                # Nguồn tiếng Việt bị `crawl_all_sources` bỏ qua bước LLM có chủ
+                # ý, nên bài của họ nằm đây với `summary_vi: None` VĨNH VIỄN.
+                # Không loại ra thì job này gom đúng chúng về dịch, và khoản
+                # tiết kiệm bên kia chỉ là DỜI chi phí sang đây chứ không bỏ đi.
+                "source_id": {"$nin": await _nguon_tieng_viet(db)},
             },
             {"title": 1, "original_content": 1, "game_id": 1, "url": 1},
         )
@@ -90,6 +95,16 @@ async def _ung_vien(db: Db, limit: int) -> list[dict[str, Any]]:
         .limit(limit)
     )
     return [doc async for doc in cursor]
+
+
+async def _nguon_tieng_viet(db: Db) -> list[str]:
+    """`source_id` của các nguồn tiếng Việt, dạng chuỗi như bài đang lưu.
+
+    Lọc theo NGUỒN chứ không theo một cờ trên từng bài, vì hai lý do: bài cũ vào
+    kho từ trước khi có luật này không có cờ nào cả, và đổi `language` của một
+    nguồn thì phải có hiệu lực ngay với cả bài cũ của nó.
+    """
+    return [str(doc["_id"]) async for doc in db.sources.find({"language": "vi"}, {"_id": 1})]
 
 
 async def backfill_summaries(ctx: dict[str, Any]) -> dict[str, int]:

@@ -156,6 +156,10 @@ async def crawl_all_sources(ctx: dict[str, Any]) -> dict[str, int]:
         "embedding": 0,
         "manual": 0,
         "summarized": 0,
+        # Bài của nguồn tiếng Việt, được lưu mà không tốn lời gọi LLM nào. Tách
+        # khỏi `summarized` để đọc được `stored - summarized` là do tiết kiệm có
+        # chủ ý hay do một thứ gì đó đang hỏng.
+        "vi_skipped": 0,
         # Bài phải để lại cho lượt sau vì hết trần LLM của lượt này. Nằm trong
         # tally chứ không chỉ trong log: nếu con số này luôn khác 0 thì hệ thống
         # đang tụt lại so với lượng tin về, và đó là thứ phải thấy được.
@@ -197,6 +201,20 @@ async def crawl_all_sources(ctx: dict[str, Any]) -> dict[str, int]:
         # nằm ở đây, nên không dùng được `tally["deferred"]` của cả lượt.
         bo_lai = 0
 
+        # Nguồn tiếng Việt không cần dịch, nên không tốn lời gọi LLM nào — mà
+        # trần 10 bài/lượt đang là tài nguyên khan hiếm nhất của Phase 6.
+        #
+        # ĐÁNH ĐỔI phải biết, vì nó không lộ ra ở đâu khác: bài của nguồn này
+        # sẽ **không có `summary_vi`**, chỉ có tiêu đề gốc và link. Không lấy
+        # luôn phần mô tả trong RSS làm tóm tắt được — `CLAUDE.md` yêu cầu tóm
+        # tắt phải là **tự viết**, chép nguyên văn là tái bản nội dung có bản
+        # quyền. Muốn có tóm tắt cho nhóm này thì phải trả bằng một lời gọi LLM,
+        # đúng cái vừa bỏ đi.
+        #
+        # Mất thêm `suggested_alias`, nên nhóm này chỉ gắn entity được ở tầng 1-2
+        # và rơi vào hàng duyệt tay nhiều hơn.
+        can_dich = gemini.configured and source.language != "vi"
+
         for article in articles:
             # Nguồn là _id thật, không phải tên. Tên nguồn đổi được, và đổi rồi
             # thì mọi bài cũ mất đường về nguồn của nó.
@@ -218,7 +236,7 @@ async def crawl_all_sources(ctx: dict[str, Any]) -> dict[str, int]:
             # vẫn luôn trả về mà trước nay không ai đọc — kịp làm đầu vào cho
             # hai tầng cuối. Nó còn TIẾT KIỆM: tầng cuối chỉ phải sinh vector
             # khi tầng alias của chính cái tên đó cũng trượt.
-            if gemini.configured and llm_calls >= MAX_LLM_CALLS_PER_RUN:
+            if can_dich and llm_calls >= MAX_LLM_CALLS_PER_RUN:
                 # Hết trần thì DỪNG HẲN, không lưu bài dạng chưa dịch. Lưu nó
                 # nghĩa là bài đó vĩnh viễn không có tiếng Việt: chưa có job nào
                 # quay lại tóm tắt bù. Bỏ qua thì lượt sau nhặt lại từ feed, vì
@@ -227,8 +245,13 @@ async def crawl_all_sources(ctx: dict[str, Any]) -> dict[str, int]:
                 bo_lai += 1
                 continue
 
+            if not can_dich and gemini.configured:
+                # Nguồn tiếng Việt: không tốn lời gọi nào, nên cũng KHÔNG bao giờ
+                # bị hoãn vì hết trần. Đó là toàn bộ điểm của việc bỏ qua.
+                tally["vi_skipped"] += 1
+
             parsed = None
-            if gemini.configured:
+            if can_dich:
                 llm_calls += 1
                 try:
                     parsed = await gemini.summarize_and_translate(
