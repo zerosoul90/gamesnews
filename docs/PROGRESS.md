@@ -1666,8 +1666,76 @@ tồn, 19.077 game.
 - `crawl_rss` vẫn coi **mọi** `bozo` là chí mạng và trả rỗng, trong khi
   feedparser thường vẫn bóc được entry. GameK hết dính nhưng cái bẫy còn nguyên
   cho nguồn sau.
-- Nguồn tiếng Việt vẫn tốn một lời gọi LLM như nguồn tiếng Anh, dù `Source` đã
-  có sẵn trường `language`. Trần 10 bài/lượt đang là tài nguyên khan hiếm nhất.
+- ~~Nguồn tiếng Việt vẫn tốn một lời gọi LLM~~ — đã làm, xem entry ngay dưới.
+- `EMBEDDING_THRESHOLD = 0.82` chưa hiệu chỉnh trên cách so mới (tên với tên).
+- Catalog 19.077/185.231.
+- Ảnh thẻ chia sẻ vẫn font bitmap, **không có dấu tiếng Việt**.
+- `POST /library/epic/bulk` vẫn 501.
+- Twitch vẫn chặn mảng streamer của Phase 7.
+
+### 2026-09-15 (lượt 3) — Bỏ dịch cho nguồn tiếng Việt
+
+`Source.language` có từ đầu và chưa chỗ nào đọc: bài của GameK và GameLandVN —
+vốn đã là tiếng Việt — vẫn tốn một lời gọi `generateContent` như bài của IGN.
+Với trần 10 bài/lượt đang là tài nguyên khan hiếm nhất của Phase 6, đó là chỗ
+tiết kiệm rẻ nhất còn lại.
+
+#### Sửa MỘT chỗ là dời chi phí, không phải bỏ nó
+
+Bỏ LLM ở `crawl_all_sources` thì bài tiếng Việt vào kho với `summary_vi: None`.
+Mà đó đúng là điều kiện `backfill_summaries` dùng để gom hàng tồn — nên lượt bù
+kế tiếp sẽ nhặt đúng chúng về dịch. Tiết kiệm ở tầng crawl, trả lại nguyên vẹn ở
+tầng bù, và tệ hơn: trả bằng quota của hàng tồn tiếng Anh vốn mới là thứ cần.
+
+Nên phải chặn cả hai đầu cùng lúc. Bên bù lọc theo **nguồn**, không theo một cờ
+trên từng bài:
+
+```python
+"source_id": {"$nin": await _nguon_tieng_viet(db)},
+```
+
+Hai lý do: bài cũ vào kho từ trước khi có luật này không mang cờ nào cả, và đổi
+`language` của một nguồn thì phải có hiệu lực ngay với cả bài cũ của nó. Một cờ
+denormalize xuống từng bài sẽ sai ở cả hai điểm, và còn cần một lượt migrate.
+
+#### Bài tiếng Việt không bao giờ bị hoãn
+
+Trần LLM không áp cho nhóm này: chúng không tiêu gì thì không có lý do gì phải
+xếp hàng. Kiểm bằng `MAX_LLM_CALLS_PER_RUN = 0` — trần cạn sạch mà bài vẫn phải
+vào kho.
+
+#### ĐÁNH ĐỔI, và vì sao không có đường vòng
+
+Bài của nhóm này **không có `summary_vi`**, chỉ tiêu đề gốc và link.
+
+Đường vòng hiển nhiên — lấy luôn phần `description` trong RSS làm tóm tắt — thì
+**không dùng được**: `CLAUDE.md` yêu cầu tóm tắt phải là *tự viết*, tối đa 3
+câu; chép nguyên văn là tái bản nội dung có bản quyền, kể cả khi nó chỉ là một
+dòng sapo. Muốn có tóm tắt cho nhóm này thì phải trả bằng đúng lời gọi LLM vừa
+bỏ đi.
+
+Mất thêm `suggested_alias`, nên nhóm này chỉ gắn entity được ở tầng 1-2 và rơi
+vào hàng duyệt tay nhiều hơn.
+
+Thêm `vi_skipped` vào tally, tách khỏi `summarized`: để đọc được `stored` trừ
+`summarized` là do tiết kiệm có chủ ý hay do một thứ gì đó đang hỏng.
+
+#### Nghiệm thu
+
+**589 test** (587 -> 589), ruff + `mypy app tests` sạch. Hai test mới đã xác
+minh **đỏ khi gỡ từng fix ra** — và đúng hai đầu khác nhau: bỏ fix bên crawl thì
+bài tiếng Việt bị hoãn dù không cần LLM; bỏ fix bên bù thì job bù nhặt đúng
+chúng về dịch.
+
+**Còn nợ:**
+
+- Hạn mức **ngày** của `gemini-3.5-flash-lite` vẫn chưa đo được.
+- `crawl_rss` vẫn coi **mọi** `bozo` là chí mạng và trả rỗng, trong khi
+  feedparser thường vẫn bóc được entry. GameK hết dính nhưng cái bẫy còn nguyên
+  cho nguồn sau.
+- Nhóm nguồn tiếng Việt nay **không có tóm tắt**. Nếu sau này trang tin cần một
+  đoạn mô tả cho mọi bài thì đây là chỗ phải quay lại, và lời giải không phải là
+  chép `description` của RSS.
 - `EMBEDDING_THRESHOLD = 0.82` chưa hiệu chỉnh trên cách so mới (tên với tên).
 - Catalog 19.077/185.231.
 - Ảnh thẻ chia sẻ vẫn font bitmap, **không có dấu tiếng Việt**.
