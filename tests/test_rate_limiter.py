@@ -9,7 +9,13 @@ import asyncio
 import pytest
 from redis.asyncio import Redis
 
-from app.adapters.base import PermanentError, RateLimit, RateLimitedError, RedisTokenBucket
+from app.adapters.base import (
+    PermanentError,
+    RateLimit,
+    RateLimitedError,
+    RedisDailyBudget,
+    RedisTokenBucket,
+)
 
 # Mốc thời gian cố định để test không phụ thuộc đồng hồ thật.
 T0 = 1_700_000_000_000
@@ -199,3 +205,93 @@ async def test_mac_dinh_khong_co_san_thi_vet_duoc_het(redis_client: Redis) -> No
     for _ in range(5):
         assert await b.try_acquire(now_ms=T0) == 0.0
     assert await b.try_acquire(now_ms=T0) > 0.0
+
+
+# --- Trần NGÀY -------------------------------------------------------------
+#
+# Chiều thứ hai của cùng một quota, và nó KHÔNG suy ra được từ chiều nhịp. Ngày
+# 2026-09-15 đo được `generateContent` free tier là 500 lời gọi/ngày, trong khi
+# cấu hình khi ấy cho phép 1.320 — vì trần ngày đang được "canh" bằng phép nhân
+# trần-mỗi-lượt nhân số-lượt-cron, một phép nhân phụ thuộc file khác và đã sai hai
+# lần trong cùng một ngày.
+
+
+def ngan_sach(
+    redis: Redis, key: str, limit: int, *, reserve: int = 0
+) -> RedisDailyBudget:
+    return RedisDailyBudget(redis, key, limit, reserve=reserve)
+
+
+async def test_dem_tich_luy_roi_chan_dung_tran(redis_client: Redis) -> None:
+    ns = ngan_sach(redis_client, "d1", 3)
+    for _ in range(3):
+        await ns.spend()
+    assert await ns.used() == 3
+
+    with pytest.raises(RateLimitedError, match="hết hạn mức NGÀY"):
+        await ns.spend()
+
+
+async def test_san_chua_phan_cuoi_cho_nguoi_goi_khac(redis_client: Redis) -> None:
+    """Không có sàn thì một đêm dịch bù vét sạch hạn mức, và sáng hôm sau không
+    tin mới nào được dịch."""
+    bu = ngan_sach(redis_client, "d2", 10, reserve=7)
+    for _ in range(3):
+        await bu.spend()
+    with pytest.raises(RateLimitedError):
+        await bu.spend()
+
+    # Người gọi không đặt sàn vẫn dùng được tới lời gọi cuối — đó là mục đích
+    # của sàn: phần ấy dành cho họ.
+    crawl = ngan_sach(redis_client, "d2", 10)
+    for _ in range(7):
+        await crawl.spend()
+    assert await crawl.used() == 10
+
+
+async def test_hai_nguoi_goi_chung_mot_bo_dem(redis_client: Redis) -> None:
+    """Chung quota thật thì phải chung bộ đếm, nếu không mỗi bên tưởng mình còn
+    nguyên trần và tổng vượt gấp đôi."""
+    a = ngan_sach(redis_client, "d3", 4)
+    b = ngan_sach(redis_client, "d3", 4)
+    await a.spend()
+    await b.spend(2)
+    assert await a.used() == 3
+    await b.spend()
+    with pytest.raises(RateLimitedError):
+        await a.spend()
+
+
+async def test_xin_nhieu_hon_phan_con_lai_thi_khong_tru_gi(redis_client: Redis) -> None:
+    """Từ chối phải là nguyên tử: trừ một phần rồi mới báo lỗi thì bộ đếm trôi
+    dần khỏi số thật sau mỗi lần bị từ chối."""
+    ns = ngan_sach(redis_client, "d4", 5)
+    await ns.spend(3)
+    with pytest.raises(RateLimitedError):
+        await ns.spend(3)
+    assert await ns.used() == 3
+
+
+async def test_tu_choi_cau_hinh_vo_nghia(redis_client: Redis) -> None:
+    with pytest.raises(PermanentError):
+        ngan_sach(redis_client, "d5", 0)
+    with pytest.raises(PermanentError):
+        ngan_sach(redis_client, "d5", 5, reserve=5)
+
+
+def test_san_nho_hon_tran_ngay() -> None:
+    """Sàn >= trần thì job dịch bù không bao giờ gọi được lời nào."""
+    from app.adapters.llm.gemini import (
+        GENERATE_DAILY_LIMIT,
+        GENERATE_DAILY_RESERVE_FOR_CRAWL,
+    )
+
+    assert 0 < GENERATE_DAILY_RESERVE_FOR_CRAWL < GENERATE_DAILY_LIMIT
+
+
+def test_tran_ngay_khong_vuot_con_so_do_duoc() -> None:
+    """500 là con số Google khai trong thân 429 ngày 2026-09-15. Bộ đếm của ta
+    sang ngày theo mốc UTC còn họ theo mốc khác, nên phải chừa biên."""
+    from app.adapters.llm.gemini import GENERATE_DAILY_LIMIT
+
+    assert GENERATE_DAILY_LIMIT < 500

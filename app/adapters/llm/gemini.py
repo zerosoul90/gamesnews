@@ -28,6 +28,7 @@ import httpx
 from pydantic import BaseModel, Field, ValidationError
 
 from app.adapters.base import (
+    DailyBudget,
     PermanentError,
     RateLimit,
     RateLimiter,
@@ -123,6 +124,29 @@ HTTP_TIMEOUT_SECONDS = 60.0
 # thấy 429 sau nửa ngày chạy.
 GENERATE_CEILING_PER_MINUTE = 15
 GENERATE_RATE = RateLimit(capacity=7, per_seconds=60.0)
+
+# Chiều NGÀY của cùng quota đó. Đo 2026-09-15 bằng cách làm cạn thật:
+#
+#   quota=GenerateRequestsPerDayPerProjectPerModel-FreeTier trần=500
+#
+# Con số do Google khai trong thân 429, không phải suy ra từ chỗ hỏng.
+#
+# `GENERATE_DAILY_LIMIT` đặt DƯỚI 500 có chủ ý: bộ đếm của ta sang ngày theo mốc
+# UTC, còn Google reset theo mốc của họ (chưa đo được). Hai mốc lệch pha thì có
+# lúc hai "ngày" chồng nhau, và biên 10% là cái giá rẻ để chuyện đó không thành
+# một tràng 429.
+#
+# KHÔNG suy trần này ra "trần mỗi lượt nhân số lượt cron". Phép nhân đó phụ thuộc
+# lịch cron ở một file khác, và nó đã sai hai lần trong ngày 2026-09-15. Nay
+# `RedisDailyBudget` đếm thật, nên hai hằng số `MAX_*_PER_RUN` của hai job chỉ
+# còn canh **thời gian** một lượt chạy (trần 300 giây của Arq), không còn canh
+# quota nữa. Hai việc khác nhau, hai chỗ khác nhau.
+GENERATE_DAILY_LIMIT = 450
+
+# Sàn của hạn mức NGÀY chừa cho `crawl_all_sources`, do `backfill_summaries`
+# tôn trọng. Tin mới phải ra trong 2 giờ (`PHASE-6.md`); hàng tồn chậm một ngày
+# không ai thấy. 350/450 cho tin mới, 100 còn lại cho dịch bù.
+GENERATE_DAILY_RESERVE_FOR_CRAWL = 350
 
 # Embedding có **HAI** hạn mức, và chỉ một trong hai thuộc về bucket này:
 #
@@ -223,6 +247,7 @@ class GeminiAdapter:
         http: httpx.AsyncClient,
         api_key: str,
         limiter: RateLimiter | None = None,
+        daily: DailyBudget | None = None,
     ) -> None:
         self._http = http
         self._api_key = api_key
@@ -230,6 +255,11 @@ class GeminiAdapter:
         # đoạn đo tay. Job chạy thật LUÔN phải truyền bucket vào; hai hằng số
         # `GENERATE_RATE` / `EMBED_RATE` ngay dưới đây nói vì sao.
         self._limiter = limiter
+        # Trần NGÀY của `generateContent`. Tách khỏi `limiter` vì nó canh một
+        # chiều khác: bucket đếm nhịp, cái này đếm tổng. Đặt ở adapter chứ không
+        # ở job để không đường gọi nào lách được — job đã từng "tôn trọng hạn
+        # mức" bằng một phép nhân trên lịch cron, và phép nhân ấy sai hai lần.
+        self._daily = daily
 
     @property
     def configured(self) -> bool:
@@ -254,6 +284,16 @@ class GeminiAdapter:
         # ở đây là bucket đếm thiếu 25 lần và trần trở thành trang trí.
         if self._limiter is not None:
             await self._limiter.acquire(cost)
+
+        # Trần NGÀY, sau khi đã qua trần nhịp. Chỉ cho `generateContent`:
+        # `batchEmbedContents` có hạn mức ngày RIÊNG (1.000, khác 500 ở đây) và
+        # gộp hai cái vào một bộ đếm là để chúng ăn lẫn hạn mức của nhau.
+        #
+        # Ghi nhận TRƯỚC khi gọi, giống token bucket và vì cùng lý do: gọi rồi
+        # mới đếm thì một lời gọi hỏng giữa chừng vẫn đã tiêu quota thật của
+        # Google mà bộ đếm của ta không biết.
+        if self._daily is not None and path.startswith(f"models/{TEXT_MODEL}:generateContent"):
+            await self._daily.spend(cost)
 
         url = f"{API_ROOT}/{path}"
         try:

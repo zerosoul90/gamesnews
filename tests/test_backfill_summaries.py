@@ -70,8 +70,10 @@ def fake_gemini(monkeypatch: pytest.MonkeyPatch) -> Any:
     def use(alias: str | None = None, *, no_o_lan: int | None = None) -> FakeGemini:
         fake = FakeGemini(alias, no_o_lan=no_o_lan)
         monkeypatch.setattr(summaries, "GeminiAdapter", lambda *a, **kw: fake)
-        # `RedisTokenBucket` đòi Redis thật ngay lúc khởi tạo.
+        # Cả hai đòi Redis thật ngay lúc khởi tạo (`register_script`), và chúng
+        # là ĐỐI SỐ của `GeminiAdapter` nên vẫn được dựng dù adapter đã bị thay.
         monkeypatch.setattr(summaries, "RedisTokenBucket", lambda *a, **kw: None)
+        monkeypatch.setattr(summaries, "RedisDailyBudget", lambda *a, **kw: None)
         return fake
 
     return use

@@ -32,8 +32,13 @@ from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.adapters.base import AdapterError, RedisTokenBucket
-from app.adapters.llm.gemini import GENERATE_RATE, GeminiAdapter
+from app.adapters.base import AdapterError, RedisDailyBudget, RedisTokenBucket
+from app.adapters.llm.gemini import (
+    GENERATE_DAILY_LIMIT,
+    GENERATE_DAILY_RESERVE_FOR_CRAWL,
+    GENERATE_RATE,
+    GeminiAdapter,
+)
 from app.core.config import get_settings
 from app.services import entity_review
 from app.services.entity_matcher import match_entity
@@ -62,15 +67,18 @@ RESERVE_FOR_CRAWL = 2
 # ngân sách của Arq (giết job ở 300 giây) sau khi trừ phần embedding và Qdrant
 # của bước gắn entity.
 #
-# Cron chạy hàng giờ, nên 15 là ~360 bài/ngày: 692 bài tồn mất khoảng hai ngày.
+# Con số này canh THỜI GIAN một lượt, KHÔNG canh quota — đừng đọc nó thành
+# "15 nhân 24 lượt = 360 bài/ngày" nữa. Hạn mức ngày đo được là **500** (2026-09-15)
+# và nay do `RedisDailyBudget` đếm thật; job này chỉ được dùng phần ngoài sàn
+# `GENERATE_DAILY_RESERVE_FOR_CRAWL`, tức ~100 lời gọi/ngày.
 #
-# Hạn mức NGÀY của model mới thì CHƯA đo được — cả phiên đo 2026-09-15 không lần
-# nào chạm tới nó, nên chỉ biết nó lớn hơn hẳn 20 của `gemini-2.5-flash`. Không
-# cần biết chính xác để an toàn: chạm hạn mức thì `AdapterError` làm job dừng
-# lượt, lượt sau chạy tiếp từ chỗ đang dở — mốc nằm trong chính dữ liệu
-# (`summary_vi` đã điền hay chưa), không trong bộ nhớ tiến trình. Và nay thân
-# lỗi in `quotaId`, nên lúc chạm sẽ đọc ra ngay là chiều NGÀY chứ không phải
-# đoán như lần trước.
+# Hệ quả phải nói thẳng: ở ~100 bài/ngày thì 477 bài tồn mất khoảng **năm
+# ngày**, và đó là khi không có tin mới nào chen vào. Trần ngày của gói free là
+# giới hạn sản phẩm thật, không phải một hằng số tinh chỉnh được.
+#
+# Chạm trần thì `AdapterError` làm job dừng lượt, lượt sau chạy tiếp từ chỗ đang
+# dở — mốc nằm trong chính dữ liệu (`summary_vi` đã điền hay chưa), không trong
+# bộ nhớ tiến trình.
 MAX_ARTICLES_PER_RUN = 15
 
 
@@ -127,6 +135,16 @@ async def backfill_summaries(ctx: dict[str, Any]) -> dict[str, int]:
             "gemini_generate",
             GENERATE_RATE,
             reserve=RESERVE_FOR_CRAWL,
+        ),
+        # Cùng một cặp sàn/trần, nhưng ở chiều NGÀY. `RESERVE_FOR_CRAWL` ngay
+        # trên chừa token theo nhịp; cái này chừa lượt gọi theo ngày. Thiếu nó
+        # thì một đêm dịch bù vét sạch 450 lời gọi và sáng hôm sau không tin mới
+        # nào được dịch.
+        RedisDailyBudget(
+            ctx["clients"].redis,
+            "gemini_generate",
+            GENERATE_DAILY_LIMIT,
+            reserve=GENERATE_DAILY_RESERVE_FOR_CRAWL,
         ),
     )
 

@@ -37,8 +37,8 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING, IndexModel
 from pymongo.errors import DuplicateKeyError
 
-from app.adapters.base import AdapterError, RedisTokenBucket
-from app.adapters.llm.gemini import GENERATE_RATE, GeminiAdapter
+from app.adapters.base import AdapterError, RedisDailyBudget, RedisTokenBucket
+from app.adapters.llm.gemini import GENERATE_DAILY_LIMIT, GENERATE_RATE, GeminiAdapter
 from app.core.config import get_settings
 from app.models.article import NewsArticle
 from app.models.source import Source
@@ -76,8 +76,10 @@ DEDUP_CANDIDATES = 500
 # `TimeoutError` ở 299,99 giây với traceback dừng ngay trong `limiter.acquire`.
 # 10 bài là ~120 giây, chừa hơn nửa ngân sách cho 15 feed và Mongo.
 #
-# Giá trị cũ là 60, suy từ "20/phút" — mà con số đó thật ra là 20/NGÀY đọc nhầm
-# đơn vị (xem `adapters/llm/gemini.py`). Nó chưa bao giờ đúng.
+# Con số này canh THỜI GIAN, không canh quota. Quota ngày do
+# `RedisDailyBudget` đếm thật (xem `adapters/llm/gemini.GENERATE_DAILY_LIMIT`),
+# nên đừng suy nó ra từ "trần ngày chia số lượt cron" nữa: phép nhân ấy phụ
+# thuộc lịch cron ở `jobs/worker.py` và đã sai hai lần trong ngày 2026-09-15.
 #
 # Phần dôi ra để lượt sau; cron chạy mỗi 15 phút nên ở trạng thái ổn định nó bắt
 # kịp, và `deferred` trong tally cho thấy ngay khi không bắt kịp nữa.
@@ -143,6 +145,11 @@ async def crawl_all_sources(ctx: dict[str, Any]) -> dict[str, int]:
         ctx["clients"].http,
         api_key,
         RedisTokenBucket(ctx["clients"].redis, "gemini_generate", GENERATE_RATE)
+        if api_key
+        else None,
+        # Không đặt sàn: job này là bên được ưu tiên của hạn mức ngày, sàn nằm
+        # bên `backfill_summaries`.
+        RedisDailyBudget(ctx["clients"].redis, "gemini_generate", GENERATE_DAILY_LIMIT)
         if api_key
         else None,
     )

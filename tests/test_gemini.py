@@ -13,7 +13,7 @@ from typing import Any
 import httpx
 import pytest
 
-from app.adapters.base import PermanentError, TransientError
+from app.adapters.base import PermanentError, RateLimitedError, TransientError
 from app.adapters.llm.gemini import EMBED_DIM, HTTP_TIMEOUT_SECONDS, GeminiAdapter
 
 
@@ -374,3 +374,58 @@ async def test_tran_cho_rong_hon_doi_cham_cua_google() -> None:
     # httpx tách trần thành bốn pha; `timeout=<số>` đặt cả bốn bằng nhau.
     assert ghi["timeout"]["read"] == HTTP_TIMEOUT_SECONDS
     assert HTTP_TIMEOUT_SECONDS > 31, "phải rộng hơn đợt chậm đã đo được"
+
+
+class FakeDaily:
+    """Đủ hình dạng của `RedisDailyBudget` cho adapter, không cần Redis."""
+
+    def __init__(self, con_lai: int = 99) -> None:
+        self.spent: list[int] = []
+        self._con_lai = con_lai
+
+    async def spend(self, tokens: int = 1) -> None:
+        if sum(self.spent) + tokens > self._con_lai:
+            raise RateLimitedError("hết hạn mức NGÀY gemini_generate")
+        self.spent.append(tokens)
+
+
+async def test_chi_generate_bi_tinh_vao_bo_dem_ngay() -> None:
+    """`batchEmbedContents` có hạn mức ngày RIÊNG (1.000, khác 500 của
+    generate). Gộp hai cái vào một bộ đếm là để chúng ăn lẫn hạn mức của nhau,
+    và cái nào cạn trước cũng kéo cái kia chết theo."""
+    daily = FakeDaily()
+    def tra_loi(r: httpx.Request) -> httpx.Response:
+        if "batchEmbed" in str(r.url):
+            n = len(json.loads(r.content)["requests"])
+            return httpx.Response(
+                200, json={"embeddings": [{"values": [0.1] * EMBED_DIM} for _ in range(n)]}
+            )
+        return httpx.Response(200, json=gemini_text('{"translated_title":"a","summary_vi":"b"}'))
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(tra_loi))
+    adapter = GeminiAdapter(http, "khoa-gia", None, daily)
+
+    await adapter.embed(["a", "b", "c"])
+    assert daily.spent == [], "embed không được tiêu hạn mức của generate"
+
+    await adapter.summarize_and_translate(title="t", content="c")
+    assert daily.spent == [1]
+    await http.aclose()
+
+
+async def test_het_han_muc_ngay_thi_khong_goi_mang() -> None:
+    """Chặn TRƯỚC khi gọi. Gọi rồi mới đếm thì quota thật đã tiêu mất."""
+    goi: list[str] = []
+
+    def bat(request: httpx.Request) -> httpx.Response:
+        goi.append(str(request.url))
+        return httpx.Response(200, json=gemini_text('{"translated_title":"a","summary_vi":"b"}'))
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(bat))
+    adapter = GeminiAdapter(http, "khoa-gia", None, FakeDaily(con_lai=0))
+
+    with pytest.raises(RateLimitedError, match="hết hạn mức NGÀY"):
+        await adapter.summarize_and_translate(title="t", content="c")
+
+    assert goi == [], "hết trần ngày mà vẫn bắn request là tiêu quota vô ích"
+    await http.aclose()

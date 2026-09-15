@@ -16,6 +16,7 @@ Bốn thứ mọi adapter đều được thừa hưởng:
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import logging
 import random
 import time
@@ -140,6 +141,18 @@ class RateLimiter(Protocol):
     async def acquire(self, tokens: int = 1) -> None: ...
 
 
+class DailyBudget(Protocol):
+    """Cái mà adapter cần ở một trần theo ngày. `RedisDailyBudget` là bản cài
+    dùng trong sản phẩm; test dùng bản giả để khỏi cần Redis.
+
+    Protocol chứ không phải lớp cụ thể, cùng lý do với `RateLimiter` ngay trên:
+    buộc adapter vào `RedisDailyBudget` là buộc mọi test của adapter phải có
+    Redis thật, cho một thứ chỉ cần biết đếm.
+    """
+
+    async def spend(self, tokens: int = 1) -> None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class RateLimit:
     """Hạn mức của một nguồn. Ví dụ Steam appdetails: 200 request / 300 giây."""
@@ -236,6 +249,100 @@ class RedisTokenBucket:
                 )
             await asyncio.sleep(wait)
             waited += wait
+
+
+_DAILY_LUA = """
+local limit     = tonumber(ARGV[1])
+local requested = tonumber(ARGV[2])
+-- reserve: phan cuoi cua han muc ngay ma nguoi goi NAY khong duoc pham vao.
+local reserve   = tonumber(ARGV[3])
+local ttl_ms    = tonumber(ARGV[4])
+
+local used = tonumber(redis.call('GET', KEYS[1]))
+if used == nil then used = 0 end
+
+-- Kiem va tang trong CUNG mot script: tach ra thi hai worker cung doc mot so
+-- roi cung tuong minh con cho, va tong vuot tran.
+if used + requested > limit - reserve then
+  return {0, used, limit}
+end
+
+used = redis.call('INCRBY', KEYS[1], requested)
+-- Chi dat TTL luc tao key. Dat lai moi lan tang thi key khong bao gio het han
+-- vao dung ngay hom sau ma cu truot theo lan goi cuoi.
+if used == requested then
+  redis.call('PEXPIRE', KEYS[1], ttl_ms)
+end
+return {1, used, limit}
+"""
+
+
+class RedisDailyBudget:
+    """Trần theo NGÀY, đếm tích luỹ. Khác hẳn `RedisTokenBucket` ở trên.
+
+    Bucket canh **nhịp** — bao nhiêu lời gọi trong một phút. Cái này canh
+    **tổng** — bao nhiêu lời gọi trong một ngày. Hai chiều tách biệt của cùng
+    một quota, và một cái không suy ra cái kia.
+
+    Vì sao cần một thứ riêng thay vì nhân "trần mỗi lượt nhân số lượt mỗi ngày": phép
+    nhân ấy đã sai **hai lần trong một ngày** (2026-09-15). Nó phụ thuộc vào
+    lịch cron, mà lịch cron nằm ở file khác và không ai nhớ phải chia lại khi
+    đổi. Đếm thật thì đúng bất kể cron chạy bao nhiêu lượt.
+
+    **Mốc sang ngày chưa đo được.** Key đặt theo ngày UTC, còn Google reset theo
+    mốc riêng của họ (chưa xác định, nhiều khả năng nửa đêm Thái Bình Dương).
+    Lệch pha thì có hai chiều: mốc ta tới sau mốc họ nghĩa là ta dùng thiếu —
+    vô hại; mốc ta tới trước nghĩa là ta cho đi quá và ăn 429 — cũng vô hại vì
+    job dừng lượt sạch sẽ. Đó là lý do trần đặt dưới con số đo được, chừa biên.
+    Muốn biết mốc thật: quota đang cạn lúc nào thì để ý lúc nó hết cạn.
+    """
+
+    def __init__(
+        self,
+        redis: Redis,
+        key: str,
+        limit: int,
+        *,
+        reserve: int = 0,
+        ttl_seconds: int = 48 * 3600,
+    ) -> None:
+        if limit < 1:
+            raise PermanentError(f"limit phải >= 1, nhận {limit}")
+        if not 0 <= reserve < limit:
+            raise PermanentError(f"reserve phải trong [0, {limit}), nhận {reserve}")
+        self._redis = redis
+        self._key = key
+        self._limit = limit
+        self._reserve = reserve
+        self._ttl_ms = ttl_seconds * 1000
+        self._script = redis.register_script(_DAILY_LUA)
+
+    def _key_hom_nay(self) -> str:
+        # Ngày UTC, không phải giờ máy: worker và API có thể ở hai múi giờ, mà
+        # hai tiến trình đếm sang hai key khác nhau thì trần thành vô nghĩa.
+        return f"dailybudget:{self._key}:{dt.datetime.now(dt.UTC):%Y-%m-%d}"
+
+    async def spend(self, tokens: int = 1) -> None:
+        """Ghi nhận `tokens` lời gọi. Hết hạn mức thì ném `RateLimitedError`.
+
+        Ném chứ không trả `False`: cả hai job đều đã bắt `AdapterError` để dừng
+        lượt sạch sẽ, nên hết trần ngày đi đúng con đường đã có sẵn.
+        """
+        raw = await self._script(
+            keys=[self._key_hom_nay()],
+            args=[self._limit, tokens, self._reserve, self._ttl_ms],
+        )
+        allowed, used, limit = (int(v) for v in tuple(raw)[:3])
+        if not allowed:
+            raise RateLimitedError(
+                f"hết hạn mức NGÀY {self._key}: đã dùng {used}/{limit}"
+                f" (sàn chừa lại {self._reserve})"
+            )
+
+    async def used(self) -> int:
+        """Đã tiêu bao nhiêu hôm nay. Để log và để nhìn, không để quyết định."""
+        raw = await self._redis.get(self._key_hom_nay())
+        return int(raw) if raw else 0
 
 
 class SlidingWindowRateLimiter:
