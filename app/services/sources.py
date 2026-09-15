@@ -8,6 +8,7 @@ from typing import Any
 
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo import ReturnDocument
 
 from app.models.source import Source
 
@@ -82,3 +83,28 @@ async def update_last_crawled(db: Db, source_id: ObjectId) -> None:
         {"_id": source_id},
         {"$set": {"last_crawled_at": now}}
     )
+
+
+async def ghi_nhan_so_bai(db: Db, source_id: ObjectId, so_bai: int) -> int:
+    """Cập nhật chuỗi lượt liên tiếp kéo được 0 bài. Trả về độ dài chuỗi.
+
+    Đếm trên chính document nguồn, không trong bộ nhớ tiến trình: worker khởi
+    động lại vài lần một ngày, mà một nguồn câm cần **nhiều lượt** mới phân biệt
+    được với một lần trục trặc mạng. Bộ đếm trong RAM sẽ reset đúng lúc nó sắp
+    nói được điều gì đó.
+
+    `fetched` ở đây là số entry bóc ra được, TRƯỚC khi khử trùng — nên feed khoẻ
+    luôn trả vài chục kể cả khi không có tin mới. Về 0 là bất thường thật, không
+    phải "hôm nay ít tin".
+    """
+    if so_bai > 0:
+        await sources(db).update_one({"_id": source_id}, {"$set": {"empty_streak": 0}})
+        return 0
+
+    doc = await sources(db).find_one_and_update(
+        {"_id": source_id},
+        {"$inc": {"empty_streak": 1}},
+        projection={"empty_streak": 1},
+        return_document=ReturnDocument.AFTER,
+    )
+    return int(doc.get("empty_streak", 1)) if doc else 1

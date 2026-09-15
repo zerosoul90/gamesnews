@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 from typing import Any
 
 import pytest
@@ -477,3 +478,78 @@ async def test_khong_moi_de_len_lua_chon_cua_admin(mongo_db: Db) -> None:
 
     assert added == 0
     assert await mongo_db.sources.count_documents({}) == 1
+
+
+async def test_nguon_cam_hien_ra_trong_tally(mongo_db: Db, no_network: Any) -> None:
+    """Nguồn kéo được 0 bài phải lộ ra, vì không chỗ nào khác lộ.
+
+    Job vẫn xanh, `sources` vẫn đủ, `fetched` vẫn hàng trăm — GameK câm nhiều
+    ngày và PCGamesN câm vài giờ đúng vì thế. Một nguồn tụt xuống 0 không làm
+    tổng bằng 0, nó chỉ biến mất khỏi một con số lớn.
+    """
+    source_id = await add_source(mongo_db)
+    no_network([])
+
+    tally = await news.crawl_all_sources({"clients": FakeClients(mongo_db)})
+
+    assert tally["sources"] == 1, "nguồn vẫn được đếm là đã duyệt"
+    assert tally["fetched"] == 0
+    assert tally["sources_empty"] == 1
+
+    doc = await mongo_db.sources.find_one({"_id": source_id})
+    assert doc is not None
+    assert doc["empty_streak"] == 1
+
+
+async def test_chuoi_cam_cong_don_qua_nhieu_luot(mongo_db: Db, no_network: Any) -> None:
+    """Đếm trên document nguồn, không trong RAM: worker khởi động lại vài lần
+    một ngày, mà phân biệt "trục trặc một lượt" với "chết hẳn" cần nhiều lượt."""
+    source_id = await add_source(mongo_db)
+    no_network([])
+
+    for _ in range(3):
+        await news.crawl_all_sources({"clients": FakeClients(mongo_db)})
+
+    doc = await mongo_db.sources.find_one({"_id": source_id})
+    assert doc is not None
+    assert doc["empty_streak"] == 3
+
+
+async def test_nguon_song_lai_thi_chuoi_ve_khong(mongo_db: Db, no_network: Any) -> None:
+    """Không reset thì cảnh báo kêu mãi sau một lần trục trặc, và tiếng kêu ấy
+    sớm bị bỏ qua — đúng lúc nó sắp nói thật."""
+    source_id = await add_source(mongo_db)
+
+    no_network([])
+    await news.crawl_all_sources({"clients": FakeClients(mongo_db)})
+    doc = await mongo_db.sources.find_one({"_id": source_id})
+    assert doc is not None and doc["empty_streak"] == 1
+
+    no_network([article("Tin", "https://ign.example/song-lai", "nội dung đủ dài")])
+    tally = await news.crawl_all_sources({"clients": FakeClients(mongo_db)})
+
+    assert tally["sources_empty"] == 0
+    doc = await mongo_db.sources.find_one({"_id": source_id})
+    assert doc is not None
+    assert doc["empty_streak"] == 0
+
+
+async def test_cam_du_lau_thi_keu_to_hon(
+    mongo_db: Db, no_network: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    """WARNING cho trục trặc, ERROR cho chết hẳn — `EMPTY_STREAK_ALERT` lượt là
+    đúng một giờ ở nhịp cron 15 phút."""
+    await add_source(mongo_db)
+    no_network([])
+
+    for _ in range(news.EMPTY_STREAK_ALERT - 1):
+        await news.crawl_all_sources({"clients": FakeClients(mongo_db)})
+
+    # `caplog` gom từ đầu test, nên không xoá thì mấy lượt WARNING ở trên lẫn
+    # vào và phép đo mất ý nghĩa.
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="app.jobs.news"):
+        await news.crawl_all_sources({"clients": FakeClients(mongo_db)})
+
+    muc = [r.levelno for r in caplog.records if r.message == "nguồn không kéo được bài nào"]
+    assert muc == [logging.ERROR]

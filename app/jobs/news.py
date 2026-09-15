@@ -46,7 +46,7 @@ from app.services import entity_review
 from app.services.crawler import crawl_rss
 from app.services.dedup import is_duplicate
 from app.services.entity_matcher import match_entity
-from app.services.sources import update_last_crawled
+from app.services.sources import ghi_nhan_so_bai, update_last_crawled
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +82,17 @@ DEDUP_CANDIDATES = 500
 # Phần dôi ra để lượt sau; cron chạy mỗi 15 phút nên ở trạng thái ổn định nó bắt
 # kịp, và `deferred` trong tally cho thấy ngay khi không bắt kịp nữa.
 MAX_LLM_CALLS_PER_RUN = 10
+
+# Bao nhiêu lượt liên tiếp kéo được 0 bài thì kêu to (ERROR thay vì WARNING).
+#
+# Cron chạy mỗi 15 phút nên 4 là đúng MỘT GIỜ câm. Đủ dài để bỏ qua một lần
+# trục trặc mạng hay một lần feed bảo trì, đủ ngắn để không mất cả ngày tin.
+#
+# Con số này có vì hai nguồn đã câm mà không ai thấy trong ngày 2026-09-15:
+# GameK nhiều ngày, PCGamesN vài giờ (403 vì thiếu User-Agent). Cả hai lượt
+# crawl đều báo `sources: 15, fetched: 644` và trông hoàn toàn khoẻ mạnh — một
+# nguồn tụt xuống 0 không làm tổng bằng 0, nó chỉ biến mất khỏi một con số lớn.
+EMPTY_STREAK_ALERT = 4
 
 INDEXES: list[IndexModel] = [
     # Chốt chống trùng rẻ nhất: cùng một URL không bao giờ vào kho hai lần, kể
@@ -146,6 +157,10 @@ async def crawl_all_sources(ctx: dict[str, Any]) -> dict[str, int]:
 
     tally = {
         "sources": 0,
+        # Nguồn kéo được 0 bài trong lượt này. Khác 0 là có nguồn đang câm —
+        # thứ mà `sources` và `fetched` đều không nói được, vì cả hai vẫn trông
+        # y hệt lúc khoẻ.
+        "sources_empty": 0,
         "fetched": 0,
         "duplicate": 0,
         "already_seen": 0,
@@ -197,6 +212,17 @@ async def crawl_all_sources(ctx: dict[str, Any]) -> dict[str, int]:
         tally["sources"] += 1
         articles = await crawl_rss(source, ctx["clients"].http)
         tally["fetched"] += len(articles)
+
+        # Nguồn câm phải lộ ra ở đây, vì không chỗ nào khác lộ: job vẫn xanh,
+        # `sources` vẫn đủ 15, và `fetched` vẫn hàng trăm.
+        streak = await ghi_nhan_so_bai(db, source_id, len(articles))
+        if streak:
+            tally["sources_empty"] += 1
+            ghi = logger.error if streak >= EMPTY_STREAK_ALERT else logger.warning
+            ghi(
+                "nguồn không kéo được bài nào",
+                extra={"source": source.name, "url": source.url, "streak": streak},
+            )
         # Bài của RIÊNG nguồn này phải để lại. Quyết định có dập mốc hay không
         # nằm ở đây, nên không dùng được `tally["deferred"]` của cả lượt.
         bo_lai = 0
