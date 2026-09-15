@@ -1913,3 +1913,69 @@ Test chốt trần đọc `request.extensions["timeout"]`, và đã xác minh **
 về 30** — cả ở phép so với đợt chậm đã đo.
 
 **598 test** (597 -> 598), ruff + `mypy app tests` sạch.
+
+### 2026-09-15 — Tổng kết phiên: sáu lớp, mỗi lớp chỉ lộ khi bóc lớp trên
+
+Sáu entry ở trên là sáu lượt của **cùng một phiên**. Ghi lại ở đây cái mà từng
+entry riêng lẻ không nói được: chúng là một chuỗi, và không lớp nào nhìn thấy
+được trước khi lớp trên nó được gỡ.
+
+| # | Lớp | Chỉ lộ ra sau khi |
+|---|---|---|
+| 0 | Stack chết hai ngày (Docker Desktop không chạy) | mở máy ra nghiệm thu |
+| 1 | Trần Gemini bị đọc nhầm đơn vị: 20/**ngày** chứ không phải 20/phút | bật stack, gọi thật |
+| 2 | `crawl_all_sources` chết `TimeoutError` **mọi lượt** | hết 429 |
+| 3 | Thứ tự nguồn bị đóng băng — cơ chế công bằng chưa bao giờ chạy | job chạy trọn |
+| 4 | `bozo` vứt nhầm feed, và PCGamesN 403 vì thiếu User-Agent | thứ tự xoay được |
+| 5 | Không có cách nào thấy một nguồn câm | hai nguồn câm đã được tìm ra bằng tay |
+| 6 | Trần chờ HTTP 30 giây nằm đúng trên ranh giới độ trễ | đo hạn mức ngày |
+
+Lớp 6 lộ ra khi đang dựng phép đo cho món nợ của lớp 1. Vòng tròn khép lại đúng
+chỗ nó bắt đầu.
+
+#### Ba cái bẫy lặp lại, đáng nhớ hơn từng bản sửa
+
+**1. Một con số không có đơn vị thì chưa phải số đo.** `trần=20` được chép vào
+sổ ngày 09-13 và bốn hằng số suy ra từ nó. Nó là 20/ngày. Hàm sinh ra để tránh
+đúng chuyện này (`_describe_error`) lại in `quotaMetric` — trường giống hệt nhau
+ở cả hai chiều — và bỏ `quotaId`, trường duy nhất ghi `PerDay`/`PerMinute`.
+
+**2. Số TỔNG xanh không nói gì về từng phần.** `sources: 15, fetched: 644` trông
+khoẻ mạnh trong khi GameK câm nhiều ngày và PCGamesN câm vài giờ. Một nguồn tụt
+xuống 0 không làm tổng bằng 0 — nó biến mất khỏi một con số hàng trăm. Đây cũng
+là cách tôi suýt báo cáo sai ở lớp 4: lượt crawl "thành công" ấy đã giấu một
+regression do chính bản sửa vài giờ trước gây ra.
+
+**3. Kênh đo hỏng trông y hệt kết quả âm tính.** Ba lần trong phiên:
+
+- `caplog` gom cả bản ghi của các lượt trước → so sánh vô nghĩa.
+- Probe đọc `source_id` từ document rút gọn (`_ung_vien` không project trường
+  đó) → luôn `None`, nên "0 bài lọt vào" đúng một cách vô nghĩa.
+- Pipe script qua PowerShell vào `docker exec` bóp méo **chính mã nguồn**: ký tự
+  tiếng Việt thành `?`, chuỗi so sánh không bao giờ khớp. Stderr in đúng thứ cần
+  tìm trong khi danh sách bắt được rỗng.
+
+Cả ba đều có một lối thoát sai rất sẵn: tin vào cái nhìn thấy (stderr, con số 0)
+thay vì sửa kênh đo. Luật rút ra: **trước khi kết luận từ một phép đo âm tính,
+kiểm rằng phép đo ấy còn biết nói "có".**
+
+#### Số liệu
+
+| | đầu phiên | cuối phiên |
+|---|---|---|
+| bài trong kho | 859 | **1.224** |
+| **có tiếng Việt** | **30** | **486** |
+| hàng tồn | 684 | 502 |
+| game trong catalog | 16.491 | 20.873 |
+| test | 579 | **598** |
+
+11 commit, CI xanh. Mọi bản sửa đều có test đã xác minh **đỏ khi gỡ fix ra**.
+
+#### Đang dở
+
+Phép đo hạn mức **ngày** của `gemini-3.5-flash-lite` vẫn đang chạy: làm cạn trần
+bằng chính job dịch bù, nên mỗi lời gọi vừa tiến tới trần vừa dịch thật một bài
+trong kho tồn. Chạm trần thì Google tự khai `quotaValue` — không cần tự đếm, mà
+cũng không đếm được vì log worker mất theo mỗi lần dựng lại image.
+
+Nếu hàng tồn cạn trước, kết quả chỉ là **cận dưới**, không phải trần.
