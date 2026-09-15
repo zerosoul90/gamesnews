@@ -1987,8 +1987,7 @@ cạn** — bộ đếm sinh ra sau khi phép đo tiêu hết. Nên hôm nay nó
 
 **Còn nợ:**
 
-- **Mốc sang ngày của Google chưa đo được.** Quota đang cạn; để ý lúc nó hết cạn
-  thì biết. Biết rồi thì `GENERATE_DAILY_LIMIT` nâng sát 500 được.
+- ~~Mốc sang ngày của Google chưa đo được~~ — đang đo, xem entry lượt 8.
 - `EMBEDDING_THRESHOLD = 0.82` chưa hiệu chỉnh trên cách so mới (tên với tên).
 - Nhóm nguồn tiếng Việt vẫn không có tóm tắt.
 - Catalog 20.873/185.231.
@@ -2078,3 +2077,90 @@ bù (~100/ngày), mất khoảng năm ngày nếu không có tin mới chen vào
 Nghĩa là: hệ thống nay **đủ sức theo kịp tin mới**, nhưng muốn hàng tồn vơi
 trong thời gian hợp lý thì thứ phải đổi là gói dịch vụ, không phải con số nào
 trong code.
+
+### 2026-09-15 (lượt 8) — Trần ngày RÒ, và một nhánh lỗi đi nhầm đường
+
+Định đo mốc sang ngày của Google. Phép đo chưa xong, nhưng nó lộ ra hai thứ
+ngay trong nửa giờ đầu.
+
+#### Hạn mức ngày không phải bức tường cứng
+
+Script đầu tiên tuyên bố **"đã reset"** ở lời gọi đầu tiên thành công, lúc 16:33
+UTC — chỉ 29 phút sau khi cạn lúc 16:04. Không khớp giả thuyết nửa đêm nào.
+
+Không nhận kết quả đó. Kiểm lại bằng một loạt sáu lời gọi cách nhau 10 giây:
+
+```
+16:34:36  429 GenerateRequestsPerDayPerProjectPerModel-FreeTier tran=500
+16:34:47  200
+16:34:57  429 ...
+16:35:08  429 ...
+16:35:19  200
+16:35:29  429 ...
+--- 2/6 thanh cong ---
+```
+
+Quota **chưa reset — nó RÒ**. Sau khi cạn vẫn có khoảng 1/3 lời gọi lọt qua,
+nhiều khả năng vì quota được đếm phân tán và các replica không nhất quán tức
+thời.
+
+Hệ quả cho phép đo: **"một lần thành công" là tín hiệu vô nghĩa.** Đây là lần
+thứ năm trong phiên một kênh đo nói sai, và lần này nó nói sai theo chiều
+*dương* — nguy hiểm hơn, vì một kết quả dương giả trông y hệt thành công. Ngưỡng
+mới là **ba lần liên tiếp** ở nhịp 10 phút: ở tỉ lệ rò ~1/3 thì xác suất lọt
+ngẫu nhiên ba lần liền chỉ ~4%.
+
+#### Nhánh lỗi đi nhầm đường, do chính lượt 7 tạo ra
+
+Gắn trần ngày xong thì `_post` ném `RateLimitedError` khi hết hạn mức. Trong
+`crawl_all_sources`, nó rơi vào nhánh:
+
+```python
+except AdapterError:
+    logger.warning("gọi LLM hỏng, lưu bài dạng chưa dịch")
+```
+
+Tức **trái đúng cái luật job này vẫn giữ**. Hai lỗi trông giống nhau — cùng là
+`AdapterError` từ một lời gọi LLM hỏng — nhưng hệ quả ngược nhau:
+
+| lỗi | phải làm gì | vì sao |
+|---|---|---|
+| Hết hạn mức | **bỏ lại**, dừng cả lượt | Bài ở lại feed, lượt sau dịch ngay lần đầu nhìn thấy bằng hạn mức ngày mới |
+| Model trả rác, mạng chập chờn | **lưu**, chưa có tiếng Việt | Vứt cả bài đi vì một lần gọi hỏng là mất tin thật |
+
+Lưu bài dạng chưa dịch lúc hết hạn mức là đẩy nó vào hàng tồn, nơi nó phải cạnh
+tranh với 477 bài khác dưới ngân sách ~100 lời gọi/ngày.
+
+Nhánh `deferred` cũ chỉ canh trần MỖI LƯỢT, nên trần NGÀY vừa thêm vào đã rơi
+thẳng vào nhánh sai. Nay tách `RateLimitedError` ra trước, và dừng **cả lượt**
+chứ không chỉ nguồn đang dở: duyệt tiếp là dập mốc `last_crawled_at` cho những
+nguồn chưa hề được phục vụ, đúng cái starvation đã sửa ở lượt 2.
+
+#### Nghiệm thu
+
+**609 test** (607 -> 609), ruff + `mypy app tests` sạch. Hai test mới chốt **cả
+hai chiều** của sự phân biệt trên, và chiều "hết hạn mức" đã xác minh đỏ khi gỡ
+nhánh ra — đỏ đúng bằng bài bị lưu dạng chưa dịch.
+
+Phép đo mốc reset đang chạy trong container `app`, ghi ra `/tmp/reset.log`, nhịp
+10 phút, trần 30 giờ. Ba mốc để đối chiếu khi có kết quả:
+
+| mốc | nghĩa |
+|---|---|
+| 00:00 UTC | nửa đêm UTC |
+| 07:00 UTC | nửa đêm Thái Bình Dương (PDT) |
+| ~16:04 UTC | tròn 24h kể từ lúc cạn — cửa sổ trượt |
+
+Biết mốc thật thì `GENERATE_DAILY_LIMIT` nâng sát 500 được, và bộ đếm khoá theo
+đúng ngày của họ thay vì ngày UTC.
+
+**Còn nợ:**
+
+- Mốc sang ngày của Google — **đang đo**, đọc `/tmp/reset.log` trong container `app`.
+- Chưa biết lời gọi RÒ có bị tính vào hạn mức ngày hôm sau không.
+- `EMBEDDING_THRESHOLD = 0.82` chưa hiệu chỉnh trên cách so mới (tên với tên).
+- Nhóm nguồn tiếng Việt vẫn không có tóm tắt.
+- Catalog 21.268/185.231.
+- Ảnh thẻ chia sẻ vẫn font bitmap, **không có dấu tiếng Việt**.
+- `POST /library/epic/bulk` vẫn 501.
+- Twitch vẫn chặn mảng streamer của Phase 7.
