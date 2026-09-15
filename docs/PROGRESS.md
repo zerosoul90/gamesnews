@@ -1801,9 +1801,75 @@ PCGamesN trở lại với 75 entry, không nguồn nào bị bỏ.
 **Còn nợ:**
 
 - Hạn mức **ngày** của `gemini-3.5-flash-lite` vẫn chưa đo được.
-- `crawl_all_sources` chỉ có tally **tổng**, nên một nguồn tụt xuống 0 không lộ
-  ra. Đã giấu GameK nhiều ngày và giấu PCGamesN thêm một lượt nữa. Cần đếm theo
-  từng nguồn, hoặc cảnh báo khi một nguồn `fetched: 0` nhiều lượt liên tiếp.
+- ~~`crawl_all_sources` chỉ có tally tổng~~ — đã làm, xem entry ngay dưới.
+- Nhóm nguồn tiếng Việt nay **không có tóm tắt**.
+- `EMBEDDING_THRESHOLD = 0.82` chưa hiệu chỉnh trên cách so mới (tên với tên).
+- Catalog 19.077/185.231.
+- Ảnh thẻ chia sẻ vẫn font bitmap, **không có dấu tiếng Việt**.
+- `POST /library/epic/bulk` vẫn 501.
+- Twitch vẫn chặn mảng streamer của Phase 7.
+
+### 2026-09-15 (lượt 5) — Đếm theo từng nguồn, vì tổng số không nói được gì
+
+Món nợ vừa ghi ở entry trên, và là lỗ hổng **quan sát** chứ không phải một bug
+đơn lẻ: cả GameK (nhiều ngày) lẫn PCGamesN (vài giờ) đều câm trong khi mọi lượt
+crawl báo `sources: 15, fetched: 644` và trông hoàn toàn khoẻ. Một nguồn tụt
+xuống 0 không làm tổng bằng 0 — nó chỉ biến mất khỏi một con số hàng trăm.
+
+Hai thứ thêm vào:
+
+| | |
+|---|---|
+| `sources_empty` trong tally | Khác 0 là có nguồn đang câm, thấy ngay ở dòng log Arq mỗi lượt |
+| `empty_streak` trên document nguồn | Số lượt **liên tiếp** kéo 0 bài; WARNING mỗi lượt, lên ERROR khi chạm `EMPTY_STREAK_ALERT = 4` |
+
+`EMPTY_STREAK_ALERT = 4` vì cron chạy 15 phút một lượt, nên 4 là đúng **một giờ
+câm**: đủ dài để bỏ qua một lần trục trặc mạng hay feed bảo trì, đủ ngắn để
+không mất cả ngày tin.
+
+Chuỗi đếm nằm trên document nguồn chứ không trong bộ nhớ tiến trình: worker khởi
+động lại vài lần một ngày, mà phân biệt "trục trặc một lượt" với "chết hẳn" cần
+nhiều lượt — bộ đếm trong RAM sẽ reset đúng lúc nó sắp nói được điều gì đó. Và
+phải **reset khi nguồn sống lại**, nếu không cảnh báo kêu mãi sau một lần trục
+trặc rồi sớm bị bỏ qua, đúng lúc nó sắp nói thật. Có test riêng cho chốt đó.
+
+`fetched` ở đây là số entry bóc ra được **trước** khi khử trùng, nên feed khoẻ
+luôn trả vài chục kể cả khi không có tin mới. Về 0 là bất thường thật, không
+phải "hôm nay ít tin".
+
+#### Nghiệm thu, và một phép đo suýt tự lừa mình
+
+**597 test** (593 -> 597), ruff + `mypy app tests` sạch. Bốn test mới đều đã xác
+minh **đỏ khi gỡ fix ra**.
+
+Chạy job thật với một nguồn giả trỏ vào tên miền không tồn tại, bốn lượt liên
+tiếp:
+
+```
+luot 1: sources_empty=1  [('WARNING', 'NGUON-GIA-DE-THU', 1)]
+luot 2: sources_empty=1  [('WARNING', 'NGUON-GIA-DE-THU', 2)]
+luot 3: sources_empty=1  [('WARNING', 'NGUON-GIA-DE-THU', 3)]
+luot 4: sources_empty=1  [('ERROR',   'NGUON-GIA-DE-THU', 4)]
+```
+
+`sources_empty` đúng bằng 1 mỗi lượt, tức 15 nguồn thật vẫn khoẻ. Nguồn giả đã
+xoá sau khi đo.
+
+**Lần chạy đầu của phép đo này trả về danh sách rỗng**, dù stderr rõ ràng in ba
+WARNING rồi một ERROR. Nguyên nhân không nằm trong code đang kiểm: đưa script
+vào container bằng cách **pipe qua PowerShell** thì mọi ký tự tiếng Việt trong
+chính mã nguồn bị thay bằng `?` — PowerShell encode sang tiến trình native theo
+codepage console, không phải UTF-8. Chuỗi so sánh trong probe vì thế không bao
+giờ khớp chuỗi thật trong image.
+
+Cùng họ với bài học đã biết về Git Bash, chỉ khác vỏ. Script có ký tự ngoài
+ASCII thì phải `docker compose cp` vào container rồi mới chạy — pipe là hỏng
+lặng lẽ. Và nếu lúc ấy tin vào stderr thay vì sửa kênh đo, thì "đã xác minh" sẽ
+là một câu nói dựa trên một phép đo hỏng.
+
+**Còn nợ:**
+
+- Hạn mức **ngày** của `gemini-3.5-flash-lite` vẫn chưa đo được.
 - Nhóm nguồn tiếng Việt nay **không có tóm tắt**.
 - `EMBEDDING_THRESHOLD = 0.82` chưa hiệu chỉnh trên cách so mới (tên với tên).
 - Catalog 19.077/185.231.
