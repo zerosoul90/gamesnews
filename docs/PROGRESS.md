@@ -1574,11 +1574,102 @@ tồn, 199 bài trùng bỏ qua có chủ ý, 17.283 game.
 
 - Hạn mức **ngày** của `gemini-3.5-flash-lite` chưa đo được — cả phiên không
   chạm tới. Nay thân lỗi in `quotaId` nên lúc chạm sẽ đọc ra ngay là chiều nào.
-- Feed GameK luôn hỏng: `bozo` vì *"declared as us-ascii, but parsed as utf-8"*,
-  và `crawl_rss` coi mọi `bozo` là chí mạng nên trả rỗng — trong khi feedparser
-  vẫn bóc được entry. Một nguồn tiếng Việt đang câm hoàn toàn.
+- ~~Feed GameK luôn hỏng~~ — đã sửa, xem entry ngay dưới. Nguyên nhân ghi ở đây
+  (`bozo` vì encoding) **không phải thứ đang chặn nó**.
 - `EMBEDDING_THRESHOLD = 0.82` chưa hiệu chỉnh trên cách so mới (tên với tên).
 - Catalog 17.283/185.231.
+- Ảnh thẻ chia sẻ vẫn font bitmap, **không có dấu tiếng Việt**.
+- `POST /library/epic/bulk` vẫn 501.
+- Twitch vẫn chặn mảng streamer của Phase 7.
+
+### 2026-09-15 (lượt 2) — GameK câm, và một cơ chế công bằng chưa bao giờ chạy
+
+Món nợ ghi ở entry trên là *"feed GameK luôn hỏng vì `bozo` encoding"*. Đo lại
+thì **cả hai vế đều sai**, và cái sai thứ hai mới đáng sợ.
+
+#### Vế thứ nhất: feed đã tự lành
+
+```
+GameK (HTTP 200, 35728 bytes)  bozo = False  so entry = 50  encoding = utf-8
+```
+
+Bản sửa timeout ở lượt trước chữa luôn nó mà không ai nhắm tới: trước đây
+`feedparser` tự tải qua `urllib` và lấy `Content-Type` của HTTP khai `us-ascii`,
+chỏi với nội dung utf-8 nên sinh `CharacterEncodingOverride`. Nay nó chỉ nhận
+**bytes** nên tự đọc khai báo XML — không còn cái header để mà chỏi.
+
+Đáng ghi vì nó lặp lại bài học của chính lượt trước: nguyên nhân ghi trong sổ nợ
+là **giả thuyết chưa đo**, không phải kết luận. Chép lại nó lần sau là sửa nhầm
+chỗ.
+
+#### Vế thứ hai: `sort` công bằng bị vô hiệu bởi dòng ngay dưới nó
+
+Feed lành mà GameK vẫn **0 bài**, trong khi 14 nguồn còn lại có 16-134 bài. Lý
+do nằm ở cuối vòng lặp `crawl_all_sources`:
+
+```python
+await update_last_crawled(db, source_id)   # chạy cho MỌI nguồn
+```
+
+Mốc được dập kể cả cho nguồn vừa bị bỏ lại trắng vì hết trần LLM. Mà cả 15 nguồn
+đều được dập trong **cùng một lượt**, theo đúng thứ tự vừa duyệt — nên lượt sau
+`sort("last_crawled_at", 1)` trả về **y hệt thứ tự cũ**. Thứ tự bị đóng băng,
+đúng cái mà `sort` sinh ra để phá:
+
+```
+ 1. 13:15:14  GameLandVN          bai=16
+ ...
+14. 13:16:58  Game Developer      bai=50
+15. 13:16:58  GameK — PC/Console  bai=0     <- luôn cuối, luôn hết trần trước khi tới
+```
+
+Chú thích ngay trên `sort` mô tả đúng cái bẫy này (*"mỗi lần chạm trần LLM là
+đúng những nguồn cuối bảng bị bỏ lại — lần nào cũng thế"*) và tin rằng `sort` đã
+xử lý xong. Cơ chế có mặt, có chú thích, có vẻ hợp lý, và **chưa bao giờ chạy**.
+
+Sửa: chỉ dập mốc khi nguồn đã phục vụ HẾT.
+
+```python
+if bo_lai == 0:
+    await update_last_crawled(db, source_id)
+```
+
+Nguồn còn nợ việc giữ nguyên mốc cũ nên lượt sau nó lên đầu; nguồn được phục vụ
+xong bị đẩy xuống cuối. Nguồn có feed chết (0 bài) vẫn dập bình thường — không
+có gì bỏ lại thì không nợ gì.
+
+#### Nghiệm thu trên hệ thống chạy thật
+
+Hai lượt cron liên tiếp sau khi dựng lại image:
+
+| lượt | GameK ở vị trí | bài trong kho | `deferred` |
+|---|---|---|---|
+| trước sửa | 15/15 | 0 | 123 |
+| 13:31 | **2**/15 | 0 | 52 |
+| 13:46 | **1**/15 | **7** | 43 |
+
+Vòng xoay chạy thật: 13 nguồn phục vụ xong bị đẩy xuống mốc 13:30, hai nguồn còn
+nợ giữ mốc 13:16:58 và nhảy lên đầu. `deferred` giảm đều 123 -> 52 -> 43.
+
+Bài GameK vào kho kèm tóm tắt tiếng Việt đọc được — nguồn tiếng Việt nên bước
+"dịch" chỉ là viết gọn lại, còn bản tóm tắt mới là thứ có giá trị.
+
+**587 test** (586 -> 587), ruff + `mypy app tests` sạch. Test mới đã xác minh
+**đỏ khi gỡ fix ra**: hết trần LLM thì nguồn bị bỏ lại phải giữ nguyên mốc.
+
+Số liệu lúc chốt: 1.143 bài (từ 1.008), **291 có tiếng Việt (từ 157)**, 629 còn
+tồn, 19.077 game.
+
+**Còn nợ:**
+
+- Hạn mức **ngày** của `gemini-3.5-flash-lite` vẫn chưa đo được.
+- `crawl_rss` vẫn coi **mọi** `bozo` là chí mạng và trả rỗng, trong khi
+  feedparser thường vẫn bóc được entry. GameK hết dính nhưng cái bẫy còn nguyên
+  cho nguồn sau.
+- Nguồn tiếng Việt vẫn tốn một lời gọi LLM như nguồn tiếng Anh, dù `Source` đã
+  có sẵn trường `language`. Trần 10 bài/lượt đang là tài nguyên khan hiếm nhất.
+- `EMBEDDING_THRESHOLD = 0.82` chưa hiệu chỉnh trên cách so mới (tên với tên).
+- Catalog 19.077/185.231.
 - Ảnh thẻ chia sẻ vẫn font bitmap, **không có dấu tiếng Việt**.
 - `POST /library/epic/bulk` vẫn 501.
 - Twitch vẫn chặn mảng streamer của Phase 7.
