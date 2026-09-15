@@ -1465,3 +1465,120 @@ qua có chủ ý), 629 dòng chờ duyệt tay, 0 dòng `resolved_by: auto`.
 - Ảnh thẻ chia sẻ vẫn font bitmap, **không có dấu tiếng Việt**.
 - `POST /library/epic/bulk` vẫn 501.
 - Twitch vẫn chặn mảng streamer của Phase 7.
+
+### 2026-09-15 — Trần 20/ngày, và một con số không có đơn vị
+
+Lượt này bắt đầu bằng phép nghiệm thu mà entry trên hẹn (*"lượt cron ngày hôm
+sau mới nói được"*). Nó chưa từng xảy ra: **Docker Desktop không chạy**, mọi
+container đứng từ `2026-09-13T17:30 UTC`. Hai ngày không có lượt cron nào, nên
+cũng không có gì để nghiệm thu. Bật lại stack là việc đầu tiên.
+
+#### Hạn mức ngày, món nợ ghi từ 09-13, hoá ra là 20
+
+Đo qua chính job (không gọi tay — lời gọi không qua bucket làm sai mọi phép đo
+hạn mức), và đọc được ba con số mâu thuẫn nhau trong cùng một giờ:
+
+| lượt | thân 429 nói | thật ra là |
+|---|---|---|
+| 10:26 | `trần=5` | chiều PHÚT |
+| 10:32 | `trần=20` | chiều NGÀY |
+| 09-13 | `trần=20` | chiều NGÀY, **bị đọc thành 20/phút** |
+
+Lấy thân 429 thô mới thấy chiều nằm ở đâu:
+
+```
+quotaMetric: generativelanguage.googleapis.com/generate_content_free_tier_requests
+quotaId:     GenerateRequestsPerDayPerProjectPerModel-FreeTier
+quotaValue:  20
+```
+
+`gemini-2.5-flash` gói free là **20 lời gọi mỗi NGÀY**. Ở trần đó job dịch tin
+không tồn tại được: riêng 671 bài tồn đã là hơn ba mươi năm.
+
+#### Lỗi gốc: `_describe_error` in trường không phân biệt được gì
+
+Hàm này sinh ra để khỏi phải "dò tay xem hạn mức theo phút hay theo ngày" —
+docstring của nó nói đúng câu ấy. Nhưng nó in `quotaMetric`, chuỗi **giống hệt
+nhau ở cả hai chiều**, và bỏ `quotaId`, trường duy nhất ghi `PerDay`/`PerMinute`:
+
+```python
+metric = vi_pham.get("quotaMetric") or vi_pham.get("quotaId") or "?"
+```
+
+`quotaId` chỉ được dùng khi `quotaMetric` vắng mặt, tức không bao giờ. Hàm hỏng
+đúng việc nó sinh ra để làm, và giá phải trả là bốn hằng số trần của hai job
+tin tức đều suy sai từ một con số thiếu đơn vị. **Một cái trần không có đơn vị
+thì chưa phải số đo.**
+
+#### Đổi model, vì chọn model chính là chọn trần
+
+Hạn mức tính riêng theo từng model (`...PerProjectPerModel`). `gemini-2.5-flash-lite`
+đã bị Google gỡ cho key mới (404, tự chỉ sang bản 3.5). Chốt
+**`gemini-3.5-flash-lite`**: đo được **15 lời gọi/phút**, cả phiên không chạm
+chiều ngày. Không dùng alias `-latest` — nó đổi model dưới chân mình, mà đổi
+model là đổi cả trần lẫn giọng văn bản dịch.
+
+#### `capacity` vừa là nhịp vừa là burst
+
+Đặt capacity 4 trên trần 5 vẫn 429, dù 4 là "80% của 5". Lý do: bucket đầy cho
+đi C lời gọi **tức thì** rồi refill C lời nữa trong cùng 60 giây — tối đa ~2C
+rơi vào MỘT cửa sổ của Google. Đo đúng thế: 7 lời gọi lọt trong 36 giây.
+
+Nên điều kiện đúng là `2C ≤ trần`, không phải `C ≤ 80% trần`. Với trần 15 thì
+C = 7. Cái "chừa 20%" của bản trước chỉnh *nhịp* mà không chạm *burst*, mà burst
+mới là thứ vượt cửa sổ — ở trần 20 cái sai này cũng đã có (capacity 16 cho phép
+~32/phút), chỉ là bị đổ nhầm cho nguyên nhân khác.
+
+Trần đo được nay là hằng số riêng `GENERATE_CEILING_PER_MINUTE`, có test chốt
+`2 * capacity <= trần`, để lần sau nới capacity là thấy đỏ ngay.
+
+#### Hai lý do khác nhau làm `crawl_all_sources` chết mỗi lượt
+
+Hết 429 rồi thì lộ ra tầng dưới: **cả hai lượt cron 10:50 và 11:20 đều chết
+`TimeoutError` ở đúng 299,99 giây**, mà traceback chỉ vào hai chỗ khác nhau.
+
+1. **Trần 21 bài/lượt quá nhiều.** Ngân sách phải tính theo thời gian thật của
+   một bài, không chỉ thời gian chờ token: ~8,6 giây chờ bucket **cộng** một lời
+   gọi embedding và một truy vấn Qdrant của bước gắn entity ≈ 12 giây/bài. 21
+   bài là ~250 giây, chưa tính 15 feed. Hạ xuống **10**.
+
+2. **`feedparser.parse(url)` tải qua mạng mà KHÔNG có timeout.** Đẩy sang thread
+   gỡ được chuyện khoá event loop nhưng không gỡ được chuyện chờ vô hạn —
+   `feedparser` dùng `urllib` và không nhận tham số timeout nào. Hậu quả nặng
+   hơn một lượt hỏng: job duyệt nguồn theo thứ tự *"lâu chưa crawl nhất đi
+   trước"* cho công bằng, nên một nguồn treo bỏ đói **mọi nguồn xếp sau nó,
+   lượt nào cũng thế** — đúng cái mà thứ tự kia sinh ra để tránh.
+
+   Tách hẳn: tải bằng httpx (`FEED_TIMEOUT_SECONDS = 20`), rồi đưa **bytes** cho
+   feedparser. Job truyền client dùng chung vào để khỏi bắt tay TLS lại mỗi nguồn.
+
+#### Nghiệm thu, và một lần đo nhầm tầng
+
+**586 test** (579 -> 586), ruff + `mypy app tests` sạch. Năm test mới đã xác
+minh **đỏ khi gỡ từng fix ra**: `quotaId` trong thân 429 (cả hai chiều),
+`2C ≤ trần`, feedparser phải nhận bytes, và mỗi nguồn phải có trần chờ.
+
+Chạy thật sau khi dựng lại image: **15/15 bài, 0 lỗi, 180,5 giây** — đúng ngân
+sách 3 phút đã tính. Không còn 429 nào từ Google; lần dừng duy nhất là bucket
+tự phanh (`bucket cạn`), tức hệ thống tự kìm thay vì bị bên kia từ chối.
+
+Phần tự làm hỏng: ba lượt "nghiệm thu" đầu tiên đo **code cũ**. Container chạy
+image đã bake, không bind mount, nên `docker compose restart` không nạp code
+mới — phải `build`. Chúng vẫn gọi `gemini-2.5-flash` và vẫn in `quotaMetric`
+suốt, mà vẫn suýt được đọc là kết quả.
+
+Số liệu lúc chốt: 1.008 bài (từ 859), **157 có tiếng Việt (từ 30)**, 652 còn
+tồn, 199 bài trùng bỏ qua có chủ ý, 17.283 game.
+
+**Còn nợ:**
+
+- Hạn mức **ngày** của `gemini-3.5-flash-lite` chưa đo được — cả phiên không
+  chạm tới. Nay thân lỗi in `quotaId` nên lúc chạm sẽ đọc ra ngay là chiều nào.
+- Feed GameK luôn hỏng: `bozo` vì *"declared as us-ascii, but parsed as utf-8"*,
+  và `crawl_rss` coi mọi `bozo` là chí mạng nên trả rỗng — trong khi feedparser
+  vẫn bóc được entry. Một nguồn tiếng Việt đang câm hoàn toàn.
+- `EMBEDDING_THRESHOLD = 0.82` chưa hiệu chỉnh trên cách so mới (tên với tên).
+- Catalog 17.283/185.231.
+- Ảnh thẻ chia sẻ vẫn font bitmap, **không có dấu tiếng Việt**.
+- `POST /library/epic/bulk` vẫn 501.
+- Twitch vẫn chặn mảng streamer của Phase 7.
