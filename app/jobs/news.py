@@ -37,7 +37,12 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING, IndexModel
 from pymongo.errors import DuplicateKeyError
 
-from app.adapters.base import AdapterError, RedisDailyBudget, RedisTokenBucket
+from app.adapters.base import (
+    AdapterError,
+    RateLimitedError,
+    RedisDailyBudget,
+    RedisTokenBucket,
+)
 from app.adapters.llm.gemini import GENERATE_DAILY_LIMIT, GENERATE_RATE, GeminiAdapter
 from app.core.config import get_settings
 from app.models.article import NewsArticle
@@ -188,6 +193,9 @@ async def crawl_all_sources(ctx: dict[str, Any]) -> dict[str, int]:
         "deferred": 0,
     }
     llm_calls = 0
+    # Hết hạn mức thì dừng CẢ lượt, không chỉ dừng nguồn đang dở. Xem cuối vòng
+    # lặp nguồn: duyệt tiếp là dập mốc cho những nguồn chưa hề được phục vụ.
+    het_han_muc = False
 
     # Nguồn lâu chưa crawl nhất đi trước. Không có `sort` này thì thứ tự luôn
     # cố định, nên mỗi lần chạm trần LLM là **đúng những nguồn cuối bảng** bị
@@ -290,9 +298,32 @@ async def crawl_all_sources(ctx: dict[str, Any]) -> dict[str, int]:
                     parsed = await gemini.summarize_and_translate(
                         title=article.title, content=article.original_content
                     )
+                except RateLimitedError as exc:
+                    # HẾT HẠN MỨC — phải đi đúng đường của `deferred` ở trên, chứ
+                    # KHÔNG phải đường "lưu bài dạng chưa dịch" ngay dưới.
+                    #
+                    # Hai thứ trông giống nhau (cùng là `AdapterError` từ một lời
+                    # gọi LLM hỏng) nhưng hệ quả ngược nhau. Lưu bài dạng chưa
+                    # dịch nghĩa là nó rời khỏi feed và rơi vào hàng tồn, nơi nó
+                    # phải cạnh tranh với 477 bài khác dưới ngân sách ~100
+                    # lời gọi/ngày. Bỏ lại thì lượt sau nhặt lại từ feed và được
+                    # dịch NGAY LẦN ĐẦU nhìn thấy, bằng hạn mức của ngày mới.
+                    #
+                    # Lỗ này lộ ra ngay khi gắn trần ngày: trước đó nhánh
+                    # `deferred` chỉ canh trần MỖI LƯỢT, nên hết hạn mức ngày lại
+                    # rơi vào đúng nhánh sai.
+                    tally["deferred"] += 1
+                    bo_lai += 1
+                    logger.warning(
+                        "hết hạn mức, dừng lượt crawl",
+                        extra={"url": article.url, "error": repr(exc)},
+                    )
+                    het_han_muc = True
+                    break
                 except AdapterError as exc:
-                    # Bài vẫn được lưu, chỉ là chưa có bản tiếng Việt. Vứt cả
-                    # bài đi vì một lần gọi LLM hỏng là mất tin thật.
+                    # Lỗi KHÁC (model trả rác, mạng chập chờn): bài vẫn được lưu,
+                    # chỉ là chưa có bản tiếng Việt. Vứt cả bài đi vì một lần gọi
+                    # LLM hỏng là mất tin thật.
                     logger.warning(
                         "gọi LLM hỏng, lưu bài dạng chưa dịch",
                         extra={"url": article.url, "error": repr(exc)},
@@ -339,6 +370,14 @@ async def crawl_all_sources(ctx: dict[str, Any]) -> dict[str, int]:
         # bài) vẫn được dập bình thường — không có gì bỏ lại thì không nợ gì.
         if bo_lai == 0:
             await update_last_crawled(db, source_id)
+
+        if het_han_muc:
+            # Hết hạn mức thì mọi nguồn còn lại cũng sẽ hết. Duyệt tiếp chỉ để
+            # dập mốc `last_crawled_at` cho chúng — mà dập xong là chúng tụt
+            # xuống cuối hàng dù chưa được phục vụ gì, đúng cái starvation đã
+            # sửa ở lượt 2. Nên dừng hẳn, để chúng giữ mốc cũ và đi đầu lượt sau.
+            logger.warning("dừng cả lượt crawl: hết hạn mức LLM", extra=tally)
+            break
 
     logger.info("crawl tin: xong lượt", extra=tally)
     return tally

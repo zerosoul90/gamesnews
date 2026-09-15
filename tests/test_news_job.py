@@ -22,6 +22,7 @@ from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import SecretStr
 
+from app.adapters.base import RateLimitedError, TransientError
 from app.adapters.llm.gemini import LLMParsedArticle
 from app.core.config import get_settings
 from app.jobs import news
@@ -553,3 +554,58 @@ async def test_cam_du_lau_thi_keu_to_hon(
 
     muc = [r.levelno for r in caplog.records if r.message == "nguồn không kéo được bài nào"]
     assert muc == [logging.ERROR]
+
+
+async def test_het_han_muc_thi_bo_lai_chu_khong_luu_chua_dich(
+    mongo_db: Db, no_network: Any, fake_gemini: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Hết hạn mức phải đi đường `deferred`, KHÔNG đi đường "lưu chưa dịch".
+
+    Hai thứ trông giống nhau — cùng là `AdapterError` từ một lời gọi LLM hỏng —
+    nhưng hệ quả ngược nhau. Lưu bài dạng chưa dịch nghĩa là nó rời khỏi feed và
+    rơi vào hàng tồn, nơi phải cạnh tranh dưới ngân sách ~100 lời gọi/ngày. Bỏ
+    lại thì lượt sau nhặt lại từ feed và được dịch ngay lần đầu nhìn thấy, bằng
+    hạn mức của ngày mới.
+
+    Lỗ này lộ ra đúng lúc gắn trần NGÀY: trước đó nhánh `deferred` chỉ canh trần
+    mỗi lượt, nên hết hạn mức ngày lại rơi vào nhánh sai.
+    """
+    fake = fake_gemini(None)
+
+    async def het_han_muc(*a: Any, **kw: Any) -> Any:
+        raise RateLimitedError("hết hạn mức NGÀY gemini_generate: đã dùng 450/450")
+
+    monkeypatch.setattr(fake, "summarize_and_translate", het_han_muc)
+
+    await add_source(mongo_db)
+    no_network([article("Tin", "https://ign.example/het-quota", "nội dung đủ dài")])
+
+    tally = await news.crawl_all_sources({"clients": FakeClients(mongo_db)})
+
+    assert tally["deferred"] == 1
+    assert tally["stored"] == 0, "hết hạn mức thì KHÔNG được lưu bài dạng chưa dịch"
+    assert await mongo_db.articles.count_documents({}) == 0
+
+
+async def test_loi_llm_khac_thi_van_luu_bai(
+    mongo_db: Db, no_network: Any, fake_gemini: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Chiều ngược lại của chốt trên: model trả rác hay mạng chập chờn thì bài
+    VẪN phải được lưu. Vứt cả bài đi vì một lần gọi LLM hỏng là mất tin thật."""
+    fake = fake_gemini(None)
+
+    async def hong(*a: Any, **kw: Any) -> Any:
+        raise TransientError("mạng chập chờn")
+
+    monkeypatch.setattr(fake, "summarize_and_translate", hong)
+
+    await add_source(mongo_db)
+    no_network([article("Tin", "https://ign.example/loi-khac", "nội dung đủ dài")])
+
+    tally = await news.crawl_all_sources({"clients": FakeClients(mongo_db)})
+
+    assert tally["stored"] == 1
+    assert tally["deferred"] == 0
+    doc = await mongo_db.articles.find_one({"url": "https://ign.example/loi-khac"})
+    assert doc is not None
+    assert doc["summary_vi"] is None
