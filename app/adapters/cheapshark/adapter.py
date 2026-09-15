@@ -29,15 +29,21 @@ from typing import Any
 
 import httpx
 
-from app.adapters.base import PermanentError, TransientError, classify_http_status
+from app.adapters.base import (
+    USER_AGENT,
+    PermanentError,
+    TransientError,
+    classify_http_status,
+)
 
 logger = logging.getLogger(__name__)
 
 CHEAPSHARK_API_URL = "https://www.cheapshark.com/api/1.0"
 
-# CheapShark đòi UA nhận dạng được client. Để kèm URL repo đúng như ví dụ trong
-# thông báo lỗi của họ, để nếu ta gọi sai thì họ liên hệ được.
-USER_AGENT = "GameNews/0.1 (+https://github.com/zerosoul90/gamesnews)"
+# CheapShark đòi UA nhận dạng được client (`400 "Missing or generic User-Agent
+# header detected"` nếu thiếu). Chuỗi dùng chung nằm ở `adapters/base.py`; giữ
+# lại tên cũ ở đây để chỗ gọi và test không phải đổi theo.
+__all__ = ["USER_AGENT", "CheapSharkAdapter"]
 
 # Trần thật của tham số `ids`, đo tay: gửi 26 nhận về 25, không có lỗi nào.
 IDS_BATCH = 25

@@ -14,6 +14,7 @@ import feedparser
 import httpx
 import pytest
 
+from app.adapters.base import USER_AGENT
 from app.models.source import Source
 from app.services.crawler import FEED_TIMEOUT_SECONDS, crawl_rss
 
@@ -22,6 +23,38 @@ FEED = b"""<?xml version="1.0"?>
   <item>
     <title>Tin thu nghiem</title>
     <link>https://vi.du/bai-1</link>
+    <description>Noi dung du dai de khong bi bo qua.</description>
+  </item>
+</channel></rss>
+"""
+
+
+# Khai `us-ascii` nhưng thân lại là utf-8 thật — feedparser bật `bozo` với
+# `CharacterEncodingOverride` mà vẫn bóc đủ entry. Đây đúng là hình dạng feed
+# của GameK, nguồn đã câm nhiều ngày vì mọi `bozo` bị coi là chí mạng.
+FEED_BOZO_NHUNG_DOC_DUOC = """<?xml version="1.0" encoding="us-ascii"?>
+<rss version="2.0"><channel>
+  <item>
+    <title>Tin tiếng Việt có dấu</title>
+    <link>https://vi.du/bai-vi</link>
+    <description>Nội dung tiếng Việt đủ dài để không bị bỏ qua.</description>
+  </item>
+</channel></rss>
+""".encode()
+
+# Trang HTML báo lỗi trả về thay cho feed: bozo, và KHÔNG entry nào.
+FEED_HONG_THAT = b"<!DOCTYPE html><html><body><h1>503 Service Unavailable</h1></body></html>"
+
+# Entry thiếu `link` — feed không chuẩn nay được nhận, nên phải chịu được nó.
+FEED_THIEU_TRUONG = b"""<?xml version="1.0"?>
+<rss version="2.0"><channel>
+  <item>
+    <title>Bai thieu link</title>
+    <description>Noi dung du dai de khong bi bo qua.</description>
+  </item>
+  <item>
+    <title>Bai du truong</title>
+    <link>https://vi.du/bai-2</link>
     <description>Noi dung du dai de khong bi bo qua.</description>
   </item>
 </channel></rss>
@@ -92,3 +125,54 @@ async def test_feedparser_nhan_bytes_chu_khong_tu_goi_mang(
 
     assert isinstance(thay["arg"], bytes), "đưa URL cho feedparser là mất đường đặt timeout"
     assert [b.title for b in bai] == ["Tin thu nghiem"]
+
+
+async def test_bozo_hoi_phuc_duoc_thi_van_lay_bai() -> None:
+    """`bozo` là cờ "có gì đó không chuẩn", KHÔNG phải cờ "hỏng".
+
+    Feed khai `us-ascii` rồi gửi utf-8 thì feedparser bật `bozo` mà vẫn bóc đủ
+    entry. Coi mọi `bozo` là chí mạng thì một cảnh báo về encoding là đủ để vứt
+    cả feed — GameK câm nhiều ngày vì đúng chuyện này, dù 50 entry vẫn đọc được.
+    """
+    async with client_tra(
+        lambda req: httpx.Response(200, content=FEED_BOZO_NHUNG_DOC_DUOC)
+    ) as http:
+        bai = await crawl_rss(nguon(), http)
+
+    assert [b.title for b in bai] == ["Tin tiếng Việt có dấu"]
+
+
+async def test_khong_boc_duoc_entry_nao_moi_la_hong() -> None:
+    """Trang HTML báo lỗi trả về thay cho feed: bozo VÀ không entry nào."""
+    async with client_tra(lambda req: httpx.Response(200, content=FEED_HONG_THAT)) as http:
+        assert await crawl_rss(nguon(), http) == []
+
+
+async def test_entry_thieu_truong_chi_bo_entry_do() -> None:
+    """Nay đã nhận cả feed không chuẩn, nên một entry lỗi không được làm hỏng
+    lượt của CẢ nguồn — `entry.link` thiếu thì `NewsArticle` ném AttributeError."""
+    async with client_tra(lambda req: httpx.Response(200, content=FEED_THIEU_TRUONG)) as http:
+        bai = await crawl_rss(nguon(), http)
+
+    assert [b.title for b in bai] == ["Bai du truong"]
+
+
+async def test_moi_nguon_deu_gui_user_agent_nhan_dang_duoc() -> None:
+    """UA là bắt buộc, không phải phép lịch sự.
+
+    Khi `feedparser` còn tự tải, nó gửi UA riêng và mọi nguồn đều nhận. Chuyển
+    phần tải sang httpx làm UA thành `python-httpx/...`, và **PCGamesN chặn
+    thẳng: 403** — một nguồn câm suốt mà không ai thấy, vì `crawl_all_sources`
+    chỉ đếm tổng `fetched` chứ không đếm theo từng nguồn.
+    """
+    ghi: dict[str, Any] = {}
+
+    def bat(request: httpx.Request) -> httpx.Response:
+        ghi["ua"] = request.headers.get("User-Agent")
+        return httpx.Response(200, content=FEED)
+
+    async with client_tra(bat) as http:
+        await crawl_rss(nguon(), http)
+
+    assert ghi["ua"] == USER_AGENT
+    assert "python-httpx" not in (ghi["ua"] or "")

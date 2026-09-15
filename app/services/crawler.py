@@ -5,6 +5,7 @@ import logging
 import feedparser
 import httpx
 
+from app.adapters.base import USER_AGENT
 from app.models.article import NewsArticle
 from app.models.source import Source
 from app.services.dedup import compute_simhash
@@ -22,15 +23,24 @@ async def _tai_feed(source: Source, http: httpx.AsyncClient | None) -> bytes | N
     `http` để `None` thì tự dựng client dùng một lần — giữ cho `crawl_rss` gọi
     được từ script rời và từ test mà không phải dựng sẵn client. Job thật thì
     truyền client dùng chung vào, để khỏi bắt tay TLS lại từ đầu với mỗi nguồn.
+
+    **User-Agent là bắt buộc, không phải phép lịch sự.** Khi `feedparser` còn tự
+    tải, nó gửi UA riêng của nó và mọi nguồn đều nhận. Chuyển sang httpx là UA
+    thành `python-httpx/...`, và **PCGamesN chặn thẳng: 403**. Đo 2026-09-15,
+    cùng một URL chỉ đổi mỗi UA thì 403 thành 200.
     """
+    headers = {"User-Agent": USER_AGENT}
     try:
         if http is not None:
             resp = await http.get(
-                source.url, timeout=FEED_TIMEOUT_SECONDS, follow_redirects=True
+                source.url,
+                headers=headers,
+                timeout=FEED_TIMEOUT_SECONDS,
+                follow_redirects=True,
             )
         else:
             async with httpx.AsyncClient(
-                timeout=FEED_TIMEOUT_SECONDS, follow_redirects=True
+                timeout=FEED_TIMEOUT_SECONDS, follow_redirects=True, headers=headers
             ) as client:
                 resp = await client.get(source.url)
         resp.raise_for_status()
@@ -71,11 +81,40 @@ async def crawl_rss(source: Source, http: httpx.AsyncClient | None = None) -> li
     articles = []
     now = dt.datetime.now(dt.UTC).isoformat()
 
-    if feed.bozo:
-        logger.error(f"Lỗi cú pháp RSS từ {source.name}: {feed.bozo_exception}")
+    # `bozo` KHÔNG phải cờ "hỏng", nó là cờ "có gì đó không chuẩn". Phần lớn
+    # trường hợp là cảnh báo hồi phục được — điển hình là
+    # `CharacterEncodingOverride` khi feed khai một encoding rồi gửi encoding
+    # khác — và feedparser vẫn bóc đủ entry.
+    #
+    # Coi mọi `bozo` là chí mạng thì một cảnh báo về dấu ngoặc kép là đủ để vứt
+    # cả feed. GameK dính đúng thế: `bozo` vì *"declared as us-ascii, but parsed
+    # as utf-8"*, và nguồn tiếng Việt ấy câm suốt nhiều ngày dù 50 entry vẫn
+    # bóc ra được bình thường.
+    #
+    # Câu hỏi đúng không phải "có cảnh báo không" mà là **"có bóc được gì
+    # không"**. Không entry nào mới là hỏng thật — và đó cũng là hình dạng của
+    # một trang HTML báo lỗi trả về thay cho feed.
+    if not feed.entries:
+        if feed.bozo:
+            logger.error(f"Lỗi cú pháp RSS từ {source.name}: {feed.bozo_exception}")
+        else:
+            logger.warning(f"Feed rỗng từ {source.name}")
         return []
 
+    if feed.bozo:
+        logger.warning(
+            f"Feed {source.name} không chuẩn nhưng vẫn đọc được "
+            f"({len(feed.entries)} entry): {feed.bozo_exception}"
+        )
+
     for entry in feed.entries:
+        # Nay đã nhận cả feed không chuẩn, nên không tin entry có đủ trường nữa:
+        # thiếu `link` hay `title` thì `NewsArticle` bên dưới ném AttributeError
+        # và làm hỏng lượt của CẢ nguồn vì một entry lỗi.
+        if not getattr(entry, "link", None) or not getattr(entry, "title", None):
+            logger.warning(f"Bỏ entry thiếu link hoặc title từ {source.name}")
+            continue
+
         # Lấy nội dung: tuỳ cấu trúc RSS, có feed để nội dung ở 'content', có feed để ở 'summary'
         content = ""
         if hasattr(entry, 'content'):

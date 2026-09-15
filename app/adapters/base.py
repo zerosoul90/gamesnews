@@ -29,6 +29,18 @@ from redis.asyncio import Redis
 
 logger = logging.getLogger(__name__)
 
+# User-Agent cho MỌI lời gọi ra ngoài. Kèm URL repo đúng như ví dụ trong thông
+# báo lỗi của CheapShark, để bên kia liên hệ được nếu ta gọi sai.
+#
+# Không phải chuyện lịch sự: nhiều bên CHẶN thẳng UA mặc định của thư viện.
+# CheapShark trả `400 "Missing or generic User-Agent header detected"`, và
+# PCGamesN trả **403** cho `python-httpx/...` — đo 2026-09-15, cùng một URL đổi
+# mỗi UA thì 403 thành 200.
+#
+# Ở `adapters/base.py` chứ không ở từng nơi gọi, vì nó phải giống nhau ở mọi
+# chỗ: hai bản sao của một chuỗi nhận dạng thì sớm muộn cũng trôi khỏi nhau.
+USER_AGENT = "GameNews/0.1 (+https://github.com/zerosoul90/gamesnews)"
+
 
 # ----------------------------------------------------------------- lỗi
 
