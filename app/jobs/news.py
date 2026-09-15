@@ -167,6 +167,18 @@ async def crawl_all_sources(ctx: dict[str, Any]) -> dict[str, int]:
     # cố định, nên mỗi lần chạm trần LLM là **đúng những nguồn cuối bảng** bị
     # bỏ lại — lần nào cũng thế, và tin của họ già đi rồi rụng khỏi feed trước
     # khi tới lượt. Mongo xếp null lên đầu, nên nguồn chưa crawl bao giờ đi đầu.
+    #
+    # `sort` một mình KHÔNG đủ, và suốt một thời gian dài nó không chạy: mốc
+    # `last_crawled_at` trước đây được dập cho mọi nguồn ở cuối vòng lặp, kể cả
+    # nguồn vừa bị bỏ lại trắng vì hết trần LLM. Mà cả 15 nguồn đều được dập
+    # trong cùng một lượt, theo đúng thứ tự vừa duyệt — nên lượt sau sort ra y
+    # hệt thứ tự cũ. Thứ tự bị ĐÓNG BĂNG, đúng cái mà `sort` sinh ra để phá.
+    #
+    # Đo 2026-09-15: cả 15 nguồn mang mốc trong khoảng 13:15:14-13:16:58, và
+    # `GameK — PC/Console` — nguồn cuối bảng — có **0 bài** trong kho sau nhiều
+    # ngày chạy, trong khi 14 nguồn còn lại có 16-134 bài.
+    #
+    # Nên mốc chỉ được dập khi nguồn đã phục vụ XONG (xem cuối vòng lặp).
     async for source_doc in db.sources.find({"status": "active"}).sort("last_crawled_at", 1):
         source_id: ObjectId = source_doc["_id"]
         try:
@@ -181,6 +193,9 @@ async def crawl_all_sources(ctx: dict[str, Any]) -> dict[str, int]:
         tally["sources"] += 1
         articles = await crawl_rss(source, ctx["clients"].http)
         tally["fetched"] += len(articles)
+        # Bài của RIÊNG nguồn này phải để lại. Quyết định có dập mốc hay không
+        # nằm ở đây, nên không dùng được `tally["deferred"]` của cả lượt.
+        bo_lai = 0
 
         for article in articles:
             # Nguồn là _id thật, không phải tên. Tên nguồn đổi được, và đổi rồi
@@ -209,6 +224,7 @@ async def crawl_all_sources(ctx: dict[str, Any]) -> dict[str, int]:
                 # quay lại tóm tắt bù. Bỏ qua thì lượt sau nhặt lại từ feed, vì
                 # `already_seen` tra theo URL mà URL này chưa vào kho.
                 tally["deferred"] += 1
+                bo_lai += 1
                 continue
 
             parsed = None
@@ -258,7 +274,15 @@ async def crawl_all_sources(ctx: dict[str, Any]) -> dict[str, int]:
                     db, article_id=article_id, title=article.title, url=article.url
                 )
 
-        await update_last_crawled(db, source_id)
+        # Chỉ dập mốc khi nguồn này đã được phục vụ HẾT. Còn bài bỏ lại mà vẫn
+        # dập thì nguồn tụt xuống cuối hàng đúng lúc nó đang nợ việc nhiều nhất,
+        # và vòng xoay không bao giờ tới lượt nó nữa.
+        #
+        # Giữ nguyên mốc thì lượt sau nó sort lên đầu, `already_seen` bỏ qua
+        # phần đã lưu, và phần bỏ lại được xử lý trước. Nguồn có feed chết (0
+        # bài) vẫn được dập bình thường — không có gì bỏ lại thì không nợ gì.
+        if bo_lai == 0:
+            await update_last_crawled(db, source_id)
 
     logger.info("crawl tin: xong lượt", extra=tally)
     return tally

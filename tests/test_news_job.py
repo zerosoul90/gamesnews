@@ -334,6 +334,53 @@ async def test_nguon_lau_chua_crawl_nhat_di_truoc(
     assert thu_tu == [cu, moi]
 
 
+async def test_nguon_bi_bo_lai_khong_bi_dap_moc(
+    mongo_db: Db, fake_gemini: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Hết trần LLM thì nguồn bị bỏ lại phải GIỮ NGUYÊN `last_crawled_at`.
+
+    Dập mốc cho cả nguồn vừa bị bỏ trắng là đẩy nó xuống cuối hàng đúng lúc nó
+    đang nợ việc nhiều nhất. Mà cả 15 nguồn đều được dập trong cùng một lượt,
+    theo đúng thứ tự vừa duyệt, nên lượt sau sort ra y hệt — thứ tự đóng băng và
+    nguồn cuối bảng không bao giờ tới lượt.
+
+    Đo 2026-09-15 trên kho thật: `GameK — PC/Console` nằm cuối, **0 bài** sau
+    nhiều ngày chạy, trong khi 14 nguồn còn lại có 16-134 bài.
+    """
+    monkeypatch.setattr(news, "MAX_LLM_CALLS_PER_RUN", 1)
+    fake_gemini(None)
+
+    truoc = await add_source(mongo_db)
+    await mongo_db.sources.update_one({"_id": truoc}, {"$set": {"last_crawled_at": "2026-01-01"}})
+    sau = await add_source(mongo_db)
+    await mongo_db.sources.update_one({"_id": sau}, {"$set": {"last_crawled_at": "2026-01-02"}})
+
+    # Mỗi nguồn một bài khác URL, nếu không bài của nguồn thứ hai bị tính là
+    # `already_seen` và chẳng còn gì để bỏ lại.
+    async def crawl_theo_nguon(source: Source, http: Any = None) -> list[NewsArticle]:
+        stt = len(da_crawl)
+        da_crawl.append(source)
+        return [article(f"Tin {stt}", f"https://vi.du/{stt}", f"Noi dung so {stt}")]
+
+    da_crawl: list[Source] = []
+    monkeypatch.setattr(news, "crawl_rss", crawl_theo_nguon)
+
+    dap_moc: list[ObjectId] = []
+
+    async def ghi_lai(db: Db, source_id: ObjectId) -> None:
+        dap_moc.append(source_id)
+
+    monkeypatch.setattr(news, "update_last_crawled", ghi_lai)
+
+    tally = await news.crawl_all_sources({"clients": FakeClients(mongo_db)})
+
+    assert tally["stored"] == 1, "trần là 1 lời gọi LLM nên chỉ một bài được lưu"
+    assert tally["deferred"] == 1
+    # Nguồn được phục vụ thì dập mốc; nguồn bị bỏ lại thì KHÔNG, để lượt sau nó
+    # sort lên đầu.
+    assert dap_moc == [truoc]
+
+
 async def test_van_tom_tat_ca_khi_da_gan_duoc_o_tang_1(
     mongo_db: Db, no_network: Any, fake_gemini: Any
 ) -> None:
