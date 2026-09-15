@@ -1979,3 +1979,86 @@ trong kho tồn. Chạm trần thì Google tự khai `quotaValue` — không c�
 cũng không đếm được vì log worker mất theo mỗi lần dựng lại image.
 
 Nếu hàng tồn cạn trước, kết quả chỉ là **cận dưới**, không phải trần.
+
+### 2026-09-15 (lượt 7) — Trần ngày là 500, và thôi canh quota bằng phép nhân
+
+Món nợ cuối cùng của mảng LLM, đo bằng cách làm cạn thật — nhưng làm cạn bằng
+chính job dịch bù, nên 28 lời gọi cuối cùng đều là bài thật trong kho tồn, không
+lời gọi rác nào:
+
+```
+quota=GenerateRequestsPerDayPerProjectPerModel-FreeTier trần=500
+```
+
+Không tự đếm, vì đếm cũng không ra: log worker mất theo mỗi lần dựng lại image
+(năm lần trong ngày). Con số do Google khai trong thân 429 — và đọc được là nhờ
+`_describe_error` đã sửa ở lượt 1 để in `quotaId`.
+
+#### Cấu hình khi ấy cho phép 1.320/ngày
+
+| | mỗi lượt | lượt/ngày | tối đa/ngày |
+|---|---|---|---|
+| `crawl_all_sources` | 10 | 96 | 960 |
+| `backfill_summaries` | 15 | 24 | 360 |
+| | | | **1.320** vs trần **500** |
+
+Đây là **cùng một lỗi với lượt 1**, lần thứ hai trong một ngày: trần mỗi lượt
+được suy từ nhịp/phút, trong khi thứ ràng buộc thật là chiều ngày.
+
+#### Nên bỏ hẳn cách canh quota bằng phép nhân
+
+`trần mỗi lượt nhân số lượt cron` là một phép tính có ba chỗ hỏng: nó nằm rải ở
+ba file, nó phụ thuộc lịch cron ở file thứ tư, và không ai nhớ phải chia lại khi
+đổi lịch. Nó đã sai hai lần trong cùng một ngày — đủ để kết luận cách làm chứ
+không phải con số mới là cái sai.
+
+Thêm `RedisDailyBudget` trong `adapters/base.py`, cạnh `RedisTokenBucket` và cố
+ý đặt cạnh nhau: **bucket đếm nhịp, cái này đếm tổng**, hai chiều tách biệt của
+cùng một quota mà một cái không suy ra cái kia. Chú thích trong code từ
+2026-09-13 đã tự yêu cầu đúng điều này (*"hạn mức ngày phải canh bằng một con số
+khác, ở một chỗ khác"*) nhưng khi ấy chỉ làm được một nửa.
+
+Đặt ở **adapter chứ không ở job**, trong `_post`, để không đường gọi nào lách
+được. Và chỉ tính cho `generateContent`: `batchEmbedContents` có trần ngày riêng
+(1.000, khác 500), gộp chung là để hai bên ăn lẫn hạn mức của nhau.
+
+Hệ quả sạch sẽ: hai hằng số `MAX_*_PER_RUN` nay chỉ còn canh **thời gian** một
+lượt (trần 300 giây của Arq), không còn canh quota. Hai việc khác nhau, hai chỗ
+khác nhau, và chú thích của cả hai đã sửa lại cho đúng.
+
+| hằng số | giá trị | vì sao |
+|---|---|---|
+| `GENERATE_DAILY_LIMIT` | 450 | Dưới 500 có chủ ý: bộ đếm của ta sang ngày theo mốc UTC, Google reset theo mốc của họ (**chưa đo được**). Lệch pha thì biên 10% là cái giá rẻ |
+| `GENERATE_DAILY_RESERVE_FOR_CRAWL` | 350 | Tin mới phải ra trong 2 giờ; hàng tồn chậm một ngày không ai thấy. 350 cho tin mới, 100 cho dịch bù |
+
+#### Giới hạn sản phẩm, không phải hằng số tinh chỉnh được
+
+Ở ~100 lời gọi/ngày cho dịch bù thì **477 bài tồn mất khoảng năm ngày**, và đó
+là khi không có tin mới chen vào. Lượng tin mới đo được hôm nay là 279 bài không
+trùng — cùng cỡ với chính cái trần. Gói free đặt trần cứng cho sản phẩm ở đây,
+và không cách chia nào đổi được điều đó.
+
+#### Nghiệm thu
+
+**607 test** (598 -> 607), ruff + `mypy app tests` sạch. Các chốt mới đã xác
+minh **đỏ khi gỡ fix** ở cả hai đầu: bỏ hẳn bộ đếm, và tính nhầm cả embed vào
+bộ đếm của generate.
+
+Chạy thật trên Redis trong container: hai job chung một sổ, job dịch bù bị chặn
+đúng ở sàn (`đã dùng 3/10, sàn chừa lại 7`), crawl vẫn dùng được tới lời gọi
+cuối rồi mới bị chặn ở trần.
+
+**Lệch pha hôm nay, phải biết:** sổ đếm ghi `0/450` trong khi quota Google **đã
+cạn** — bộ đếm sinh ra sau khi phép đo tiêu hết. Nên hôm nay nó vẫn cho đi và sẽ
+ăn 429 thật; job dừng lượt sạch, không mất bài. Từ ngày mai hai bên mới khớp.
+
+**Còn nợ:**
+
+- **Mốc sang ngày của Google chưa đo được.** Quota đang cạn; để ý lúc nó hết cạn
+  thì biết. Biết rồi thì `GENERATE_DAILY_LIMIT` nâng sát 500 được.
+- `EMBEDDING_THRESHOLD = 0.82` chưa hiệu chỉnh trên cách so mới (tên với tên).
+- Nhóm nguồn tiếng Việt vẫn không có tóm tắt.
+- Catalog 20.873/185.231.
+- Ảnh thẻ chia sẻ vẫn font bitmap, **không có dấu tiếng Việt**.
+- `POST /library/epic/bulk` vẫn 501.
+- Twitch vẫn chặn mảng streamer của Phase 7.
