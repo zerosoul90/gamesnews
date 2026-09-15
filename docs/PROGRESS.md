@@ -1913,73 +1913,6 @@ Test chốt trần đọc `request.extensions["timeout"]`, và đã xác minh **
 về 30** — cả ở phép so với đợt chậm đã đo.
 
 **598 test** (597 -> 598), ruff + `mypy app tests` sạch.
-
-### 2026-09-15 — Tổng kết phiên: sáu lớp, mỗi lớp chỉ lộ khi bóc lớp trên
-
-Sáu entry ở trên là sáu lượt của **cùng một phiên**. Ghi lại ở đây cái mà từng
-entry riêng lẻ không nói được: chúng là một chuỗi, và không lớp nào nhìn thấy
-được trước khi lớp trên nó được gỡ.
-
-| # | Lớp | Chỉ lộ ra sau khi |
-|---|---|---|
-| 0 | Stack chết hai ngày (Docker Desktop không chạy) | mở máy ra nghiệm thu |
-| 1 | Trần Gemini bị đọc nhầm đơn vị: 20/**ngày** chứ không phải 20/phút | bật stack, gọi thật |
-| 2 | `crawl_all_sources` chết `TimeoutError` **mọi lượt** | hết 429 |
-| 3 | Thứ tự nguồn bị đóng băng — cơ chế công bằng chưa bao giờ chạy | job chạy trọn |
-| 4 | `bozo` vứt nhầm feed, và PCGamesN 403 vì thiếu User-Agent | thứ tự xoay được |
-| 5 | Không có cách nào thấy một nguồn câm | hai nguồn câm đã được tìm ra bằng tay |
-| 6 | Trần chờ HTTP 30 giây nằm đúng trên ranh giới độ trễ | đo hạn mức ngày |
-
-Lớp 6 lộ ra khi đang dựng phép đo cho món nợ của lớp 1. Vòng tròn khép lại đúng
-chỗ nó bắt đầu.
-
-#### Ba cái bẫy lặp lại, đáng nhớ hơn từng bản sửa
-
-**1. Một con số không có đơn vị thì chưa phải số đo.** `trần=20` được chép vào
-sổ ngày 09-13 và bốn hằng số suy ra từ nó. Nó là 20/ngày. Hàm sinh ra để tránh
-đúng chuyện này (`_describe_error`) lại in `quotaMetric` — trường giống hệt nhau
-ở cả hai chiều — và bỏ `quotaId`, trường duy nhất ghi `PerDay`/`PerMinute`.
-
-**2. Số TỔNG xanh không nói gì về từng phần.** `sources: 15, fetched: 644` trông
-khoẻ mạnh trong khi GameK câm nhiều ngày và PCGamesN câm vài giờ. Một nguồn tụt
-xuống 0 không làm tổng bằng 0 — nó biến mất khỏi một con số hàng trăm. Đây cũng
-là cách tôi suýt báo cáo sai ở lớp 4: lượt crawl "thành công" ấy đã giấu một
-regression do chính bản sửa vài giờ trước gây ra.
-
-**3. Kênh đo hỏng trông y hệt kết quả âm tính.** Ba lần trong phiên:
-
-- `caplog` gom cả bản ghi của các lượt trước → so sánh vô nghĩa.
-- Probe đọc `source_id` từ document rút gọn (`_ung_vien` không project trường
-  đó) → luôn `None`, nên "0 bài lọt vào" đúng một cách vô nghĩa.
-- Pipe script qua PowerShell vào `docker exec` bóp méo **chính mã nguồn**: ký tự
-  tiếng Việt thành `?`, chuỗi so sánh không bao giờ khớp. Stderr in đúng thứ cần
-  tìm trong khi danh sách bắt được rỗng.
-
-Cả ba đều có một lối thoát sai rất sẵn: tin vào cái nhìn thấy (stderr, con số 0)
-thay vì sửa kênh đo. Luật rút ra: **trước khi kết luận từ một phép đo âm tính,
-kiểm rằng phép đo ấy còn biết nói "có".**
-
-#### Số liệu
-
-| | đầu phiên | cuối phiên |
-|---|---|---|
-| bài trong kho | 859 | **1.224** |
-| **có tiếng Việt** | **30** | **486** |
-| hàng tồn | 684 | 502 |
-| game trong catalog | 16.491 | 20.873 |
-| test | 579 | **598** |
-
-11 commit, CI xanh. Mọi bản sửa đều có test đã xác minh **đỏ khi gỡ fix ra**.
-
-#### Đang dở
-
-Phép đo hạn mức **ngày** của `gemini-3.5-flash-lite` vẫn đang chạy: làm cạn trần
-bằng chính job dịch bù, nên mỗi lời gọi vừa tiến tới trần vừa dịch thật một bài
-trong kho tồn. Chạm trần thì Google tự khai `quotaValue` — không cần tự đếm, mà
-cũng không đếm được vì log worker mất theo mỗi lần dựng lại image.
-
-Nếu hàng tồn cạn trước, kết quả chỉ là **cận dưới**, không phải trần.
-
 ### 2026-09-15 (lượt 7) — Trần ngày là 500, và thôi canh quota bằng phép nhân
 
 Món nợ cuối cùng của mảng LLM, đo bằng cách làm cạn thật — nhưng làm cạn bằng
@@ -2062,3 +1995,86 @@ cạn** — bộ đếm sinh ra sau khi phép đo tiêu hết. Nên hôm nay nó
 - Ảnh thẻ chia sẻ vẫn font bitmap, **không có dấu tiếng Việt**.
 - `POST /library/epic/bulk` vẫn 501.
 - Twitch vẫn chặn mảng streamer của Phase 7.
+
+### 2026-09-15 — Tổng kết phiên: bảy lớp, mỗi lớp chỉ lộ khi bóc lớp trên
+
+Bảy entry ở trên là bảy lượt của **cùng một phiên**. Ghi lại ở đây cái mà từng
+entry riêng lẻ không nói được: chúng là một chuỗi, và không lớp nào nhìn thấy
+được trước khi lớp trên nó được gỡ.
+
+| # | Lớp | Chỉ lộ ra sau khi |
+|---|---|---|
+| 0 | Stack chết hai ngày (Docker Desktop không chạy) | mở máy ra nghiệm thu |
+| 1 | Trần Gemini đọc nhầm đơn vị: 20/**ngày** chứ không phải 20/phút | bật stack, gọi thật |
+| 2 | `crawl_all_sources` chết `TimeoutError` **mọi lượt** | hết 429 |
+| 3 | Thứ tự nguồn đóng băng — cơ chế công bằng chưa bao giờ chạy | job chạy trọn |
+| 4 | `bozo` vứt nhầm feed, và PCGamesN 403 vì thiếu User-Agent | thứ tự xoay được |
+| 5 | Không có cách nào thấy một nguồn câm | hai nguồn câm đã phải tìm bằng tay |
+| 6 | Trần chờ HTTP 30 giây nằm đúng trên ranh giới độ trễ | bắt đầu đo hạn mức ngày |
+| 7 | Trần ngày là **500**, cấu hình cho phép **1.320** | đo xong hạn mức ngày |
+
+Lớp 6 và 7 đều lộ ra từ phép đo dựng cho món nợ của lớp 1. Vòng tròn khép lại
+đúng chỗ nó bắt đầu.
+
+#### Cùng một lỗi, hai lần, cách nhau sáu tiếng
+
+Lớp 1 và lớp 7 là **một lỗi**: trần mỗi lượt được suy từ chiều *nhịp*, trong khi
+thứ ràng buộc thật là chiều *ngày*. Lần đầu sửa bằng cách chia lại hằng số. Sáu
+tiếng sau nó hỏng lại y hệt với model mới.
+
+Đó là lúc rõ rằng con số không phải cái sai — **cách canh mới sai**. Phép nhân
+`trần mỗi lượt nhân số lượt cron` nằm rải ở ba file và phụ thuộc lịch cron ở file
+thứ tư. Nay có `RedisDailyBudget` đếm thật, và hai hằng số `MAX_*_PER_RUN` chỉ
+còn canh **thời gian** chứ không canh quota nữa.
+
+Bài học không phải "đọc kỹ đơn vị" mà là: **một quy tắc phải sửa hai lần thì
+thứ cần thay là cơ chế, không phải tham số.**
+
+#### Ba cái bẫy lặp lại
+
+**1. Một con số không có đơn vị thì chưa phải số đo.** `trần=20` được chép vào
+sổ ngày 09-13 và bốn hằng số suy ra từ nó. Hàm sinh ra để tránh đúng chuyện này
+(`_describe_error`) lại in `quotaMetric` — trường giống hệt nhau ở cả hai chiều —
+và bỏ `quotaId`, trường duy nhất ghi `PerDay`/`PerMinute`.
+
+**2. Số TỔNG xanh không nói gì về từng phần.** `sources: 15, fetched: 644` trông
+khoẻ mạnh trong khi GameK câm nhiều ngày và PCGamesN câm vài giờ. Đây cũng là
+cách tôi suýt báo cáo sai ở lớp 4: lượt crawl "thành công" ấy đang giấu một
+regression do chính bản sửa vài giờ trước gây ra.
+
+**3. Kênh đo hỏng trông y hệt kết quả âm tính.** Bốn lần trong phiên:
+
+- `caplog` gom cả bản ghi của các lượt trước → so sánh vô nghĩa.
+- Probe đọc `source_id` từ document rút gọn (`_ung_vien` không project trường
+  đó) → luôn `None`, nên "0 bài lọt vào" đúng một cách vô nghĩa.
+- Pipe script qua PowerShell vào `docker exec` bóp méo **chính mã nguồn**: ký tự
+  tiếng Việt thành `?`. Stderr in đúng thứ cần tìm trong khi danh sách bắt rỗng.
+- Driver đo chỉ ghi lỗi chứa `PerDay`/`PerMinute` → đứng im nửa giờ vì
+  `ReadTimeout` mà nhật ký hoàn toàn im lặng.
+
+Cả bốn đều có một lối thoát sai rất sẵn: tin vào cái nhìn thấy (stderr, con số 0)
+thay vì sửa kênh đo. Luật rút ra: **trước khi kết luận từ một phép đo âm tính,
+kiểm rằng phép đo ấy còn biết nói "có".**
+
+#### Số liệu
+
+| | đầu phiên | cuối phiên |
+|---|---|---|
+| bài trong kho | 859 | **1.239** |
+| **có tiếng Việt** | **30** | **516** |
+| hàng tồn | 684 | 480 |
+| game trong catalog | 16.491 | 21.268 |
+| test | 579 | **607** |
+
+14 commit, CI xanh. Mọi bản sửa đều có test đã xác minh **đỏ khi gỡ fix ra**.
+
+#### Thứ phiên này không giải quyết được
+
+Trần **500 lời gọi/ngày** của gói free là giới hạn **sản phẩm**, không phải một
+hằng số tinh chỉnh được. Lượng tin mới đo được hôm nay là 279 bài không trùng —
+cùng cỡ với chính cái trần. Hàng tồn 480 bài, ở phần ngân sách còn lại cho dịch
+bù (~100/ngày), mất khoảng năm ngày nếu không có tin mới chen vào.
+
+Nghĩa là: hệ thống nay **đủ sức theo kịp tin mới**, nhưng muốn hàng tồn vơi
+trong thời gian hợp lý thì thứ phải đổi là gói dịch vụ, không phải con số nào
+trong code.
