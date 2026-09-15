@@ -1730,12 +1730,81 @@ chúng về dịch.
 **Còn nợ:**
 
 - Hạn mức **ngày** của `gemini-3.5-flash-lite` vẫn chưa đo được.
-- `crawl_rss` vẫn coi **mọi** `bozo` là chí mạng và trả rỗng, trong khi
-  feedparser thường vẫn bóc được entry. GameK hết dính nhưng cái bẫy còn nguyên
-  cho nguồn sau.
+- ~~`crawl_rss` vẫn coi mọi `bozo` là chí mạng~~ — đã sửa, xem entry ngay dưới.
 - Nhóm nguồn tiếng Việt nay **không có tóm tắt**. Nếu sau này trang tin cần một
   đoạn mô tả cho mọi bài thì đây là chỗ phải quay lại, và lời giải không phải là
   chép `description` của RSS.
+- `EMBEDDING_THRESHOLD = 0.82` chưa hiệu chỉnh trên cách so mới (tên với tên).
+- Catalog 19.077/185.231.
+- Ảnh thẻ chia sẻ vẫn font bitmap, **không có dấu tiếng Việt**.
+- `POST /library/epic/bulk` vẫn 501.
+- Twitch vẫn chặn mảng streamer của Phase 7.
+
+### 2026-09-15 (lượt 4) — `bozo` không phải cờ "hỏng", và một nguồn câm do chính mình
+
+Món nợ cuối của chuỗi crawl: `crawl_rss` coi **mọi** `bozo` là chí mạng.
+
+```python
+if feed.bozo:
+    logger.error(...)
+    return []
+```
+
+`bozo` là cờ *"có gì đó không chuẩn"*, không phải *"hỏng"*. Phần lớn là cảnh báo
+hồi phục được — điển hình `CharacterEncodingOverride` — và feedparser vẫn bóc đủ
+entry. Luật trên biến một cảnh báo về encoding thành cái cớ vứt cả feed, đúng
+chuyện đã làm GameK câm nhiều ngày dù 50 entry vẫn đọc ra được.
+
+Câu hỏi đúng không phải *"có cảnh báo không"* mà là **"có bóc được gì không"**.
+Không entry nào mới là hỏng thật — và đó cũng là hình dạng của một trang HTML
+báo lỗi trả về thay cho feed, nên vẫn chặn được đúng ca cần chặn.
+
+Nhận feed không chuẩn thì phải chịu được entry không chuẩn: thiếu `link` hoặc
+`title` là `NewsArticle` ném `AttributeError` và làm hỏng lượt của **cả nguồn**
+vì một entry lỗi. Nay bỏ riêng entry đó. Gỡ fix ra thì test đỏ đúng bằng
+`AttributeError: object has no attribute 'link'`.
+
+#### Và một nguồn câm do chính lượt sửa hôm nay gây ra
+
+Chạy luật mới trên 15 feed thật để xem có nới quá tay không. Không nguồn nào còn
+`bozo` — nhưng bảng lộ ra thứ khác:
+
+```
+PCGamesN   403 Forbidden
+```
+
+Đây là **regression của chính bản sửa timeout sáng nay**. Khi `feedparser` còn
+tự tải, nó gửi User-Agent riêng và mọi nguồn đều nhận. Chuyển phần tải sang
+httpx làm UA thành `python-httpx/...`, và PCGamesN chặn thẳng. Đo: cùng một URL,
+chỉ đổi mỗi UA thì 403 thành 200.
+
+Nó lọt qua được vì `crawl_all_sources` chỉ đếm **tổng** `fetched`, không đếm
+theo từng nguồn — một nguồn tụt xuống 0 trong tổng 644 thì không ai thấy. Cùng
+một dạng mù đã giấu GameK suốt: số tổng xanh không nói gì về từng phần.
+
+`USER_AGENT` chuyển lên `adapters/base.py` cho cả CheapShark lẫn crawler dùng
+chung. Hai bản sao của một chuỗi nhận dạng thì sớm muộn cũng trôi khỏi nhau, mà
+CheapShark đã có sẵn cái cùng giá trị từ trước — và cùng một lý do: `400
+"Missing or generic User-Agent header detected"`.
+
+#### Nghiệm thu
+
+**593 test** (589 -> 593), ruff + `mypy app tests` sạch. Bốn test mới, ba trong
+đó đã xác minh **đỏ khi gỡ fix**: `bozo` hồi phục được vẫn phải lấy bài, entry
+thiếu trường chỉ bỏ entry đó, và UA phải nhận dạng được (đỏ với đúng chuỗi
+`python-httpx/0.28.1`). Test thứ tư — HTML hỏng trả rỗng — xanh ở cả hai chiều
+có chủ ý: nó canh bản mới **không nới quá tay**.
+
+Chạy trên 15 feed thật sau khi dựng lại image: **15/15 nguồn lấy được bài**,
+PCGamesN trở lại với 75 entry, không nguồn nào bị bỏ.
+
+**Còn nợ:**
+
+- Hạn mức **ngày** của `gemini-3.5-flash-lite` vẫn chưa đo được.
+- `crawl_all_sources` chỉ có tally **tổng**, nên một nguồn tụt xuống 0 không lộ
+  ra. Đã giấu GameK nhiều ngày và giấu PCGamesN thêm một lượt nữa. Cần đếm theo
+  từng nguồn, hoặc cảnh báo khi một nguồn `fetched: 0` nhiều lượt liên tiếp.
+- Nhóm nguồn tiếng Việt nay **không có tóm tắt**.
 - `EMBEDDING_THRESHOLD = 0.82` chưa hiệu chỉnh trên cách so mới (tên với tên).
 - Catalog 19.077/185.231.
 - Ảnh thẻ chia sẻ vẫn font bitmap, **không có dấu tiếng Việt**.
