@@ -14,7 +14,7 @@ import httpx
 import pytest
 
 from app.adapters.base import PermanentError, TransientError
-from app.adapters.llm.gemini import EMBED_DIM, GeminiAdapter
+from app.adapters.llm.gemini import EMBED_DIM, HTTP_TIMEOUT_SECONDS, GeminiAdapter
 
 
 def adapter_with(
@@ -351,3 +351,26 @@ async def test_429_noi_ro_tran_theo_ngay_hay_theo_phut(quota_id: str, tran: str)
     assert quota_id in thong_bao, "thiếu quotaId thì không biết trần là theo phút hay theo ngày"
     assert f"trần={tran}" in thong_bao
     await http.aclose()
+
+
+async def test_tran_cho_rong_hon_doi_cham_cua_google() -> None:
+    """Lời gọi phải mang trần chờ RIÊNG của adapter, không để httpx mặc định.
+
+    Độ trễ của model bình thường ~1,4 giây, nhưng đo 2026-09-15 gặp đợt chậm
+    phía Google làm cùng một prompt tầm thường mất 24-31 giây — ngay trên ranh
+    giới trần cũ là 30. Vượt trần không phải "chậm một lượt" mà là **mất bài**:
+    `_post` ném `TransientError` và job dừng lượt.
+    """
+    ghi: dict[str, Any] = {}
+
+    def bat(request: httpx.Request) -> httpx.Response:
+        ghi["timeout"] = request.extensions.get("timeout")
+        return httpx.Response(200, json=gemini_text('{"a": 1}'))
+
+    adapter, http = adapter_with(bat)
+    await adapter.summarize_and_translate(title="t", content="c")
+    await http.aclose()
+
+    # httpx tách trần thành bốn pha; `timeout=<số>` đặt cả bốn bằng nhau.
+    assert ghi["timeout"]["read"] == HTTP_TIMEOUT_SECONDS
+    assert HTTP_TIMEOUT_SECONDS > 31, "phải rộng hơn đợt chậm đã đo được"

@@ -70,6 +70,25 @@ EMBED_DIM = 768
 # bản tóm tắt tốt hơn, chỉ làm hoá đơn dài ra.
 MAX_CONTENT_CHARS = 8000
 
+# Trần chờ MỘT lời gọi Gemini. Riêng của adapter này, KHÔNG dùng
+# `job_timeout_seconds` chung: nới trần chung là để một lời gọi Steam hay
+# CheapShark treo lâu hơn mà chẳng vì lý do gì.
+#
+# Vì sao 60 chứ không phải 30: độ trễ của `gemini-3.5-flash-lite` bình thường
+# ~1,4 giây, nhưng đo 2026-09-15 gặp một đợt chậm phía Google kéo dài, cùng một
+# prompt tầm thường mất **24-31 giây** — tức nằm ngay trên ranh giới 30. Hệ quả
+# không phải một lượt chậm mà là **mất bài**: `_post` ném `TransientError`, job
+# dừng lượt, và bài đó phải chờ lượt sau.
+#
+# Không phải "thinking" của model: đã thử, `thinkingBudget` trả 400 vì không
+# phải tham số hợp lệ của model này, và lời gọi bình thường trả
+# `thoughtsTokenCount = 0`. Đây là độ trễ phía họ, nên chỉ có thể chờ.
+#
+# 60 là trần AN TOÀN vì không có retry chồng lên `_post` — một lời gọi chậm tốn
+# đúng 60 giây, không nhân lên. Đặt cao hơn nữa thì một lời gọi bệnh hoạn đủ sức
+# ăn hết ngân sách 300 giây mà Arq cho cả job.
+HTTP_TIMEOUT_SECONDS = 60.0
+
 # --- Hạn mức, đo tay 2026-09-15 với key free -------------------------------
 #
 # Hai quota TÁCH BIỆT, nên hai bucket tách biệt. Gộp chung thì việc dịch tin và
@@ -244,7 +263,7 @@ class GeminiAdapter:
                 # Key đi trong header, KHÔNG trong query string: query string
                 # nằm lại trong log của mọi proxy trên đường đi.
                 headers={"x-goog-api-key": self._api_key},
-                timeout=30.0,
+                timeout=HTTP_TIMEOUT_SECONDS,
             )
         except httpx.HTTPError as exc:
             raise TransientError(f"Không gọi được Gemini: {exc!r}") from exc

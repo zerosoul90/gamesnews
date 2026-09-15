@@ -1876,3 +1876,40 @@ là một câu nói dựa trên một phép đo hỏng.
 - Ảnh thẻ chia sẻ vẫn font bitmap, **không có dấu tiếng Việt**.
 - `POST /library/epic/bulk` vẫn 501.
 - Twitch vẫn chặn mảng streamer của Phase 7.
+
+### 2026-09-15 (lượt 6) — Trần chờ 30 giây nằm đúng trên ranh giới
+
+Phát hiện trong lúc dựng phép đo hạn mức ngày: `backfill_summaries` đứng im, mỗi
+lượt chết ở bài đầu. Không phải 429 — `generateContent` **hết giờ** ở trần HTTP.
+
+Đo thẳng với trần rộng hơn, cùng một prompt tầm thường ("trả lời đúng một từ"):
+
+```
+lan 1: HTTP 200 sau 23.9s
+lan 2: HTTP 200 sau 29.1s
+lan 3: HTTP 200 sau 30.7s
+```
+
+Trần khi ấy là **30 giây**, viết cứng trong `_post`. Mọi lời gọi nằm ngay trên
+ranh giới, và vượt trần không phải "chậm một lượt" mà là **mất bài**: `_post`
+ném `TransientError`, job dừng lượt.
+
+**Không phải "thinking" của model.** Giả thuyết đầu tiên là Gemini 3.x bật
+thinking mặc định. Thử thì bác bỏ: `thinkingBudget` trả **400** vì không phải
+tham số hợp lệ của model này, và lời gọi mặc định ngay sau đó trả về trong
+**1,4 giây** với `thoughtsTokenCount = 0`. Tức đó là một đợt chậm nhất thời phía
+Google, không phải tính chất cố định — chỉ có thể chờ, không sửa được bằng cấu
+hình.
+
+`HTTP_TIMEOUT_SECONDS = 60.0`, hằng số riêng của adapter. Ba lý do cho con số:
+
+| | |
+|---|---|
+| Riêng, không dùng `job_timeout_seconds` | Trần chung dùng cho mọi adapter; nới nó là để một lời gọi Steam hay CheapShark treo lâu hơn mà chẳng vì lý do gì |
+| 60 đủ rộng | Gấp đôi đợt chậm 31 giây đo được |
+| 60 vẫn an toàn | **Không có retry chồng lên `_post`** — một lời gọi chậm tốn đúng 60 giây, không nhân lên. Cao hơn nữa thì một lời gọi bệnh hoạn đủ sức ăn hết ngân sách 300 giây của Arq |
+
+Test chốt trần đọc `request.extensions["timeout"]`, và đã xác minh **đỏ khi trả
+về 30** — cả ở phép so với đợt chậm đã đo.
+
+**598 test** (597 -> 598), ruff + `mypy app tests` sạch.
