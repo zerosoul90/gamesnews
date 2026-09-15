@@ -62,15 +62,26 @@ DEDUP_CANDIDATES = 500
 
 # Trần số bài gọi LLM mỗi lượt.
 #
-# Token bucket giãn nhịp nhưng KHÔNG chặn tổng: với trần 20/phút, một lượt gặp
-# 587 bài mới (đúng con số lượt crawl đầu tiên) sẽ ngồi chờ **29 phút**, trong
-# khi Arq mặc định giết job ở 300 giây. Job bị giết giữa chừng không mất dữ
-# liệu — bài đã ghi thì ở lại, bài chưa ghi vẫn còn trong feed và lượt sau nhặt
-# lại — nhưng nó chết kèm traceback mỗi lượt, che mất những lỗi thật.
+# Token bucket giãn nhịp nhưng KHÔNG chặn tổng: một lượt gặp 587 bài mới (đúng
+# con số lượt crawl đầu tiên) sẽ ngồi chờ hàng chục phút, trong khi Arq mặc định
+# giết job ở 300 giây. Job bị giết giữa chừng không mất dữ liệu — bài đã ghi thì
+# ở lại, bài chưa ghi vẫn còn trong feed và lượt sau nhặt lại — nhưng nó chết
+# kèm traceback mỗi lượt, che mất những lỗi thật.
 #
-# 60 bài ở 20/phút là ~3 phút, còn dư chỗ cho phần crawl và Mongo trong cùng
-# 300 giây đó. Phần dôi ra để lượt sau; cron chạy mỗi 15 phút nên nó bắt kịp.
-MAX_LLM_CALLS_PER_RUN = 60
+# Ngân sách phải tính theo THỜI GIAN THẬT của một bài, không chỉ theo thời gian
+# chờ token. Mỗi bài tốn ~8,6 giây chờ bucket (nhịp 7/phút) CỘNG một lời gọi
+# embedding và một truy vấn Qdrant của bước gắn entity — đo được ~12 giây/bài.
+#
+# Đặt 21 thì riêng phần LLM đã ~250 giây, và lượt 10:50 ngày 2026-09-15 chết
+# `TimeoutError` ở 299,99 giây với traceback dừng ngay trong `limiter.acquire`.
+# 10 bài là ~120 giây, chừa hơn nửa ngân sách cho 15 feed và Mongo.
+#
+# Giá trị cũ là 60, suy từ "20/phút" — mà con số đó thật ra là 20/NGÀY đọc nhầm
+# đơn vị (xem `adapters/llm/gemini.py`). Nó chưa bao giờ đúng.
+#
+# Phần dôi ra để lượt sau; cron chạy mỗi 15 phút nên ở trạng thái ổn định nó bắt
+# kịp, và `deferred` trong tally cho thấy ngay khi không bắt kịp nữa.
+MAX_LLM_CALLS_PER_RUN = 10
 
 INDEXES: list[IndexModel] = [
     # Chốt chống trùng rẻ nhất: cùng một URL không bao giờ vào kho hai lần, kể
@@ -168,7 +179,7 @@ async def crawl_all_sources(ctx: dict[str, Any]) -> dict[str, int]:
             continue
 
         tally["sources"] += 1
-        articles = await crawl_rss(source)
+        articles = await crawl_rss(source, ctx["clients"].http)
         tally["fetched"] += len(articles)
 
         for article in articles:

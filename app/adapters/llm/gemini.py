@@ -39,7 +39,19 @@ logger = logging.getLogger(__name__)
 
 API_ROOT = "https://generativelanguage.googleapis.com/v1beta"
 
-TEXT_MODEL = "gemini-2.5-flash"
+# Hạn mức free tier tính RIÊNG cho từng model (`quotaId` là
+# `...PerProjectPerModel-FreeTier`), nên chọn model CHÍNH LÀ chọn trần — và
+# `gemini-2.5-flash` chỉ còn **20 lời gọi/ngày**, đo 2026-09-15. Ở trần đó job
+# dịch tin không chạy được: riêng 671 bài tồn đã là hơn ba mươi năm, chưa kể
+# tin mới mỗi ngày cũng đã vượt. Không cách chia nào cứu được một con số như thế.
+#
+# `gemini-3.5-flash-lite` đo được **15 lời gọi/phút** và không chạm chiều ngày
+# trong cả phiên đo — đủ rộng để job có nghĩa trở lại.
+#
+# Không dùng `gemini-2.5-flash-lite`: Google trả 404 "no longer available to new
+# users" và tự chỉ sang bản 3.5 này. Cũng không dùng alias `-latest`: nó đổi
+# model dưới chân mình, mà đổi model là đổi cả trần lẫn giọng văn bản dịch.
+TEXT_MODEL = "gemini-3.5-flash-lite"
 # Đổi model là phải nạp lại toàn bộ vector trong Qdrant, vì vector của hai model
 # khác nhau không so sánh được với nhau.
 #
@@ -58,21 +70,40 @@ EMBED_DIM = 768
 # bản tóm tắt tốt hơn, chỉ làm hoá đơn dài ra.
 MAX_CONTENT_CHARS = 8000
 
-# --- Hạn mức, đo tay 2026-09-13 với key free -------------------------------
+# --- Hạn mức, đo tay 2026-09-15 với key free -------------------------------
 #
 # Hai quota TÁCH BIỆT, nên hai bucket tách biệt. Gộp chung thì việc dịch tin và
 # việc nạp vector ăn lẫn hạn mức của nhau mà không cần thiết.
 #
-# Cả hai đặt ở **80% trần đo được**, có chủ ý. Token bucket nạp lại liên tục,
-# còn Google đếm theo cửa sổ; hai cái đó không khớp pha nhau, nên một lượt bắn
-# đầy bucket ngay sát ranh giới có thể rơi trọn vào MỘT cửa sổ của họ và vượt
-# trần dù bucket vẫn "đúng luật". Chừa 20% là cái giá rẻ để khỏi ăn 429 — mà
-# 429 thì vừa mất lượt gọi vừa không nạp được gì.
+# MỖI model lại có HAI chiều hạn mức, và chúng dùng CHUNG một `quotaMetric`
+# (`generate_content_free_tier_requests`). Chiều chỉ nằm trong `quotaId`:
 #
-# `generate_content_free_tier_requests` trần **20**, `retryDelay` 36 giây. Đây
-# là lời giải thích cho 46/50 lời gọi hỏng ở lượt crawl đầu tiên: job bắn 50
-# request liên tiếp vào một cái trần 20.
-GENERATE_RATE = RateLimit(capacity=16, per_seconds=60.0)
+#   GenerateRequestsPerMinutePerProjectPerModel-FreeTier  -> 15 (flash-lite 3.5)
+#   GenerateRequestsPerDayPerProjectPerModel-FreeTier     -> 20 (flash 2.5)
+#
+# Đây là cái bẫy đã ăn trọn một lượt làm: ngày 2026-09-13 `trần=20` bị đọc thành
+# 20/**phút** và bốn hằng số trần của hai job tin tức đều suy ra từ đó. Nó là
+# 20/**ngày**. Đọc nhầm được vì `_describe_error` khi ấy in `quotaMetric` — thứ
+# giống hệt nhau ở cả hai chiều — và bỏ mất `quotaId`. Nay nó in `quotaId`.
+#
+# Bài học đắt hơn con số: một cái trần không có ĐƠN VỊ thì chưa phải số đo. Và
+# hạn mức bên thứ ba là thứ đo lại được, không phải hằng số chép một lần rồi tin
+# mãi — chỗ nào suy ra từ nó phải nói rõ, để lần sau còn tìm thấy mà sửa theo.
+#
+# Vì sao capacity là 7 chứ không phải 12 (=80% của 15): **capacity vừa là nhịp
+# vừa là burst**. Bucket đầy cho đi C lời gọi tức thì rồi refill C lời nữa trong
+# cùng 60 giây, tức tối đa ~2C lọt vào MỘT cửa sổ của Google. Đo được đúng thế:
+# đặt capacity 4 thì 7 lời gọi lọt trong 36 giây rồi 429. Nên điều kiện là
+# 2C ≤ trần, không phải C ≤ 80% trần: 2x7 = 14 ≤ 15.
+#
+# "Chừa 20%" của bản trước là cách nghĩ sai — nó chỉnh nhịp mà không chạm vào
+# burst, mà chính burst mới là thứ vượt cửa sổ.
+#
+# Trần đo được để thành HẰNG SỐ RIÊNG, không nằm trong chú thích: có test chốt
+# `2 * capacity <= trần`, nên lần sau ai nới capacity sẽ thấy đỏ ngay thay vì
+# thấy 429 sau nửa ngày chạy.
+GENERATE_CEILING_PER_MINUTE = 15
+GENERATE_RATE = RateLimit(capacity=7, per_seconds=60.0)
 
 # Embedding có **HAI** hạn mức, và chỉ một trong hai thuộc về bucket này:
 #
@@ -122,6 +153,17 @@ def _describe_error(response: httpx.Response) -> str:
     `error.details[].QuotaFailure`: **quota nào** và **trần bao nhiêu**. Không
     có nó thì lúc dính 429 phải đi dò tay xem hạn mức là theo phút hay theo
     ngày, đúng việc đã phải làm ngày 2026-09-13.
+
+    Và bản trước vẫn KHÔNG trả lời được đúng câu hỏi đó, dù docstring hứa: nó in
+    `quotaMetric`, mà trường này giống hệt nhau ở cả hai chiều
+    (`...generate_content_free_tier_requests` cho cả phút lẫn ngày). Chiều nằm
+    trong `quotaId` — `GenerateRequestsPerDayPerProjectPerModel-FreeTier` so với
+    bản `PerMinute...` — đúng cái trường bị `or` bỏ qua khi `quotaMetric` có
+    mặt, tức là luôn luôn.
+
+    Cái giá đã trả: ngày 2026-09-13 `trần=20` bị đọc thành 20/phút và bốn hằng
+    số trần của hai job tin tức đều suy ra từ đó. Nó là 20/**ngày**. Ưu tiên
+    `quotaId` vì nó mang cả tên lẫn chiều; `quotaMetric` chỉ là bản dự phòng.
     """
     try:
         err = response.json().get("error") or {}
@@ -133,7 +175,7 @@ def _describe_error(response: httpx.Response) -> str:
         kind = str(detail.get("@type", ""))
         if kind.endswith("QuotaFailure"):
             for vi_pham in detail.get("violations") or []:
-                metric = vi_pham.get("quotaMetric") or vi_pham.get("quotaId") or "?"
+                metric = vi_pham.get("quotaId") or vi_pham.get("quotaMetric") or "?"
                 phan.append(f"quota={metric} trần={vi_pham.get('quotaValue', '?')}")
         elif kind.endswith("RetryInfo") and detail.get("retryDelay"):
             phan.append(f"thử lại sau {detail['retryDelay']}")

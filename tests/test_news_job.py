@@ -77,7 +77,9 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> Any:
     """Thay `crawl_rss` bằng bản trả về danh sách dựng sẵn."""
 
     def use(articles: list[NewsArticle]) -> None:
-        async def fake_crawl(source: Source) -> list[NewsArticle]:
+        # Nhận cả client httpx: job truyền client dùng chung vào để `crawl_rss`
+        # đặt được trần chờ cho mỗi nguồn (`services/crawler.py`).
+        async def fake_crawl(source: Source, http: Any = None) -> list[NewsArticle]:
             return articles
 
         monkeypatch.setattr(news, "crawl_rss", fake_crawl)

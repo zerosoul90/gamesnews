@@ -49,19 +49,29 @@ ARTICLES = "articles"
 # Hai job dùng CHUNG bucket `gemini_generate`, vì chúng dùng chung một hạn mức
 # thật. Nhưng chúng không ngang hàng: crawl phải đưa tin mới ra trong 2 giờ
 # (`PHASE-6.md`), còn job này xử lý hàng tồn — chậm một lượt không ai thấy.
-# Không có sàn thì một lượt bù 25 bài vét sạch 16 token và lượt crawl ngay sau
-# đó không dịch nổi bài nào.
-RESERVE_FOR_CRAWL = 6
-
-# Trần mỗi lượt. Cron chạy hàng giờ, nên 25 là 600 bài/ngày — đủ để dọn 682 bài
-# tồn trong khoảng một ngày.
+# Không có sàn thì một lượt bù vét sạch bucket và lượt crawl ngay sau đó không
+# dịch nổi bài nào.
 #
-# Hạn mức NGÀY của `generateContent` thì chưa đo được (mới chỉ biết trần
-# 20/phút), nên con số này là phỏng đoán. Nó không cần chính xác: chạm hạn mức
-# thì `AdapterError` làm job dừng lượt, và lượt sau chạy tiếp từ chỗ đang dở —
-# mốc nằm trong chính dữ liệu (`summary_vi` đã điền hay chưa), không trong bộ
-# nhớ tiến trình.
-MAX_ARTICLES_PER_RUN = 25
+# Sàn phải NHỎ HƠN `GENERATE_RATE.capacity`, và `RedisTokenBucket.__init__` ném
+# `PermanentError` nếu không — nên nó phải được chia lại cùng lúc với capacity,
+# không phải một hằng số độc lập. Giữ tỉ lệ ~1/4 như cũ: 2 trên 7.
+RESERVE_FOR_CRAWL = 2
+
+# Trần mỗi lượt, cũng là một phép chia trên `GENERATE_RATE`: job này được dùng
+# `capacity - RESERVE_FOR_CRAWL` = 5 token/phút, nên 15 bài là ~3 phút — vừa cái
+# ngân sách của Arq (giết job ở 300 giây) sau khi trừ phần embedding và Qdrant
+# của bước gắn entity.
+#
+# Cron chạy hàng giờ, nên 15 là ~360 bài/ngày: 692 bài tồn mất khoảng hai ngày.
+#
+# Hạn mức NGÀY của model mới thì CHƯA đo được — cả phiên đo 2026-09-15 không lần
+# nào chạm tới nó, nên chỉ biết nó lớn hơn hẳn 20 của `gemini-2.5-flash`. Không
+# cần biết chính xác để an toàn: chạm hạn mức thì `AdapterError` làm job dừng
+# lượt, lượt sau chạy tiếp từ chỗ đang dở — mốc nằm trong chính dữ liệu
+# (`summary_vi` đã điền hay chưa), không trong bộ nhớ tiến trình. Và nay thân
+# lỗi in `quotaId`, nên lúc chạm sẽ đọc ra ngay là chiều NGÀY chứ không phải
+# đoán như lần trước.
+MAX_ARTICLES_PER_RUN = 15
 
 
 async def _ung_vien(db: Db, limit: int) -> list[dict[str, Any]]:

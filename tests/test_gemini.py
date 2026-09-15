@@ -282,3 +282,72 @@ async def test_400_la_loi_vinh_vien() -> None:
     with pytest.raises(PermanentError):
         await adapter.embed(["a"])
     await http.aclose()
+
+
+def test_burst_cua_bucket_khong_duoc_vuot_tran_mot_phut() -> None:
+    """Điều kiện đúng là `2 * capacity <= trần`, không phải `capacity <= 80% trần`.
+
+    `capacity` vừa là nhịp vừa là **burst**: bucket đầy cho đi `capacity` lời gọi
+    tức thì, rồi refill thêm `capacity` lời nữa trong cùng 60 giây — tối đa ~2C
+    rơi vào MỘT cửa sổ của Google. Đo 2026-09-15: đặt capacity 4 trên trần 5 thì
+    7 lời gọi lọt trong 36 giây rồi 429, đúng như 2C dự đoán, dù 4 vẫn là "80%
+    của 5".
+    """
+    from app.adapters.llm.gemini import GENERATE_CEILING_PER_MINUTE, GENERATE_RATE
+
+    assert GENERATE_RATE.per_seconds == 60.0, "phép tính 2C chỉ đúng khi cửa sổ là một phút"
+    assert 2 * GENERATE_RATE.capacity <= GENERATE_CEILING_PER_MINUTE
+
+
+def _loi_quota(quota_id: str, tran: str) -> dict[str, Any]:
+    return {
+        "error": {
+            "status": "RESOURCE_EXHAUSTED",
+            "message": "You exceeded your current quota, please check your plan and billing.",
+            "details": [
+                {
+                    "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+                    "violations": [
+                        {
+                            # Giống hệt nhau ở CẢ HAI chiều — nên nó không nói
+                            # được gì về đơn vị của cái trần.
+                            "quotaMetric": (
+                                "generativelanguage.googleapis.com/generate_content_free_tier_requests"
+                            ),
+                            "quotaId": quota_id,
+                            "quotaValue": tran,
+                        }
+                    ],
+                },
+                {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "41s"},
+            ],
+        }
+    }
+
+
+@pytest.mark.parametrize(
+    ("quota_id", "tran"),
+    [
+        ("GenerateRequestsPerDayPerProjectPerModel-FreeTier", "20"),
+        ("GenerateRequestsPerMinutePerProjectPerModel-FreeTier", "15"),
+    ],
+)
+async def test_429_noi_ro_tran_theo_ngay_hay_theo_phut(quota_id: str, tran: str) -> None:
+    """Thân 429 phải mang được ĐƠN VỊ của cái trần, không chỉ con số.
+
+    Đây là chốt cho một lỗi đã tốn nguyên một lượt làm: ngày 2026-09-13 thân lỗi
+    chỉ in `quotaMetric` — chuỗi giống hệt nhau ở cả chiều phút lẫn chiều ngày —
+    nên `trần=20` bị đọc thành 20/phút. Nó là 20/NGÀY, và bốn hằng số trần mỗi
+    lượt của hai job tin tức đều đã suy sai từ đó.
+
+    Một con số không có đơn vị thì chưa phải số đo. Chiều nằm trong `quotaId`,
+    nên `quotaId` phải có mặt trong thông báo.
+    """
+    adapter, http = adapter_with(reply(_loi_quota(quota_id, tran), status=429))
+    with pytest.raises(TransientError) as bat:
+        await adapter.summarize_and_translate(title="t", content="c")
+    thong_bao = str(bat.value)
+
+    assert quota_id in thong_bao, "thiếu quotaId thì không biết trần là theo phút hay theo ngày"
+    assert f"trần={tran}" in thong_bao
+    await http.aclose()
