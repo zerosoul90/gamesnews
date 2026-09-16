@@ -306,3 +306,67 @@ async def test_ghi_lai_moc_da_kich_hoat(mongo_db: Db, game_id: ObjectId) -> None
     doc = await mongo_db.price_alerts.find_one({"game_id": game_id})
     assert doc is not None, "alert phải tra được bằng ObjectId, không phải bằng chuỗi"
     assert doc["triggered_at"] is not None
+
+
+# --- mức giảm mâu thuẫn với giá ---------------------------------------------
+
+
+def test_gia_goc_bang_gia_ban_thi_muc_giam_ve_khong(game_id: ObjectId) -> None:
+    """Đo trên dữ liệu thật: Crystal Crisis có `discount_percent: 100` trong khi
+    `price_initial == price_final == 188000`. Trang deal sắp theo mức giảm giảm
+    dần nên bản ghi ấy nhảy lên đầu — "-100%" cạnh giá 188.000₫ là thứ đầu tiên
+    người dùng nhìn thấy."""
+    p = PriceCurrent(
+        game_id=game_id,
+        store="steam",
+        price_initial=188_000,
+        price_final=188_000,
+        discount_percent=100,
+    )
+
+    assert p.discount_percent == 0
+    # Hai trường giá phải còn nguyên: chúng đúng, chỉ trường dẫn xuất sai.
+    assert p.price_initial == 188_000
+    assert p.price_final == 188_000
+
+
+def test_khuyen_mai_mien_phi_khong_bi_dung_toi(game_id: ObjectId) -> None:
+    """Chiều ngược lại, và là ca dễ hỏng nhất nếu guard viết quá tay: game tặng
+    miễn phí có `price_final = 0` khác `price_initial`, nên `-100%` ở đó là nhất
+    quán chứ không mâu thuẫn. Gộp chung hai ca là xoá sạch trang `/free`."""
+    p = PriceCurrent(
+        game_id=game_id,
+        store="epic",
+        price_initial=104_000,
+        price_final=0,
+        discount_percent=100,
+        is_free_promo=True,
+    )
+
+    assert p.discount_percent == 100
+
+
+def test_giam_gia_that_van_giu_nguyen(game_id: ObjectId) -> None:
+    p = PriceCurrent(
+        game_id=game_id,
+        store="steam",
+        price_initial=250_000,
+        price_final=17_500,
+        discount_percent=93,
+    )
+
+    assert p.discount_percent == 93
+
+
+def test_game_free_to_play_khong_bi_coi_la_mau_thuan(game_id: ObjectId) -> None:
+    """F2P ghi `initial = final = 0`. Nhánh guard đòi `price_initial > 0` nên
+    không chạm tới, và `discount_percent` vốn đã là 0."""
+    p = PriceCurrent(
+        game_id=game_id,
+        store="steam",
+        price_initial=0,
+        price_final=0,
+        discount_percent=0,
+    )
+
+    assert p.discount_percent == 0
