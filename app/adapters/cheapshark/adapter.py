@@ -16,6 +16,12 @@ Ba thứ đo tay 2026-09-11, cả ba đều là chỗ dễ hỏng im lặng:
 3. **`ids` nhận lô nhưng cắt ở 25.** Gửi 26 trả `200` kèm đúng 25. Cùng lớp bẫy
    với trần 50 appid của `price_overview` bên Steam.
 
+Thứ tư, đo 2026-09-16 sau khi job thật ăn 429 trên dữ liệu thật:
+
+4. **CheapShark CÓ chặn nhịp dù không công bố.** ~36 request/60 giây, cửa sổ
+   trượt. Xem `RATE_LIMIT` bên dưới. Bản adapter trước không có cổng nhịp nào,
+   nên `sync_cheapshark_prices` bắn cả lượt liền mạch và ba lô cuối luôn hỏng.
+
 Giá CheapShark là **USD, không có tham số đổi quốc gia**. Nên dữ liệu này KHÔNG
 vào `price_current`: collection đó đang là VND đơn vị lớn, mà `/deals` lại không
 lọc region — một dòng USD lọt vào đó sẽ được trang deal hiển thị "51.59" thành
@@ -32,6 +38,8 @@ import httpx
 from app.adapters.base import (
     USER_AGENT,
     PermanentError,
+    RateLimit,
+    RateLimiter,
     TransientError,
     classify_http_status,
 )
@@ -40,10 +48,25 @@ logger = logging.getLogger(__name__)
 
 CHEAPSHARK_API_URL = "https://www.cheapshark.com/api/1.0"
 
+# Đo tay 2026-09-16, bắn `/games?ids=612` liên tục từ container `app`:
+#
+#   36 request lọt trong 8,15 giây (~4,4 req/s), request thứ 37 nhận 429.
+#   Probe lại mỗi 5 giây: còn 429 tới giây thứ 56, tới giây ~62 thì 200.
+#
+# Hồi lại ~62 giây sau khi bị chặn, trong khi cả 36 request nằm gọn trong 8 giây
+# đầu — tức **cửa sổ trượt 60 giây**, không phải cửa sổ theo phút đồng hồ (mốc
+# phút thì đã mở lại trước giây 60). Và lời gọi bị từ chối KHÔNG tự cộng vào cửa
+# sổ: nếu có thì loạt probe 5 giây/lần đã đẩy mốc đi mãi và không bao giờ hồi.
+#
+# `capacity=30` chứ không phải 36: chừa biên cho chính phép đo (trần thật có thể
+# là 36 hoặc 40, một lần bắn không phân biệt được) và cho việc CheapShark tính
+# theo IP — máy dev và container đi chung một IP ra ngoài.
+RATE_LIMIT = RateLimit(capacity=30, per_seconds=60.0)
+
 # CheapShark đòi UA nhận dạng được client (`400 "Missing or generic User-Agent
 # header detected"` nếu thiếu). Chuỗi dùng chung nằm ở `adapters/base.py`; giữ
 # lại tên cũ ở đây để chỗ gọi và test không phải đổi theo.
-__all__ = ["USER_AGENT", "CheapSharkAdapter"]
+__all__ = ["RATE_LIMIT", "USER_AGENT", "CheapSharkAdapter"]
 
 # Trần thật của tham số `ids`, đo tay: gửi 26 nhận về 25, không có lỗi nào.
 IDS_BATCH = 25
@@ -71,11 +94,21 @@ def _cents(value: Any) -> int | None:
 class CheapSharkAdapter:
     """Giá nhiều store và đáy lịch sử từ CheapShark."""
 
-    def __init__(self, http: httpx.AsyncClient) -> None:
+    def __init__(self, http: httpx.AsyncClient, limiter: RateLimiter | None = None) -> None:
         self._http = http
+        self._limiter = limiter
 
     async def _get_json(self, path: str, params: dict[str, Any] | None = None) -> Any:
         url = f"{CHEAPSHARK_API_URL}{path}"
+        # Cổng nhịp đặt ở đây, không ở từng phương thức: cả bốn đường ra ngoài
+        # (`/stores`, tra theo tên, tra theo appid, đọc giá theo lô) dùng chung
+        # một hạn mức tính theo IP, nên đếm ở chỗ nào khác là bỏ sót đường kia.
+        #
+        # `limiter=None` cho phép test adapter chạy mà không cần Redis — cùng lý
+        # do với `RateLimiter` là Protocol chứ không phải lớp cụ thể. Bản chạy
+        # thật LUÔN được job truyền bucket vào.
+        if self._limiter is not None:
+            await self._limiter.acquire()
         try:
             response = await self._http.get(url, params=params, headers={"User-Agent": USER_AGENT})
         except httpx.HTTPError as exc:

@@ -2164,3 +2164,112 @@ Biết mốc thật thì `GENERATE_DAILY_LIMIT` nâng sát 500 được, và b�
 - Ảnh thẻ chia sẻ vẫn font bitmap, **không có dấu tiếng Việt**.
 - `POST /library/epic/bulk` vẫn 501.
 - Twitch vẫn chặn mảng streamer của Phase 7.
+
+### 2026-09-16 (lượt 9) — Phép đo tự tuyên bố thắng, và 83% kho giá đứng im
+
+Phiên này bắt đầu bằng "còn gì cần xử lý không", nên phần lớn là ĐỌC. Hai thứ
+tìm được đều là loại không kêu: một phép đo trả lời sai, và một job báo xanh.
+
+#### Phép đo mốc reset đã tự kết luận, và kết luận đó sai
+
+Script chạy tiếp sau lượt 8 và tự thoát lúc 18:47 UTC 15-09 với
+`*** DA SANG NGAY MOI ***`, chốt mốc 18:27 UTC. Không nhận. Hai lý do độc lập:
+
+**Mốc không khớp giả thuyết nào.** 18:27 UTC là 11:27 sáng PDT — không phải nửa
+đêm UTC, không phải nửa đêm Thái Bình Dương, không phải tròn 24h từ lúc cạn.
+
+**Ngưỡng "ba lần liên tiếp ≈ 4%" tính sai bài toán.** 4% là xác suất một bộ ba
+ĐÃ CHỈ ĐỊNH cùng lọt. Nhưng script quét 14 lần đo và nhận bất kỳ chuỗi 3 nào
+xuất hiện ở đâu cũng được. Với tỉ lệ rò đo được (5 OK / 9 từ chối ≈ 0,36 — y hệt
+tỉ lệ 2/6 của loạt trước, tức chế độ KHÔNG hề đổi), xác suất có ít nhất một chuỗi
+3 đâu đó trong 14 lần là **~40%**, không phải 4%. Log còn cho thấy trước đó đã có
+sẵn một chuỗi 2.
+
+Lỗi ở đây không nằm trong code — script chạy đúng như viết. Nó nằm ở chỗ áp một
+xác suất điểm lên một phép tìm kiếm. Lần thứ sáu trong mạch này một kênh đo nói
+sai, vẫn theo chiều dương.
+
+Đo lại phải **đổi thiết kế, không chỉ nâng ngưỡng**: bắn một cụm 10 lời gọi mỗi
+nhịp và đọc *tỉ lệ* thành công (trước reset ~1/3, sau reset ~10/10) — phân biệt
+hai chế độ thay vì cược vào một chuỗi. `GENERATE_DAILY_LIMIT = 450` giữ nguyên.
+
+#### `failed: 3` là toàn bộ dấu vết của một phần ba kho hàng đứng im
+
+`sync_cheapshark_prices` lượt 15:42 UTC trả `refreshed: 125, failed: 3`. Trông
+như lỗi mạng lẻ tẻ. Thật ra là hai lỗi chồng nhau:
+
+**1. Không có cổng nhịp.** CheapShark không công bố hạn mức nào, và adapter
+không có limiter — khác hẳn Steam, Gemini, Epic. Đo tay 2026-09-16: **36 request
+lọt trong 8,15 giây, cái thứ 37 ăn 429; hồi lại sau ~62 giây** → cửa sổ trượt 60
+giây. Lời gọi bị từ chối không tự cộng vào cửa sổ (nếu có thì loạt probe 5
+giây/lần đã đẩy mốc đi mãi). Job bắn ~33 request liền mạch, nên ba lô cuối luôn
+hỏng.
+
+**2. Hàng đợi không quay.** `_refresh_prices` sắp xếp `_id` tăng dần rồi cắt 200.
+Thứ tự tất định + `limit` + không con trỏ xoay vòng = nó lấy đúng 200 game có
+`_id` nhỏ nhất, mỗi 30 phút, mãi mãi. Đo được: **1.192 game có `cheapshark_id`,
+992 (83%) không bao giờ lọt vào lượt nào** — giá đóng băng ở lần ghi đầu tiên.
+
+Đây là lần thứ ba cùng một lớp lỗi: `last_crawled_at` ở lượt 2, `price_checked_at`
+của job giá Steam, và nay đây. Dấu hiệu nhận ra nó: *sắp xếp cố định + cắt ngọn,
+mà khoá sắp xếp không đổi sau khi phục vụ.*
+
+Mỉa mai là thiết kế đúng đã được ghi sẵn: `price_intl` có index `checked_at` kèm
+chú thích "Job chọn game theo *lâu chưa đọc nhất*". Index ấy chưa bao giờ được
+dùng.
+
+#### Ba quyết định trong bản sửa
+
+**Mốc xoay vòng đặt trên `games.intl_checked_at`, không đọc `price_intl`.** Game
+chưa đọc lần nào KHÔNG có document `price_intl` nào cả, nên sắp xếp bên đó thì
+đúng những game cần nhất lại vắng mặt. Cùng idiom với `games.price_checked_at`.
+
+**Giữ thứ tự cũ (giải id trước, làm mới sau) và dùng `reserve`.** Bản đầu tôi đảo
+thứ tự cho gọn — và làm hỏng một hành vi cũ: game vừa giải id phải đợi lượt sau
+mới có giá, tức nửa tiếng không có bảng giá. Test cũ bắt được ngay. Nên giữ thứ
+tự, và chặn starvation bằng `RedisTokenBucket(reserve=9)` cho phần giải id: nó tự
+nguyện không phạm vào 9 token cuối (1 `/stores` + 8 lô làm mới). Cơ chế này đã có
+sẵn trong repo, viết ra đúng cho việc này.
+
+**Hai nhánh lỗi, hệ quả ngược nhau** — lặp lại đúng phân biệt của lượt 8:
+
+| lỗi | mốc xoay vòng | vì sao |
+|---|---|---|
+| `RateLimitedError` | **KHÔNG dập**, dừng lượt | Lô chưa hề được gửi đi. Dập là đẩy 25 game xuống cuối hàng vì một lời gọi không xảy ra |
+| `AdapterError` khác | **DẬP**, đi tiếp | Đã gọi thật và hỏng. Không dập thì lô hỏng nằm mãi đầu hàng đợi |
+
+#### Nghiệm thu
+
+**614 test** (609 → 614), ruff + `mypy app tests` sạch. Cả bốn test mới đã xác
+minh **đỏ khi gỡ fix ra** — test xoay vòng đỏ đúng `assert 2 == 6`, tái hiện
+nguyên hình dạng lỗi thật.
+
+Và nghiệm thu ở tầng chạy thật, sau `--build` (không phải `restart`), hai lượt
+liên tiếp trên dữ liệu thật:
+
+| | trước | sau |
+|---|---|---|
+| `failed` | 3 | **0** |
+| `refreshed` mỗi lượt | 125 | **200** (đủ cả 8 lô) |
+| game trùng giữa hai lượt | 200/200 | **0/200** |
+
+1.211 game quay hết một vòng sau ~7 lượt, tức ~3,5 giờ ở nhịp cron 30 phút.
+
+#### Một ghi chú về chính phiên này
+
+Lần đầu đếm hàng tồn tôi ra 785 và suýt báo "tồn tăng vọt từ 480". Sai: tôi tự
+viết lại filter thay vì dùng query thật của job, bỏ mất `status: "duplicate"`
+(312 bài) và join `source_id` bằng `ObjectId` trong khi bài lưu dạng chuỗi. Đọc
+`summaries._ung_vien` rồi đếm lại: **428**, tức đang giảm.
+
+Cùng phiên, một lệnh xác minh "đỏ khi gỡ fix" chạy `python` trong Bash trên
+Windows và im lặng không sửa file — test báo xanh, và cái xanh ấy không chứng
+minh gì cả. Hai lần trong một phiên, cùng một hình dạng: **kênh đo hỏng trông y
+hệt kết quả thật.**
+
+**Còn nợ:** như lượt 8, trừ mục dưới đây đổi trạng thái.
+
+- Mốc sang ngày của Google — phép đo cũ **đã chết cùng container và kết luận của
+  nó không dùng được**. Cần đo lại bằng thiết kế cụm-và-tỉ-lệ nói trên.
+- `price_intl.checked_at` và index của nó nay không ai đọc. Để lại vì vô hại,
+  nhưng nếu dọn thì nhớ index cũ vẫn nằm trong Mongo dù gỡ khỏi `INDEXES`.

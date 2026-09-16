@@ -19,9 +19,9 @@ import pytest
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.adapters.base import PermanentError, TransientError
+from app.adapters.base import PermanentError, RateLimitedError, TransientError
 from app.adapters.cheapshark.adapter import IDS_BATCH, USER_AGENT, CheapSharkAdapter
-from app.jobs.cheapshark_pricing import sync_cheapshark_prices
+from app.jobs.cheapshark_pricing import CHECKED_AT, sync_cheapshark_prices
 from app.services.intl_prices import PRICE_INTL, ensure_indexes, intl_prices_of
 
 Db = AsyncIOMotorDatabase[dict[str, Any]]
@@ -199,11 +199,25 @@ async def test_lo_rong_khong_goi_mang() -> None:
 # --- job --------------------------------------------------------------------
 
 
+class NoLimit:
+    async def acquire(self, tokens: int = 1) -> None:
+        return None
+
+
 class FakeClients:
     def __init__(self, db: Db, http: httpx.AsyncClient) -> None:
         self.db = db
         self.http = http
         self.redis = None
+
+
+@pytest.fixture(autouse=True)
+def _khong_can_redis(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Job thật dựng `RedisTokenBucket` từ `clients.redis`; test job không cần
+    Redis thật. Bản thân token bucket đã có test riêng trên Redis thật."""
+    monkeypatch.setattr(
+        "app.jobs.cheapshark_pricing.RedisTokenBucket", lambda *a, **k: NoLimit()
+    )
 
 
 def ctx(db: Db) -> dict[str, Any]:
@@ -301,3 +315,124 @@ async def test_chua_doc_lan_nao_tra_none(mongo_db: Db) -> None:
     await ensure_indexes(mongo_db)
 
     assert await intl_prices_of(mongo_db, ObjectId(), "cheapshark") is None
+
+
+# --- xoay vòng và hạn mức ----------------------------------------------------
+
+
+async def test_hang_doi_quay_vong_chu_khong_kep_o_lo_dau(
+    mongo_db: Db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Lỗi nặng nhất của bản cũ, và là lý do của cả thay đổi này.
+
+    Bản cũ sắp xếp ứng viên theo `_id` rồi cắt `MAX_REFRESH`, nên nó lấy đúng
+    `MAX_REFRESH` game có `_id` nhỏ nhất — mỗi 30 phút, mãi mãi. Trên dữ liệu
+    thật 2026-09-16: 1.192 game có `cheapshark_id`, 992 trong số đó (83%) không
+    bao giờ lọt vào lượt nào và giá của chúng đóng băng ở lần ghi đầu tiên.
+
+    Ở đây thu nhỏ lại: 6 game, mỗi lượt 2. Sau 3 lượt phải phủ hết. Với bản cũ
+    thì lượt nào cũng lấy đúng 2 game đầu và 4 game còn lại vĩnh viễn không có
+    mốc nào.
+    """
+    monkeypatch.setattr("app.jobs.cheapshark_pricing.MAX_REFRESH", 2)
+
+    ids = [
+        await add_game(mongo_db, f"game-{i}", 1000 + i, cheapshark_id=str(900 + i))
+        for i in range(6)
+    ]
+
+    for _ in range(3):
+        await sync_cheapshark_prices(ctx(mongo_db))
+
+    da_doc = await mongo_db.games.count_documents({"_id": {"$in": ids}, CHECKED_AT: {"$ne": None}})
+    assert da_doc == 6, "còn game chưa bao giờ được làm mới giá — hàng đợi không quay"
+
+
+async def test_lo_hong_van_bi_dap_moc_de_khong_ket_dau_hang(
+    mongo_db: Db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Gọi thật mà hỏng thì vẫn phải xoay vòng.
+
+    Không dập mốc ở nhánh hỏng thì đúng lô hỏng ấy nằm mãi ở đầu hàng đợi và
+    không game nào khác được đọc — cùng bài học với `price_checked_at` của job
+    giá Steam.
+    """
+
+    async def hong(self: CheapSharkAdapter, game_ids: list[str]) -> dict[str, Any]:
+        raise TransientError("CheapShark 503")
+
+    monkeypatch.setattr(CheapSharkAdapter, "prices_for_game_ids", hong)
+    game_id = await add_game(mongo_db, "elden-ring", 1245620, cheapshark_id="236717")
+
+    result = await sync_cheapshark_prices(ctx(mongo_db))
+
+    assert result["failed"] == 1
+    doc = await mongo_db.games.find_one({"_id": game_id}, {CHECKED_AT: 1})
+    assert doc is not None
+    assert doc.get(CHECKED_AT) is not None
+
+
+async def test_het_han_muc_thi_de_lo_lai_chu_khong_dap_moc(
+    mongo_db: Db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Chiều ngược lại của test trên, và là chỗ hai lỗi trông giống hệt nhau.
+
+    `RateLimitedError` cũng là `AdapterError` từ một lời gọi hỏng, nhưng hệ quả
+    ngược: bucket cạn nghĩa là lô này CHƯA HỀ được gửi đi, nên dập mốc là đẩy 25
+    game xuống cuối hàng đợi vì một lời gọi không bao giờ xảy ra. Cùng sự phân
+    biệt đã phải sửa trong `crawl_all_sources` ngày 2026-09-15.
+    """
+
+    async def can_bucket(self: CheapSharkAdapter, game_ids: list[str]) -> dict[str, Any]:
+        raise RateLimitedError("bucket cheapshark cạn")
+
+    monkeypatch.setattr(CheapSharkAdapter, "prices_for_game_ids", can_bucket)
+    game_id = await add_game(mongo_db, "elden-ring", 1245620, cheapshark_id="236717")
+
+    result = await sync_cheapshark_prices(ctx(mongo_db))
+
+    # Không tính là `failed`: không có lời gọi nào thất bại, chỉ là chưa gọi.
+    assert result["failed"] == 0
+    doc = await mongo_db.games.find_one({"_id": game_id}, {CHECKED_AT: 1})
+    assert doc is not None
+    assert doc.get(CHECKED_AT) is None, "lô chưa gửi đi mà đã bị đẩy xuống cuối hàng đợi"
+
+
+async def test_moi_loi_goi_deu_qua_cong_nhip() -> None:
+    """CheapShark chặn ~36 request/60 giây (đo 2026-09-16) dù không công bố.
+
+    Đếm ở `_get_json` chứ không ở từng phương thức: bốn đường ra ngoài dùng chung
+    một hạn mức tính theo IP, nên bỏ sót một đường là bucket đếm thiếu.
+    """
+    dem = 0
+
+    class DemLimit:
+        async def acquire(self, tokens: int = 1) -> None:
+            nonlocal dem
+            dem += 1
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(route))
+    ad = CheapSharkAdapter(client, DemLimit())
+
+    await ad.stores()
+    await ad.game_id_for_steam_appid(1245620)
+    await ad.prices_for_game_ids(["236717"])
+    await ad.search_game("batman")
+
+    assert dem == 4
+
+
+async def test_lo_rong_khong_ton_token() -> None:
+    """`prices_for_game_ids([])` về sớm trước cả cổng nhịp — không có request nào
+    thì không được tiêu token của bucket."""
+    dem = 0
+
+    class DemLimit:
+        async def acquire(self, tokens: int = 1) -> None:
+            nonlocal dem
+            dem += 1
+
+    ad = CheapSharkAdapter(httpx.AsyncClient(transport=httpx.MockTransport(route)), DemLimit())
+
+    assert await ad.prices_for_game_ids([]) == {}
+    assert dem == 0
