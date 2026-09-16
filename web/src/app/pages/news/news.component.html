@@ -1,0 +1,96 @@
+<div class="container mx-auto px-4 py-8">
+  <div class="mb-8">
+    <h1 class="text-3xl font-bold text-white mb-2">Tin Game Mới Nhất</h1>
+    <p class="text-slate-400">
+      Tin quốc tế được tóm tắt sang tiếng Việt. Bấm vào tiêu đề để đọc bài gốc tại nguồn.
+    </p>
+  </div>
+
+  <div *ngIf="isLoading" class="text-center py-12 text-slate-400">Đang tải tin...</div>
+
+  <div *ngIf="coLoi && !isLoading" class="text-center py-12">
+    <p class="text-slate-400 mb-4">Không tải được tin. Kiểm tra kết nối rồi thử lại.</p>
+    <button
+      type="button"
+      (click)="tai()"
+      class="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-5 py-2 rounded transition-colors"
+    >
+      Thử lại
+    </button>
+  </div>
+
+  <div
+    *ngIf="!isLoading && !coLoi && articles.length === 0"
+    class="text-center py-12 text-slate-400"
+  >
+    Chưa có tin nào được dịch sang tiếng Việt.
+  </div>
+
+  <div *ngIf="articles.length > 0" class="flex flex-col gap-4">
+    <article
+      *ngFor="let a of articles"
+      class="bg-slate-800 rounded-lg border border-slate-700 hover:border-blue-500 transition-colors overflow-hidden"
+    >
+      <div class="flex flex-col sm:flex-row">
+        <!-- Ảnh chỉ có khi bài gắn được game. Phần lớn bài KHÔNG gắn được, nên
+             khối này phải vắng mặt hẳn chứ không để một khung xám trống. -->
+        <a
+          *ngIf="a.game?.cover_image_url && a.game?.slug"
+          [routerLink]="['/game', a.game!.slug]"
+          class="sm:w-48 shrink-0 block"
+        >
+          <img
+            [src]="a.game!.cover_image_url"
+            [alt]="a.game!.title || ''"
+            loading="lazy"
+            class="w-full h-32 sm:h-full object-cover"
+          />
+        </a>
+
+        <div class="p-5 flex-1">
+          <div class="flex items-center gap-2 text-xs text-slate-400 mb-2">
+            <span *ngIf="a.source?.name" class="bg-slate-700 text-slate-200 px-2 py-0.5 rounded">
+              {{ a.source!.name }}
+            </span>
+            <time *ngIf="a.published_at" [attr.datetime]="a.published_at">
+              {{ a.published_at | date: 'dd/MM/yyyy HH:mm' : '+0700' }}
+            </time>
+          </div>
+
+          <!-- Ra thẳng nguồn gốc. `rel="noopener"` là bắt buộc với `target=_blank`:
+               thiếu nó thì trang đích truy được `window.opener`. -->
+          <h2 class="text-lg font-bold text-white mb-2 leading-snug">
+            <a
+              [href]="a.url"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="hover:text-blue-400 transition-colors"
+              >{{ a.title }}</a
+            >
+          </h2>
+
+          <p class="text-slate-400 text-sm leading-relaxed">{{ a.summary }}</p>
+
+          <a
+            *ngIf="a.game?.slug"
+            [routerLink]="['/game', a.game!.slug]"
+            class="inline-block mt-3 text-sm text-blue-400 hover:text-blue-300 transition-colors"
+            >Xem giá {{ a.game!.title }} →</a
+          >
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <div *ngIf="conNua && !isLoading" class="text-center mt-8">
+    <button
+      type="button"
+      (click)="tai()"
+      [disabled]="dangTaiThem"
+      class="bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-6 py-3 rounded border border-slate-700 transition-colors"
+    >
+      {{ dangTaiThem ? 'Đang tải...' : 'Xem thêm tin' }}
+    </button>
+    <p class="text-slate-500 text-sm mt-3">Đang hiện {{ articles.length }} / {{ total }} tin</p>
+  </div>
+</div>

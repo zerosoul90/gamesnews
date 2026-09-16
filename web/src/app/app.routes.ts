@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 import { DealComponent } from './pages/deal/deal.component';
 import { FreeComponent } from './pages/free/free.component';
 import { GameComponent } from './pages/game/game.component';
+import { NewsComponent } from './pages/news/news.component';
 import { NotFoundComponent } from './pages/not-found/not-found.component';
 
 export const routes: Routes = [
@@ -18,6 +19,7 @@ export const routes: Routes = [
     { path: '', redirectTo: 'deals', pathMatch: 'full' },
     { path: 'deals', component: DealComponent },
     { path: 'free', component: FreeComponent },
+    { path: 'news', component: NewsComponent },
     { path: 'game/:slug', component: GameComponent },
     // Phải là route cuối: '**' khớp mọi thứ nên đặt trên sẽ che hết bên dưới.
     // Thiếu nó thì router ném NG04002 và SSR trả 200 kèm vỏ app rỗng — Chrome

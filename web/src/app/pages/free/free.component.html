@@ -7,31 +7,82 @@
     <p class="text-slate-400 max-w-2xl text-lg">Tổng hợp những tựa game đang được tặng miễn phí 100% trên Epic Games và Steam. Thêm vào thư viện ngay, chơi lúc nào tùy thích.</p>
   </div>
 
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-    <!-- Thẻ Game Free Epic -->
-    <div class="bg-slate-800 rounded-2xl overflow-hidden border-2 border-blue-600 shadow-[0_0_15px_rgba(37,99,235,0.3)] relative">
-      <div class="absolute top-4 right-4 bg-black/60 backdrop-blur-md text-white px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 z-10 border border-slate-700">
+  <div *ngIf="isLoading" class="text-center py-12 text-slate-400">Đang tải danh sách game miễn phí...</div>
+
+  <div *ngIf="coLoi && !isLoading" class="text-center py-12">
+    <p class="text-slate-400 mb-4">Không tải được danh sách. Kiểm tra kết nối rồi thử lại.</p>
+    <button
+      type="button"
+      (click)="tai()"
+      class="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-5 py-2 rounded transition-colors"
+    >
+      Thử lại
+    </button>
+  </div>
+
+  <div *ngIf="!isLoading && !coLoi && freeGames.length === 0" class="text-center py-12 text-slate-400">
+    Tuần này chưa có game nào được tặng. Ghé lại sau nhé.
+  </div>
+
+  <div *ngIf="freeGames.length > 0" class="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+    <div
+      *ngFor="let g of freeGames"
+      class="bg-slate-800 rounded-2xl overflow-hidden border-2 border-blue-600 shadow-[0_0_15px_rgba(37,99,235,0.3)] relative flex flex-col"
+    >
+      <!-- Chỉ hiện đếm ngược khi store thật sự công bố mốc kết thúc. Bản trước
+           của trang này ghi cứng "Còn 3 ngày" cho mọi ca — kể cả khi không có
+           mốc nào. -->
+      <div
+        *ngIf="soNgayConLai(g.promo_ends_at) as conLai"
+        class="absolute top-4 right-4 bg-black/60 backdrop-blur-md text-white px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 z-10 border border-slate-700"
+      >
         <svg class="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-        Còn 3 ngày
+        Còn {{ conLai }} ngày
       </div>
+
       <div class="aspect-[16/9] relative overflow-hidden bg-slate-900">
-        <img src="https://cdn1.epicgames.com/offer/d5241c76f178492ea1540fce45616757/egs-marvelsmidnightsuns-firaxisgames-s1-2560x1440-e2ef6dc29cae_2560x1440-a3e9c70817088d227b7b134d1bc94ebf" alt="Marvel's Midnight Suns" class="w-full h-full object-cover">
+        <img
+          *ngIf="g.game_details?.cover_image_url"
+          [src]="g.game_details!.cover_image_url"
+          [alt]="g.game_details!.title || ''"
+          loading="lazy"
+          class="w-full h-full object-cover"
+        />
       </div>
-      <div class="p-6">
+
+      <div class="p-6 flex flex-col flex-1">
         <div class="flex items-center gap-2 mb-3">
-          <span class="bg-slate-700 text-slate-300 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider">Epic Games</span>
+          <span class="bg-slate-700 text-slate-300 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider">
+            {{ g.store }}
+          </span>
         </div>
-        <h3 class="font-bold text-white text-2xl mb-2">Marvel's Midnight Suns</h3>
-        <p class="text-slate-400 text-sm mb-6 line-clamp-2">Game nhập vai chiến thuật lấy bối cảnh vùng tối của vũ trụ Marvel.</p>
-        
-        <div class="flex items-center justify-between">
+
+        <h3 class="font-bold text-white text-2xl mb-2">
+          <a
+            *ngIf="g.game_details?.slug; else tenThuong"
+            [routerLink]="['/game', g.game_details!.slug]"
+            class="hover:text-blue-400 transition-colors"
+            >{{ g.game_details!.title }}</a
+          >
+          <ng-template #tenThuong>{{ g.game_details?.title || 'Game' }}</ng-template>
+        </h3>
+
+        <div class="flex items-center justify-between mt-auto pt-4">
           <div>
-            <div class="text-sm text-slate-500 line-through mb-0.5">1.000.000₫</div>
+            <div *ngIf="g.price_initial > 0" class="text-sm text-slate-500 line-through mb-0.5">
+              {{ g.price_initial | number: '1.0-0' }}₫
+            </div>
             <div class="text-xl font-bold text-green-400">MIỄN PHÍ</div>
           </div>
-          <button class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 px-6 rounded-lg transition-colors shadow-lg shadow-blue-600/20">
+          <a
+            *ngIf="g.url"
+            [href]="g.url"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 px-6 rounded-lg transition-colors shadow-lg shadow-blue-600/20"
+          >
             Lấy Game
-          </button>
+          </a>
         </div>
       </div>
     </div>
