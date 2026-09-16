@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GameNews — mockup giao diện đầy đủ</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body { background: #0f172a; }
+      .screen { display: none; }
+      .screen.active { display: block; }
+      .navitem.active { background: #1e293b; color: #fff; }
+    </style>
+  </head>
+  <body class="text-slate-200 font-sans">
+    <div class="flex min-h-screen">
+      <!-- ============ Cột chọn màn ============ -->
+      <aside class="w-64 shrink-0 border-r border-slate-800 bg-slate-900 sticky top-0 h-screen overflow-y-auto">
+        <div class="p-4 border-b border-slate-800">
+          <div class="text-white font-bold text-lg">Mockup đầy đủ</div>
+          <div class="text-slate-500 text-xs mt-1">Đọc kèm docs/MOCKUP.md</div>
+        </div>
+        <nav class="p-2 text-sm" id="menu"></nav>
+        <div class="p-4 text-xs text-slate-600 border-t border-slate-800 leading-relaxed">
+          <span class="text-green-400">■</span> đã chạy<br />
+          <span class="text-blue-400">■</span> API sẵn, thiếu giao diện<br />
+          <span class="text-orange-400">■</span> cần API mới
+        </div>
+      </aside>
+
+      <!-- ============ Khung xem ============ -->
+      <main class="flex-1 min-w-0">
+        <div id="banner" class="px-6 py-3 text-sm border-b border-slate-800"></div>
+
+        <!-- Thanh nav dùng chung, có thêm ô tìm kiếm + trạng thái đăng nhập -->
+        <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur">
+          <div class="px-6 flex items-center gap-6 h-16">
+            <span class="text-white font-bold text-xl">GameNews</span>
+            <div class="flex items-center gap-1 text-sm">
+              <span class="px-3 py-2 rounded bg-slate-800 text-white">Deal</span>
+              <span class="px-3 py-2 rounded text-slate-300">Miễn phí</span>
+              <span class="px-3 py-2 rounded text-slate-300">Tin tức</span>
+              <span class="px-3 py-2 rounded text-slate-300 ring-1 ring-blue-500/40">Thống kê <sup class="text-blue-400">mới</sup></span>
+            </div>
+            <!-- MỚI: ô tìm kiếm -->
+            <div class="flex-1 max-w-md ml-auto relative">
+              <input
+                class="w-full bg-slate-800 border border-blue-500/40 rounded-lg pl-9 pr-3 py-2 text-sm outline-none"
+                placeholder="Tìm trong 28.662 game..." />
+              <svg class="w-4 h-4 absolute left-3 top-2.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/></svg>
+            </div>
+            <!-- MỚI: đăng nhập Steam -->
+            <button class="bg-slate-800 hover:bg-slate-700 border border-blue-500/40 text-white text-sm px-4 py-2 rounded-lg whitespace-nowrap">
+              Đăng nhập Steam
+            </button>
+          </div>
+        </header>
+
+        <div class="p-6" id="screens"></div>
+      </main>
+    </div>
+
+    <script>
+      // ---- dữ liệu mẫu: lấy từ API thật ngày 2026-09-17 ----
+      const DEALS = [
+        { t: 'SAMOLIOTIK', f: '16.500₫', i: '334.000₫', d: 95, low: true },
+        { t: 'Zodiac Hentai', f: '7.500₫', i: '150.000₫', d: 95, low: true },
+        { t: 'Masked Shooters', f: '19.000₫', i: '385.000₫', d: 95, low: true },
+        { t: 'Mordheim: City of the Damned', f: '17.500₫', i: '250.000₫', d: 93, low: true },
+      ];
+      const TIN = [
+        { n: 'Destructoid', g: '16/09 23:34', t: 'Có vẻ như Build a Rocket Boy, studio đứng sau MindsEye, sắp đóng cửa vĩnh viễn', s: 'Theo các bài đăng trên mạng xã hội từ những nhân viên vừa bị sa thải, studio phát triển trò chơi Build a Rocket Boy dường như đang chuẩn bị đóng cửa vĩnh viễn.' },
+        { n: 'GameSpot', g: '16/09 23:10', t: 'Nhà phát triển Call of Duty: Black Ops hé lộ về "trải nghiệm chưa từng có trước đây"', s: 'Nhà phát triển Treyarch đang chuyển sang dự án tiếp theo sau khi hoàn thành Black Ops 7.', game: 'Call of Duty®: Black Ops' },
+      ];
+
+      const MAN = [
+        // ---------------------------------------------------------- đã chạy
+        { id: 'deals', nhan: 'Deal', mau: 'green', trangThai: 'XONG — GET /deals', html: () => `
+          <h1 class="text-3xl font-bold text-white mb-1">Deal Game Hot Nhất</h1>
+          <p class="text-slate-400 mb-6">Những tựa game đang giảm giá sâu, chạm đáy lịch sử.</p>
+          <div class="grid grid-cols-4 gap-5">${DEALS.map(d => `
+            <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden relative">
+              <div class="absolute top-0 right-0 bg-red-600 text-white font-bold px-3 py-1 rounded-bl-lg text-sm">-${d.d}%</div>
+              ${d.low ? '<div class="absolute top-0 left-0 bg-yellow-500 text-black text-xs font-bold px-2 py-1 rounded-br-lg">Đáy lịch sử</div>' : ''}
+              <div class="h-28 bg-slate-900"></div>
+              <div class="p-4">
+                <div class="text-[10px] bg-slate-700 inline-block px-2 py-0.5 rounded mb-2">STEAM</div>
+                <div class="text-white font-bold text-sm mb-2 truncate">${d.t}</div>
+                <div><span class="text-green-400 font-bold">${d.f}</span> <span class="text-slate-500 line-through text-xs">${d.i}</span></div>
+              </div>
+            </div>`).join('')}</div>` },
+
+        { id: 'news', nhan: 'Tin tức', mau: 'green', trangThai: 'XONG — GET /news (636 bài)', html: () => `
+          <h1 class="text-3xl font-bold text-white mb-1">Tin Game Mới Nhất</h1>
+          <p class="text-slate-400 mb-6">Tin quốc tế được tóm tắt sang tiếng Việt.</p>
+          <div class="flex flex-col gap-4">${TIN.map(a => `
+            <article class="bg-slate-800 rounded-lg border border-slate-700 flex overflow-hidden">
+              ${a.game ? '<div class="w-48 shrink-0 bg-slate-900"></div>' : ''}
+              <div class="p-5">
+                <div class="flex gap-2 text-xs text-slate-400 mb-2">
+                  <span class="bg-slate-700 px-2 py-0.5 rounded">${a.n}</span><span>${a.g}</span>
+                </div>
+                <h2 class="text-white font-bold mb-2">${a.t}</h2>
+                <p class="text-slate-400 text-sm">${a.s}</p>
+                ${a.game ? `<a class="text-blue-400 text-sm mt-3 inline-block">Xem giá ${a.game} →</a>` : ''}
+              </div>
+            </article>`).join('')}</div>
+          <div class="mt-6 p-3 rounded bg-slate-800/50 border border-slate-700 text-xs text-slate-400">
+            <b class="text-slate-300">Ràng buộc:</b> thẻ tin chỉ được có tiêu đề đã dịch, tóm tắt tự viết, tên nguồn và link ra bài gốc.
+            Không bao giờ render <code class="text-orange-400">original_content</code>.
+          </div>` },
+
+        // ------------------------------------------------- API sẵn, thiếu UI
+        { id: 'search', nhan: 'Kết quả tìm kiếm', mau: 'blue', trangThai: 'DỰNG ĐƯỢC NGAY — GET /search', html: () => `
+          <h1 class="text-2xl font-bold text-white mb-1">Kết quả cho “elden”</h1>
+          <p class="text-slate-400 mb-6 text-sm">51 game · trang 1/3</p>
+          <div class="flex flex-col gap-3">
+            ${[['Elden Ring','2022','pc, ps5, xbox-series','action-rpg',true],
+               ['Elden: Path of the Forgotten','2020','pc','action, adventure, indie, rpg',false]]
+              .map(([t,y,p,g,noCover]) => `
+              <div class="bg-slate-800 rounded-lg border border-slate-700 p-4 flex gap-4 items-center">
+                <div class="w-28 h-16 rounded bg-slate-900 shrink-0 flex items-center justify-center text-[10px] text-slate-600 text-center">
+                  ${noCover ? 'cover: null<br/>ô giữ chỗ' : ''}
+                </div>
+                <div class="min-w-0">
+                  <div class="text-white font-bold">${t} <span class="text-slate-500 font-normal">(${y})</span></div>
+                  <div class="text-slate-400 text-xs mt-1">${p}</div>
+                  <div class="flex gap-1 mt-2">${g.split(', ').map(x=>`<span class="text-[10px] bg-slate-700 px-2 py-0.5 rounded">${x}</span>`).join('')}</div>
+                </div>
+              </div>`).join('')}
+          </div>
+          <div class="mt-6 p-3 rounded bg-slate-800/50 border border-slate-700 text-xs text-slate-400">
+            <b class="text-slate-300">Hai chỗ dễ sai:</b> <code>titles.vi</code> thường <code>null</code> → hiện
+            <code>titles.vi || titles.primary</code>. Và <code>cover</code> có thể <code>null</code> ngay cả với game lớn
+            (Elden Ring hiện đang null) → luôn có ô giữ chỗ.
+          </div>` },
+
+        { id: 'game', nhan: 'Chi tiết game', mau: 'blue', trangThai: 'XONG + 3 khối cần thêm', html: () => `
+          <div class="text-slate-500 text-sm mb-4">Deal / Mordheim: City of the Damned</div>
+          <div class="flex gap-6 mb-8">
+            <div class="w-64 h-32 bg-slate-800 rounded border border-slate-700 shrink-0"></div>
+            <div>
+              <h1 class="text-2xl font-bold text-white mb-2">Mordheim: City of the Damned</h1>
+              <div class="flex gap-1 mb-3">${['RPG','STRATEGY'].map(x=>`<span class="text-[10px] bg-slate-700 px-2 py-0.5 rounded">${x}</span>`).join('')}</div>
+              <div class="text-slate-400 text-sm">Rogue Factor · Nacon · <span class="text-white">70,3% tích cực</span> (8.440 lượt)</div>
+              <div class="mt-4"><span class="text-green-400 text-2xl font-bold">17.500₫</span>
+                <span class="text-slate-500 line-through ml-2">250.000₫</span>
+                <span class="bg-green-900/40 text-green-400 text-xs px-2 py-1 rounded ml-2">-93%</span></div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-5">
+            <div class="bg-slate-800 rounded-lg border-2 border-blue-500/50 p-5">
+              <div class="text-blue-400 text-xs font-bold mb-3">KHỐI MỚI (a) — GIÁ QUỐC TẾ NHIỀU STORE</div>
+              <table class="w-full text-sm">
+                <tr class="text-slate-500 text-xs"><th class="text-left font-normal pb-2">Store</th><th class="text-right font-normal">Giá</th><th class="text-right font-normal">Giảm</th></tr>
+                ${[['GameBillet','$8.24','45%'],['Fanatical','$8.99','40%'],['Steam','$14.99','0%']].map(([s,p,d])=>`
+                  <tr class="border-t border-slate-700"><td class="py-2">${s}</td><td class="text-right text-green-400">${p}</td><td class="text-right text-slate-400">${d}</td></tr>`).join('')}
+              </table>
+              <p class="text-xs text-slate-500 mt-3">Đáy từng ghi nhận: <span class="text-orange-400">$3.74</span> (11/09/2026)</p>
+              <p class="text-[11px] text-slate-500 mt-3 leading-relaxed">Wiring đã có: API trả <code>intl_prices</code>, template đã có <code>*ngIf</code>.
+              Giá là <b>USD dạng cent</b> — không trộn vào bảng VND.</p>
+            </div>
+
+            <div class="flex flex-col gap-5">
+              <div class="bg-slate-800 rounded-lg border-2 border-blue-500/50 p-5">
+                <div class="text-blue-400 text-xs font-bold mb-3">KHỐI MỚI (b) — TIN LIÊN QUAN</div>
+                <div class="text-sm text-white mb-1">Bản cập nhật mới của Mordheim...</div>
+                <div class="text-xs text-slate-500">PC Gamer · 14/09</div>
+                <p class="text-[11px] text-slate-500 mt-3"><code>GET /news?game_id=</code> đã nhận tham số. Chỉ ~1/7 bài gắn được game → thường rỗng, rỗng thì ẩn hẳn.</p>
+              </div>
+              <div class="bg-slate-800 rounded-lg border-2 border-orange-500/50 p-5">
+                <div class="text-orange-400 text-xs font-bold mb-3">KHỐI MỚI (c) — ĐÁNH GIÁ CỘNG ĐỒNG · MỘT NỬA</div>
+                <div class="text-3xl font-bold text-white">8,2<span class="text-base text-slate-500">/10</span></div>
+                <p class="text-[11px] text-slate-500 mt-3">Điểm đọc được qua <code>GET /community/games/{id}/reviews/score</code>.
+                Nhưng <b class="text-orange-400">không có GET danh sách đánh giá</b> — chỉ POST để gửi. Hiện được điểm, không hiện được nội dung.</p>
+              </div>
+            </div>
+          </div>` },
+
+        { id: 'home', nhan: 'Trang chủ thật', mau: 'blue', trangThai: 'DỰNG ĐƯỢC NGAY — gom từ API sẵn', html: () => `
+          <div class="text-center py-10 bg-slate-800/40 rounded-xl border border-slate-700 mb-8">
+            <h1 class="text-4xl font-bold text-white mb-3">Săn game bản quyền giá tốt</h1>
+            <p class="text-slate-400 mb-6">Theo dõi 28.662 game · 2.217 deal đang chạy</p>
+            <input class="w-96 bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 outline-none" placeholder="Tìm game..." />
+          </div>
+          ${[['Đang ở đáy lịch sử', 4], ['Miễn phí tuần này', 2], ['Tin mới nhất', 0]].map(([tieu, n]) => `
+            <h2 class="text-xl font-bold text-white mb-3 mt-6">${tieu}</h2>
+            ${n ? `<div class="grid grid-cols-4 gap-4">${Array(n).fill(0).map(()=>'<div class="h-32 bg-slate-800 rounded-lg border border-slate-700"></div>').join('')}</div>`
+                : '<div class="flex flex-col gap-2">'+Array(3).fill(0).map(()=>'<div class="h-16 bg-slate-800 rounded-lg border border-slate-700"></div>').join('')+'</div>'}`).join('')}
+          <p class="text-xs text-slate-500 mt-6">Hiện <code>/</code> đang 302 sang <code>/deals</code> — thay bằng trang này.</p>` },
+
+        { id: 'stats', nhan: 'Thống kê', mau: 'blue', trangThai: 'DỰNG ĐƯỢC NGAY — GET /dashboard/stats', html: () => `
+          <h1 class="text-3xl font-bold text-white mb-6">Hệ thống đang theo dõi những gì</h1>
+          <div class="grid grid-cols-4 gap-5">
+            ${[['28.662','game đang theo dõi'],['2.217','deal đang chạy'],['1','game miễn phí'],['1.770','đang ở đáy lịch sử']]
+              .map(([n,l])=>`<div class="bg-slate-800 rounded-lg border border-slate-700 p-6">
+                <div class="text-3xl font-bold text-white">${n}</div>
+                <div class="text-slate-400 text-sm mt-1">${l}</div></div>`).join('')}
+          </div>
+          <p class="text-xs text-slate-500 mt-5">Endpoint trả đúng bốn số này. <b>Đừng thêm biểu đồ</b> — không có dữ liệu chuỗi thời gian.</p>` },
+
+        // --------------------------------------------------- cần API mới
+        { id: 'library', nhan: 'Thư viện của tôi', mau: 'orange', trangThai: 'CẦN API MỚI — chưa có GET /user/library', html: () => `
+          <h1 class="text-2xl font-bold text-white mb-1">Thư viện của tôi</h1>
+          <p class="text-slate-400 mb-6 text-sm">342 game · đồng bộ lần cuối 2 giờ trước</p>
+          <div class="grid grid-cols-3 gap-4">
+            ${['Elden Ring · 127 giờ','Hades · 54 giờ','Stardew Valley · 210 giờ'].map(x=>`
+              <div class="bg-slate-800 rounded-lg border border-slate-700 p-4 flex gap-3 items-center">
+                <div class="w-16 h-10 bg-slate-900 rounded shrink-0"></div>
+                <div class="text-sm text-white">${x}</div>
+              </div>`).join('')}
+          </div>
+          <div class="mt-6 p-4 rounded bg-orange-950/30 border border-orange-800/50 text-sm">
+            <div class="text-orange-400 font-bold mb-2">Chặn: không có đường đọc</div>
+            <p class="text-slate-400 text-xs leading-relaxed">
+              <code>/api/v1/user/library</code> hiện chỉ có <code>DELETE</code> và <code>POST /library/sync</code>.
+              Cần thêm:<br />
+              <code class="text-slate-300">GET /api/v1/user/library?limit=&amp;offset=<br/>
+              → { items: [{ game:{slug,title,cover}, playtime_minutes, synced_at }], total }</code><br /><br />
+              Chỉ lưu appid + playtime + mốc đồng bộ. <b>Không lịch sử mua.</b>
+            </p>
+          </div>` },
+
+        { id: 'alerts', nhan: 'Cảnh báo giá', mau: 'orange', trangThai: 'CẦN API MỚI — chưa có GET/DELETE', html: () => `
+          <h1 class="text-2xl font-bold text-white mb-6">Cảnh báo giá của tôi</h1>
+          <div class="flex flex-col gap-3">
+            ${[['Baldur’s Gate 3','dưới 800.000₫','đang chờ',''],
+               ['Cyberpunk 2077','giảm trên 60%','đã kích hoạt 14/09','text-green-400']].map(([g,dk,tt,mau])=>`
+              <div class="bg-slate-800 rounded-lg border border-slate-700 p-4 flex items-center justify-between">
+                <div class="flex gap-3 items-center">
+                  <div class="w-16 h-10 bg-slate-900 rounded"></div>
+                  <div><div class="text-white text-sm font-bold">${g}</div>
+                  <div class="text-slate-400 text-xs">${dk}</div></div>
+                </div>
+                <div class="flex items-center gap-4">
+                  <span class="text-xs ${mau || 'text-slate-500'}">${tt}</span>
+                  <button class="text-slate-500 hover:text-red-400 text-sm">Xoá</button>
+                </div>
+              </div>`).join('')}
+          </div>
+          <div class="mt-6 p-4 rounded bg-orange-950/30 border border-orange-800/50 text-sm">
+            <div class="text-orange-400 font-bold mb-2">Chặn + ràng buộc nghiệp vụ</div>
+            <p class="text-slate-400 text-xs leading-relaxed">
+              Cần <code class="text-slate-300">GET /api/v1/user/alerts</code> và
+              <code class="text-slate-300">DELETE /api/v1/user/alerts/{id}</code> (hiện chỉ có POST).<br /><br />
+              <b class="text-orange-300">Không bao giờ hiện cảnh báo giảm giá cho game người dùng ĐÃ SỞ HỮU.</b>
+              Lọc ở <b>backend</b>, đừng để giao diện tự lọc — giao diện quên một lần là vi phạm.
+            </p>
+          </div>` },
+
+        { id: 'follows', nhan: 'Đang theo dõi', mau: 'orange', trangThai: 'CẦN API MỚI — chưa có GET/DELETE', html: () => `
+          <h1 class="text-2xl font-bold text-white mb-6">Đang theo dõi</h1>
+          <div class="flex gap-2 mb-5 text-sm">
+            ${['Tất cả','Game','Streamer','Nguồn tin'].map((x,i)=>`<span class="px-3 py-1.5 rounded ${i===0?'bg-slate-700 text-white':'bg-slate-800 text-slate-400'}">${x}</span>`).join('')}
+          </div>
+          <div class="grid grid-cols-3 gap-4">
+            ${['Elden Ring','Hollow Knight: Silksong','IGN'].map(x=>`
+              <div class="bg-slate-800 rounded-lg border border-slate-700 p-4 flex justify-between items-center">
+                <span class="text-white text-sm">${x}</span>
+                <button class="text-slate-500 hover:text-red-400 text-xs">Bỏ theo dõi</button>
+              </div>`).join('')}
+          </div>
+          <div class="mt-6 p-4 rounded bg-orange-950/30 border border-orange-800/50 text-xs text-slate-400">
+            <span class="text-orange-400 font-bold">Chặn:</span>
+            cần <code class="text-slate-300">GET /api/v1/user/follows</code> +
+            <code class="text-slate-300">DELETE /api/v1/user/follows/{id}</code> (hiện chỉ có POST).
+          </div>` },
+
+        { id: 'wrapped', nhan: 'Wrapped', mau: 'blue', trangThai: 'DỰNG ĐƯỢC NGAY — GET /user/me/wrapped/{year}', html: () => `
+          <div class="max-w-lg mx-auto text-center py-10 bg-gradient-to-b from-blue-950/40 to-slate-900 rounded-2xl border border-blue-800/40">
+            <div class="text-blue-400 text-sm font-bold tracking-widest mb-3">GAMENEWS WRAPPED 2026</div>
+            <h1 class="text-4xl font-bold text-white mb-8">Một năm của bạn</h1>
+            <div class="grid grid-cols-2 gap-6 px-10 text-left">
+              ${[['1.284 giờ','đã chơi'],['47','game mới'],['2,4 triệu₫','tiết kiệm được'],['Elden Ring','chơi nhiều nhất']]
+                .map(([n,l])=>`<div><div class="text-2xl font-bold text-white">${n}</div><div class="text-slate-400 text-sm">${l}</div></div>`).join('')}
+            </div>
+            <button class="mt-8 bg-blue-600 text-white px-6 py-2.5 rounded-lg font-semibold">Chia sẻ</button>
+          </div>
+          <p class="text-xs text-slate-500 mt-5 text-center">Ảnh chia sẻ sinh phía server qua <code>GET /api/v1/og-image</code>
+          — <b class="text-orange-400">đang còn nợ: font bitmap, không có dấu tiếng Việt.</b></p>` },
+
+        { id: 'profile', nhan: 'Hồ sơ & huy hiệu', mau: 'blue', trangThai: 'DỰNG ĐƯỢC NGAY — GET /community/users/{id}/badges', html: () => `
+          <div class="flex gap-5 items-center mb-8">
+            <div class="w-20 h-20 rounded-full bg-slate-800 border border-slate-700"></div>
+            <div><h1 class="text-2xl font-bold text-white">Người chơi</h1>
+            <div class="text-slate-400 text-sm">Tham gia 09/2026 · 12 đánh giá</div></div>
+          </div>
+          <h2 class="text-lg font-bold text-white mb-3">Huy hiệu</h2>
+          <div class="grid grid-cols-4 gap-4">
+            ${['Săn deal','Nhà phê bình','Người mở đường','Thợ săn đáy'].map(x=>`
+              <div class="bg-slate-800 rounded-lg border border-slate-700 p-5 text-center">
+                <div class="w-12 h-12 rounded-full bg-slate-700 mx-auto mb-3"></div>
+                <div class="text-white text-sm font-semibold">${x}</div>
+              </div>`).join('')}
+          </div>` },
+      ];
+
+      const MAU = { green: 'text-green-400', blue: 'text-blue-400', orange: 'text-orange-400' };
+      const NEN = { green: 'bg-green-950/30 border-green-800/40', blue: 'bg-blue-950/30 border-blue-800/40', orange: 'bg-orange-950/30 border-orange-800/40' };
+
+      const menu = document.getElementById('menu');
+      const screens = document.getElementById('screens');
+      const banner = document.getElementById('banner');
+
+      MAN.forEach((m, i) => {
+        const a = document.createElement('a');
+        a.className = 'navitem block px-3 py-2 rounded cursor-pointer text-slate-400 hover:bg-slate-800 hover:text-white';
+        a.innerHTML = `<span class="${MAU[m.mau]} mr-2">■</span>${m.nhan}`;
+        a.onclick = () => chon(i);
+        menu.appendChild(a);
+
+        const d = document.createElement('div');
+        d.className = 'screen';
+        d.id = 'man-' + m.id;
+        d.innerHTML = m.html();
+        screens.appendChild(d);
+      });
+
+      function chon(i) {
+        [...menu.children].forEach((c, j) => c.classList.toggle('active', i === j));
+        [...screens.children].forEach((c, j) => c.classList.toggle('active', i === j));
+        const m = MAN[i];
+        banner.className = `px-6 py-3 text-sm border-b border-slate-800 ${NEN[m.mau]}`;
+        banner.innerHTML = `<span class="${MAU[m.mau]} font-bold">${m.trangThai}</span>`;
+      }
+      chon(0);
+    </script>
+  </body>
+</html>
