@@ -72,3 +72,43 @@ async def award_badge(db: Db, user_id: str, badge_type: str) -> bool:
     await db.user_badges.insert_one(new_badge.to_mongo())
     logger.info(f"Awarded badge {badge_type} to user {user_id}")
     return True
+
+
+async def reviews_of_game(
+    db: Db, game_id: str, *, limit: int = 20, offset: int = 0
+) -> tuple[list[dict[str, Any]], int]:
+    """Đánh giá của một game, mới nhất trước.
+
+    **Không áp `MIN_REVIEWS_TO_SHOW` vào danh sách**, dù `calculate_game_score`
+    có. Hai thứ khác nhau: ngưỡng 20 tồn tại để một con số TRUNG BÌNH không bị
+    vài người dìm, còn từng bài đánh giá là ý kiến của một người cụ thể, không
+    phải thống kê — giấu nó đi nghĩa là người vừa viết xong thấy bài mình biến
+    mất, và họ viết lại.
+
+    Nên: game 3 đánh giá vẫn hiện đủ 3 bài, mà điểm trung bình vẫn ẩn. Giao diện
+    phải nói rõ "chưa đủ lượt để tính điểm" chứ không để trống chỗ điểm.
+
+    **`users` chưa lưu tên hiển thị hay avatar** (model `User` chỉ có
+    `steam_id64`, `locale`, `notification_settings`), nên chỉ trả được `user_id`.
+    Muốn có tên thì phải lưu persona Steam lúc đăng nhập — việc khác, chưa làm.
+    """
+    limit, offset = max(1, min(limit, 100)), max(0, offset)
+    if not ObjectId.is_valid(game_id):
+        return [], 0
+
+    query = {"game_id": ObjectId(game_id)}
+    cursor = db.user_reviews.find(query).sort("created_at", -1).skip(offset).limit(limit)
+    rows = [doc async for doc in cursor]
+    total = await db.user_reviews.count_documents(query)
+
+    reviews = [
+        {
+            "id": str(row["_id"]),
+            "user_id": str(row["user_id"]),
+            "score": row.get("score"),
+            "comment": row.get("comment"),
+            "created_at": row.get("created_at"),
+        }
+        for row in rows
+    ]
+    return reviews, total

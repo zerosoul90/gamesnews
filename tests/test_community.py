@@ -12,7 +12,13 @@ from typing import Any
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.services.community import MIN_REVIEWS_TO_SHOW, award_badge, calculate_game_score
+from app.models.community import UserReview
+from app.services.community import (
+    MIN_REVIEWS_TO_SHOW,
+    award_badge,
+    calculate_game_score,
+    reviews_of_game,
+)
 
 Db = AsyncIOMotorDatabase[dict[str, Any]]
 
@@ -60,3 +66,58 @@ async def test_trao_badge_dung_mot_lan(mongo_db: Db) -> None:
     assert await award_badge(mongo_db, user_id, "reviewer") is True
     assert await award_badge(mongo_db, user_id, "reviewer") is False
     assert await mongo_db.user_badges.count_documents({"badge_type": "reviewer"}) == 1
+
+
+# --- danh sách đánh giá ------------------------------------------------------
+
+
+async def test_danh_sach_danh_gia_khong_bi_nguong_20_chan(mongo_db: Db) -> None:
+    """Ngưỡng `MIN_REVIEWS_TO_SHOW` chỉ áp cho ĐIỂM TRUNG BÌNH, không áp cho
+    danh sách. Hai thứ khác nhau: ngưỡng tồn tại để vài người không dìm được một
+    con số thống kê, còn từng bài là ý kiến của một người — giấu đi thì người
+    vừa viết thấy bài mình biến mất và họ viết lại."""
+    game_id = ObjectId()
+    for i in range(3):
+        await mongo_db.user_reviews.insert_one(
+            UserReview(user_id=ObjectId(), game_id=game_id, score=8, comment=f"hay {i}").to_mongo()
+        )
+
+    reviews, total = await reviews_of_game(mongo_db, str(game_id))
+    diem = await calculate_game_score(mongo_db, str(game_id))
+
+    assert total == 3, "danh sách phải hiện đủ dù dưới ngưỡng"
+    assert len(reviews) == 3
+    # Trong khi điểm trung bình vẫn ẩn.
+    assert diem is not None
+    assert diem["is_hidden"] is True
+    assert diem["average_score"] is None
+
+
+async def test_danh_gia_moi_nhat_truoc(mongo_db: Db) -> None:
+    game_id = ObjectId()
+    for moc in ("2026-09-10T00:00:00+00:00", "2026-09-17T00:00:00+00:00"):
+        doc = UserReview(user_id=ObjectId(), game_id=game_id, score=7).to_mongo()
+        doc["created_at"] = moc
+        await mongo_db.user_reviews.insert_one(doc)
+
+    reviews, _ = await reviews_of_game(mongo_db, str(game_id))
+
+    assert reviews[0]["created_at"] > reviews[1]["created_at"]
+
+
+async def test_game_id_sai_dang_tra_rong_chu_khong_no(mongo_db: Db) -> None:
+    assert await reviews_of_game(mongo_db, "khong-phai-objectid") == ([], 0)
+
+
+async def test_chi_tra_danh_gia_cua_dung_game(mongo_db: Db) -> None:
+    game_a, game_b = ObjectId(), ObjectId()
+    await mongo_db.user_reviews.insert_one(
+        UserReview(user_id=ObjectId(), game_id=game_a, score=9).to_mongo()
+    )
+    await mongo_db.user_reviews.insert_one(
+        UserReview(user_id=ObjectId(), game_id=game_b, score=3).to_mongo()
+    )
+
+    _, total = await reviews_of_game(mongo_db, str(game_a))
+
+    assert total == 1

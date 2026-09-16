@@ -14,19 +14,41 @@ Mọi con số và mọi tên trường trong đây đều **đọc từ hệ th
 Đó là gốc của cảm giác "giao diện không đầy đủ". Không phải backend yếu — là
 web chưa gọi tới.
 
-### Nhóm endpoint người dùng CHỈ CÓ ĐƯỜNG GHI
+### Nhóm endpoint người dùng — đã có đường đọc (2026-09-17)
 
-Đây là cái bẫy lớn nhất của cả tài liệu này. Đừng bắt đầu dựng trang "Thư viện
-của tôi" rồi mới phát hiện không có gì để đọc:
+Cho tới sáng 17/09, nhóm `/api/v1/user` **chỉ có đường ghi**: đặt được cảnh báo
+nhưng không xem lại được, theo dõi được nhưng không biết mình theo dõi gì, đồng
+bộ thư viện xong thì không có gì đọc. Bốn màn cá nhân hoá bị chặn ở backend.
 
-| Đường | Có | KHÔNG có |
-|---|---|---|
-| `/api/v1/user/library` | `DELETE`, `POST /library/sync` | **`GET`** |
-| `/api/v1/user/alerts` | `POST` | **`GET`**, `DELETE` |
-| `/api/v1/user/follows` | `POST` | **`GET`**, `DELETE` |
-| `/community/reviews` | `POST` | **`GET`** (không đọc được đánh giá của một game) |
+Sáu đường sau **nay đã có** — cả 15 màn trong tài liệu này đều dựng được:
 
-Bốn màn phụ thuộc chúng vì thế là **CẦN API MỚI**, không phải "dựng được ngay".
+| Đường | Trả về |
+|---|---|
+| `GET /api/v1/user/library?limit=&offset=` | `{items:[{game_id,store,playtime_minutes,synced_at,game}], total, limit, offset}` |
+| `GET /api/v1/user/alerts` | `{alerts:[{id,game_id,condition,value,currency,triggered_at,owned,game}], total}` |
+| `DELETE /api/v1/user/alerts/{alert_id}` | `{status:"ok"}` · 404 nếu không phải của mình |
+| `GET /api/v1/user/follows` | `{follows:[{id,target_type,target_id,target}], total}` |
+| `DELETE /api/v1/user/follows/{follow_id}` | `{status:"ok"}` · 404 nếu không phải của mình |
+| `GET /community/games/{game_id}/reviews?limit=&offset=` | `{reviews:[{id,user_id,score,comment,created_at}], total, limit, offset}` |
+
+Ba đường `/user/*` đòi JWT — không token là **401**. `/community/.../reviews`
+công khai.
+
+Ba điều phải biết khi dùng chúng:
+
+- **`alerts[].owned`** — game đã nằm trong thư viện thì cảnh báo ấy sẽ không bao
+  giờ được gửi. API vẫn trả về, kèm cờ, để giao diện **làm mờ và nói rõ lý do**.
+  Đừng lọc bỏ: cảnh báo do chính người dùng đặt mà biến mất không lời nào thì họ
+  chỉ đặt lại. Cờ này thuần trình bày — chặn gửi thật nằm ở `notification.py`.
+- **`follows[].target` có thể `null`** — chỉ mục `target_type == "game"` mới tra
+  được thẻ game. Streamer/series trả `null`, hiển thị bằng `target_id`.
+- **`reviews[].user_id` là tất cả những gì có về người viết.** `users` chưa lưu
+  tên hiển thị hay avatar (model `User` chỉ có `steam_id64`, `locale`,
+  `notification_settings`). Render ô giữ chỗ ẩn danh; muốn có tên thì phải lưu
+  persona Steam lúc đăng nhập — việc khác, chưa làm.
+- **Danh sách đánh giá KHÔNG bị ngưỡng 20 chặn**, dù điểm trung bình thì có.
+  Game 3 đánh giá vẫn hiện đủ 3 bài, mà chỗ điểm phải nói "chưa đủ lượt để tính
+  điểm" chứ không để trống.
 
 ### Ràng buộc cứng, không được lách
 
@@ -75,7 +97,10 @@ Bug hay gặp nhất của mấy màn hiện tại là quên hai cái sau:
 ## 1. Bảng toàn cảnh
 
 Trạng thái: **XONG** = đã chạy trên production · **DỰNG ĐƯỢC NGAY** = API có
-sẵn, chỉ thiếu giao diện · **CẦN API MỚI** = phải viết backend trước.
+sẵn, chỉ thiếu giao diện.
+
+Không còn màn nào bị chặn bởi backend — bốn màn cá nhân hoá đã được gỡ chặn
+ngày 2026-09-17.
 
 | # | Màn | Route | API | Trạng thái |
 |---|---|---|---|---|
@@ -90,10 +115,10 @@ sẵn, chỉ thiếu giao diện · **CẦN API MỚI** = phải viết backend 
 | 9 | Wrapped | `/wrapped/:year` | `GET /api/v1/user/me/wrapped/{year}` | DỰNG ĐƯỢC NGAY |
 | 10 | Huy hiệu người dùng | `/nguoi-dung/:id` | `GET /community/users/{id}/badges` | DỰNG ĐƯỢC NGAY |
 | 11 | Đăng nhập Steam | (nút trên nav) | `GET /api/v1/auth/steam/login` | DỰNG ĐƯỢC NGAY |
-| 12 | Thư viện của tôi | `/thu-vien` | — | **CẦN API MỚI** |
-| 13 | Cảnh báo giá | `/canh-bao` | — | **CẦN API MỚI** |
-| 14 | Đang theo dõi | `/theo-doi` | — | **CẦN API MỚI** |
-| 15 | Đánh giá của một game | (trong §2.4) | — | **CẦN API MỚI** |
+| 12 | Thư viện của tôi | `/thu-vien` | `GET /api/v1/user/library` | DỰNG ĐƯỢC NGAY |
+| 13 | Cảnh báo giá | `/canh-bao` | `GET`+`DELETE /api/v1/user/alerts` | DỰNG ĐƯỢC NGAY |
+| 14 | Đang theo dõi | `/theo-doi` | `GET`+`DELETE /api/v1/user/follows` | DỰNG ĐƯỢC NGAY |
+| 15 | Đánh giá của một game | (trong §2.4) | `GET /community/games/{id}/reviews` | DỰNG ĐƯỢC NGAY |
 
 ---
 
@@ -114,10 +139,17 @@ lỗi**, dữ liệu đang đầy dần. Giá là **USD dạng cent**, đừng t
 `GET /news?game_id={game_id}` đã nhận tham số lọc. Chỉ ~1/7 bài gắn được game
 nên khối này thường rỗng; rỗng thì ẩn hẳn.
 
-**c) Đánh giá cộng đồng — MỘT NỬA.**
-`GET /community/games/{game_id}/reviews/score` đọc được điểm tổng. Nhưng
-**không có `GET` để lấy danh sách đánh giá** — chỉ `POST /community/reviews` để
-gửi. Nên hiện được điểm, không hiện được nội dung.
+**c) Đánh giá cộng đồng — DỰNG ĐƯỢC NGAY (từ 17/09).**
+Hai endpoint, hai luật khác nhau:
+
+- `GET /community/games/{id}/reviews/score` — điểm trung bình, **ẩn dưới 20
+  lượt** (`is_hidden: true`, `average_score: null`). Chỗ điểm phải nói "chưa đủ
+  lượt để tính điểm", đừng để trống.
+- `GET /community/games/{id}/reviews` — danh sách, **không bị ngưỡng 20 chặn**.
+  Ngưỡng tồn tại để vài người không dìm được một con số thống kê; từng bài là ý
+  kiến của một người, giấu đi thì người vừa viết thấy bài mình biến mất.
+
+Người viết chỉ có `user_id` — chưa lưu tên hiển thị.
 
 ### 2.5–2.6 Tìm kiếm
 
@@ -161,31 +193,26 @@ miễn phí tuần này, 5 tin mới nhất, ô tìm kiếm lớn. Tất cả đ
 Bốn thẻ số lớn. Đừng thêm biểu đồ — không có dữ liệu chuỗi thời gian nào ở
 endpoint này.
 
-### 2.12–2.14 Các màn cần API mới
+### 2.12–2.14 Các màn cá nhân hoá
 
-Giao diện thiết kế được ngay, nhưng **phải chờ backend**. Đề xuất hình dạng
-(cần chốt với chủ dự án trước khi hiện thực):
+Hình dạng API xem `§0`. Ba màn đều đòi đăng nhập — chưa có token thì đừng gọi,
+hiện màn mời đăng nhập Steam.
 
-```
-GET /api/v1/user/library?limit=&offset=
-    -> { items: [{ game: {slug,title,cover}, playtime_minutes, synced_at }],
-         total }
+**Thư viện** (`GET /library`) — sắp theo `playtime_minutes` giảm dần, phân trang
+`limit`/`offset`. `game` có thể `null` khi game đã bị gỡ khỏi catalog: hiện tên
+mờ, đừng ẩn dòng. Chỉ có appid + playtime + mốc đồng bộ, **không lịch sử mua**.
 
-GET /api/v1/user/alerts
-    -> [{ id, game: {...}, condition_type, value, triggered_at, created_at }]
-DELETE /api/v1/user/alerts/{id}
+**Cảnh báo giá** (`GET`/`DELETE /alerts`) — mục có `owned: true` phải được **làm
+mờ kèm câu giải thích** "bạn đã có game này, cảnh báo sẽ không được gửi". Đừng
+ẩn. `triggered_at` khác `null` nghĩa là đã từng kích hoạt.
 
-GET /api/v1/user/follows
-    -> [{ id, target_type, target: {...}, created_at }]
-DELETE /api/v1/user/follows/{id}
+**Theo dõi** (`GET`/`DELETE /follows`) — lọc theo `target_type` ở phía web
+(`game`/`series`/`developer`/`streamer`). `target` `null` với mục không phải
+game, hiển thị bằng `target_id`.
 
-GET /community/games/{game_id}/reviews?limit=&offset=
-    -> { reviews: [{ id, user:{id,name}, score, body, created_at }], total }
-```
-
-**Ràng buộc số 3 áp vào đây:** màn Cảnh báo giá không được hiện cảnh báo cho
-game người dùng đã sở hữu. Việc lọc nên làm ở **backend**, đừng để giao diện tự
-lọc — giao diện quên một lần là vi phạm.
+Cả hai `DELETE` trả **404** khi mục không thuộc về người đang đăng nhập — cố ý
+không dùng 403, vì phân biệt "không tồn tại" với "tồn tại nhưng của người khác"
+tự nó là rò rỉ thông tin. Giao diện chỉ cần hiện "không tìm thấy" rồi tải lại.
 
 ---
 
@@ -200,7 +227,8 @@ Xếp theo giá trị chia cho công sức, không phải theo số thứ tự b
 4. **Đăng nhập Steam + trạng thái trên nav** (#11) — mở đường cho mọi màn cá
    nhân hoá phía sau.
 5. **Thống kê** (#8) — rẻ, và là bằng chứng sống cho thấy hệ thống có dữ liệu.
-6. **Nhóm cần API mới** (#12–#15) — chốt hình dạng API trước, rồi làm cả cụm.
+6. **Nhóm cá nhân hoá** (#12–#15) — làm cả cụm sau khi đăng nhập đã chạy, vì cả
+   ba màn đều vô nghĩa khi chưa có token.
 
 ## 4. Đừng lặp lại bốn lỗi đã sửa
 

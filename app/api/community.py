@@ -1,14 +1,14 @@
 from typing import Any
 
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.api.auth import get_current_user_id
 from app.core.deps import MongoDep
 from app.core.serialization import jsonify_docs
 from app.models.community import UserReview
-from app.services.community import award_badge, calculate_game_score
+from app.services.community import award_badge, calculate_game_score, reviews_of_game
 
 router = APIRouter(prefix="/community", tags=["community"])
 
@@ -67,6 +67,30 @@ async def get_game_score(game_id: str, db: MongoDep) -> dict[str, Any]:
     score = await calculate_game_score(db, game_id)
     # Service luôn trả dict; giữ nhánh này để mypy thấy kiểu thu hẹp đúng.
     return score or {"average_score": None, "review_count": 0, "is_hidden": True}
+
+
+@router.get("/games/{game_id}/reviews")
+async def get_game_reviews(
+    game_id: str,
+    db: MongoDep,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+) -> dict[str, Any]:
+    """Danh sách đánh giá của một game, mới nhất trước.
+
+    Trước endpoint này `/community/reviews` chỉ có `POST` — gửi được đánh giá
+    nhưng không đọc lại được cái nào, kể cả của chính mình.
+
+    Khác `/reviews/score`: điểm trung bình bị ẩn dưới 20 lượt, còn danh sách thì
+    KHÔNG — xem `services/community.reviews_of_game` để biết vì sao hai thứ đó
+    không dùng chung một ngưỡng.
+
+    `user_id` là tất cả những gì có về người viết: `users` chưa lưu tên hiển thị.
+    """
+    if not ObjectId.is_valid(game_id):
+        raise HTTPException(status_code=400, detail="game_id không hợp lệ")
+    reviews, total = await reviews_of_game(db, game_id, limit=limit, offset=offset)
+    return {"reviews": reviews, "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/users/{user_id}/badges")

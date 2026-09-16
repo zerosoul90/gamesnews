@@ -1,7 +1,8 @@
 import logging
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from bson import ObjectId
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import BaseModel, Field
 
@@ -9,7 +10,7 @@ from app.adapters.steam.user import PrivateProfileError
 from app.api.auth import get_current_user
 from app.models.game import PyObjectId
 from app.models.user import PriceAlert, UserFollow
-from app.services import devices
+from app.services import devices, user_reads
 from app.services.user_library import delete_library, sync_steam_library
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,30 @@ router = APIRouter(prefix="/api/v1/user", tags=["User"])
 def db_of(request: Request) -> AsyncIOMotorDatabase[dict[str, Any]]:
     database: AsyncIOMotorDatabase[dict[str, Any]] = request.app.state.clients.db
     return database
+
+
+def _user_id(current_user: dict[str, Any]) -> ObjectId:
+    """`_id` của người đang đăng nhập, từ claim `sub`.
+
+    Gom về một chỗ vì trước đó bốn endpoint chép lại cùng một khối try/except —
+    và bản chép nào cũng có cơ hội quên, mà quên ở đây nghĩa là `PyObjectId(None)`
+    ném lỗi thành 500 thay vì 400.
+    """
+    try:
+        return PyObjectId(current_user.get("sub"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="ID user không hợp lệ") from exc
+
+
+def _object_id(value: str, ten: str) -> ObjectId:
+    """Đổi tham số đường dẫn sang `ObjectId`, 400 nếu sai dạng.
+
+    Không để `ObjectId(value)` ném thẳng: `bson.errors.InvalidId` không phải
+    `HTTPException` nên FastAPI trả 500 cho một lỗi rõ ràng là của client.
+    """
+    if not ObjectId.is_valid(value):
+        raise HTTPException(status_code=400, detail=f"{ten} không hợp lệ")
+    return ObjectId(value)
 
 
 @router.post("/library/sync")
@@ -169,6 +194,80 @@ async def set_price_alert(
         upsert=True,
     )
     return {"status": "ok", "game_id": str(alert.game_id), "condition": alert.condition}
+
+
+@router.get("/library")
+async def get_my_library(
+    request: Request,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Thư viện của tôi, chơi nhiều nhất trước.
+
+    Trước endpoint này `/library` chỉ có `DELETE` và `POST /sync` — đồng bộ xong
+    thì không có đường nào đọc lại, nên màn "Thư viện của tôi" không dựng được.
+    """
+    items, total = await user_reads.library_of(
+        db_of(request), _user_id(current_user), limit=limit, offset=offset
+    )
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+
+@router.get("/alerts")
+async def get_my_alerts(
+    request: Request, current_user: dict[str, Any] = Depends(get_current_user)
+) -> dict[str, Any]:
+    """Cảnh báo giá của tôi.
+
+    Mỗi mục có cờ `owned`: game đã nằm trong thư viện thì cảnh báo ấy sẽ **không
+    bao giờ được gửi** (`services/notification.py` chặn, và chặn kiểu fail
+    closed). Trả về kèm cờ thay vì giấu đi, để giao diện làm mờ và nói rõ lý do
+    — cảnh báo do chính người dùng đặt mà biến mất không lời nào thì họ chỉ đặt
+    lại.
+    """
+    alerts = await user_reads.alerts_of(db_of(request), _user_id(current_user))
+    return {"alerts": alerts, "total": len(alerts)}
+
+
+@router.delete("/alerts/{alert_id}")
+async def delete_my_alert(
+    alert_id: str, request: Request, current_user: dict[str, Any] = Depends(get_current_user)
+) -> dict[str, Any]:
+    """Xoá một cảnh báo của CHÍNH MÌNH.
+
+    404 chứ không phải 403 khi cảnh báo thuộc người khác: hai mã đó phân biệt
+    được "không tồn tại" với "tồn tại nhưng không phải của bạn", và phân biệt ấy
+    tự nó là rò rỉ thông tin.
+    """
+    ok = await user_reads.delete_alert(
+        db_of(request), _user_id(current_user), _object_id(alert_id, "alert_id")
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail="Không tìm thấy cảnh báo")
+    return {"status": "ok"}
+
+
+@router.get("/follows")
+async def get_my_follows(
+    request: Request, current_user: dict[str, Any] = Depends(get_current_user)
+) -> dict[str, Any]:
+    """Những gì tôi đang theo dõi. `target` là `None` với mục không phải game."""
+    follows = await user_reads.follows_of(db_of(request), _user_id(current_user))
+    return {"follows": follows, "total": len(follows)}
+
+
+@router.delete("/follows/{follow_id}")
+async def delete_my_follow(
+    follow_id: str, request: Request, current_user: dict[str, Any] = Depends(get_current_user)
+) -> dict[str, Any]:
+    """Bỏ theo dõi. Cùng luật 404 như `delete_my_alert`."""
+    ok = await user_reads.delete_follow(
+        db_of(request), _user_id(current_user), _object_id(follow_id, "follow_id")
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail="Không tìm thấy mục theo dõi")
+    return {"status": "ok"}
 
 
 @router.get("/me/wrapped/{year}")
