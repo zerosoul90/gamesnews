@@ -2273,3 +2273,100 @@ hệt kết quả thật.**
   nó không dùng được**. Cần đo lại bằng thiết kế cụm-và-tỉ-lệ nói trên.
 - `price_intl.checked_at` và index của nó nay không ai đọc. Để lại vì vô hại,
   nhưng nếu dọn thì nhớ index cũ vẫn nằm trong Mongo dù gỡ khỏi `INDEXES`.
+
+### 2026-09-17 (lượt 10) — Backend 38 endpoint, web gọi đúng 2
+
+Bắt đầu từ một câu của người dùng: "giao diện các tính năng không đầy đủ". Mở
+trình duyệt xem thật thay vì đoán. Vấn đề không nằm ở backend.
+
+#### Ba lỗ hổng, một trong ba còn nói SAI
+
+**`/free` là mockup tĩnh.** `FreeComponent` không có `HttpClient`,
+`imports: []`, và template có **0 binding**. Nó khoe cứng "Marvel's Midnight
+Suns — 1.000.000₫ — Còn 3 ngày" kèm URL ảnh Epic CDN đã chết (đó là cái ảnh vỡ
+nhìn thấy trên màn hình), trong khi API thật trả LUFTRAUSERS 104.000₫ tới
+17/09. Đây không phải thiếu tính năng mà là **nói sai** — tệ hơn trang trống,
+vì trang trống thì người dùng biết là chưa có gì.
+
+**Không có nav.** `app.component.html` đúng một dòng `<router-outlet>`, và
+không có component header/nav/footer nào trong cả `web/src/app/`. Nên `/free`
+không thể tới được trừ khi gõ tay URL.
+
+**Cả đường ống tin không có chỗ ra.** Đây là phát hiện lớn nhất: 1.064 bài,
+600 đã có tiếng Việt, và **không một route công khai nào** phục vụ chúng —
+`articles` chỉ xuất hiện trong job, `services/` và router `admin`. Chín lượt
+làm việc vừa rồi đổ vào crawl, khử trùng, gắn entity và canh hạn mức Gemini;
+kết quả nằm trong Mongo mà không ai đọc được. Checkpoint Phase 6 đòi "tin quốc
+tế **lên feed** tiếng Việt trong vòng 2 giờ" — không thể nghiệm thu vì không có
+feed.
+
+#### Quyết định phải hỏi, không được tự quyết
+
+Feed lọc theo gì? `status` mặc định là `pending` và **không có bước nào** trong
+pipeline nâng lên `published` — chỉ `admin.approve_article` làm tay. Lọc theo
+`published` thì feed rỗng tuyệt đối (0/1.064).
+
+Đây là quyết định biên tập, không phải kỹ thuật, nên hỏi. Chọn: **mốc là
+`summary_vi` đã điền**. Nó nằm trong chính dữ liệu, và khép luôn ràng buộc bản
+quyền của `CLAUDE.md` — bài không có tóm tắt tự viết thì không lên feed, nên
+không bao giờ hiển thị chay nội dung nguồn.
+
+`original_content` giữ nguyên văn HTML bài gốc và có **hai lớp chặn độc lập**:
+projection dạng danh sách CHO PHÉP (thêm trường thô mới sau này không tự chảy
+ra API) và phép ánh xạ đầu ra chỉ chép các khoá đã liệt kê.
+
+#### `-100%` cạnh giá 188.000₫
+
+Crystal Crisis có `discount_percent: 100` trong khi
+`price_initial == price_final == 188000`. Trang deal sắp theo mức giảm nên bản
+ghi ấy nhảy lên **vị trí đầu tiên** — con số vô lý nhất trang là thứ đầu tiên
+ai cũng thấy. Đúng một bản ghi trong cả kho, tức dữ liệu ngoài tự mâu thuẫn chứ
+không phải lỗi hệ thống.
+
+Guard đặt ở `PriceCurrent` (mọi store đều đi qua), tin hai trường giá chứ không
+tin trường dẫn xuất. Ca `is_free_promo` không bị đụng vì ở đó `price_final = 0`
+khác `price_initial` — có test riêng chốt chiều này, vì gộp chung hai ca là xoá
+sạch trang `/free`.
+
+Guard chỉ áp cho lượt ghi mới, nên bản ghi cũ đã được sửa tay một lần
+(`modifiedCount: 1`) — Crystal Crisis xếp hạng thấp nên đợi job tự chữa có thể
+mất nhiều ngày.
+
+#### Nghiệm thu
+
+**631 test Python** (614 → 631), ruff + mypy sạch. **3 test web** — trước lượt
+này web không chạy được test nào: `app.component.spec.ts` là scaffold `ng new`
+đã hỏng sẵn (đòi `<h1>` chứa "Hello, web"), và không ai thấy vì CI chưa chạy
+`ng test`. Thêm `karma.conf.js` với launcher `ChromeHeadlessNoSandbox` — thiếu
+cờ đó thì Chrome không khởi động nổi trong container.
+
+Mọi test mới đều xác minh **đỏ khi gỡ fix**: nav (2/3 đỏ), guard giá (đỏ đúng
+một test, ba test "không được đụng tới" vẫn xanh), và chặn bản quyền.
+
+Chốt chặn bản quyền có một chi tiết đáng ghi: phá lớp projection thì test **vẫn
+xanh** — vì lớp ánh xạ đầu ra đỡ. Phải phá đúng lớp mà test nhắm tới mới thấy
+đỏ. Xanh ở đó là kết quả đúng, không phải dương giả.
+
+#### Ba lần một phép kiểm tự nói dối
+
+Cùng một hình dạng, ba vỏ khác nhau, đều trong phiên này:
+
+1. `python - <<EOF` trong Bash trên Windows — `python` là alias Store nên lệnh
+   gỡ fix **không chạy**, file không đổi, test xanh vô nghĩa.
+2. `find web/src -name "*.spec.ts"` ra rỗng → kết luận "web không có test nào".
+   Sai: cwd của Bash đang ở `web/`, nên đường dẫn `web/src` không tồn tại. File
+   spec vẫn ở đó.
+3. `ls web/node_modules 2>/dev/null | head -3 && echo "CO"` luôn in "CO" — `&&`
+   gắn vào `head` chứ không phải `ls`. `node_modules` thật ra không hề tồn tại.
+
+Cả ba đều sai theo chiều **dương**, và cả ba đều bị bắt bằng cách đọc kỹ output
+thay vì đọc kết luận.
+
+**Còn nợ:**
+
+- Mốc sang ngày của Google — vẫn cần đo lại bằng thiết kế cụm-và-tỉ-lệ.
+- CI **chưa chạy `ng test`**; hạ tầng đã sẵn sàng, chỉ thiếu job.
+- Vẫn chưa có giao diện cho: `/search`, đăng nhập Steam, thư viện / cảnh báo giá
+  / theo dõi / wrapped, đánh giá cộng đồng, banner + giftcode, dashboard.
+- Trang tin chưa có lọc theo game trên giao diện (API đã nhận `game_id`).
+- Các mục còn nợ của lượt 8 và 9 giữ nguyên.
