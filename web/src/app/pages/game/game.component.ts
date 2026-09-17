@@ -8,6 +8,10 @@ import { RENDER_STATUS, RenderStatus } from '../../render-status';
 import { SITE_ORIGIN } from '../../site-origin';
 import { GameDetail, GamePrice, GameService, PlayerCountDay } from '../../services/game.service';
 import { StructuredDataService } from '../../services/structured-data.service';
+import { CommunityService, Review } from '../../services/community.service';
+import { NewsService, Article } from '../../services/news.service';
+import { WatchlistService, WatchlistItem } from '../../services/watchlist.service';
+import { AuthService } from '../../services/auth.service';
 
 /** Một cột của biểu đồ người chơi, toạ độ đã tính sẵn trong viewBox 100x40. */
 interface PlayerBar {
@@ -35,11 +39,22 @@ export class GameComponent implements OnInit {
   minimumRows: { key: string; value: string }[] = [];
   recommendedRows: { key: string; value: string }[] = [];
 
+  relatedNews: Article[] = [];
+  reviews: Review[] = [];
+  reviewsTotal = 0;
+
+  isInWatchlist = false;
+  isWatchlistLoading = false;
+
   constructor(
     private titleService: Title,
     private metaService: Meta,
     private route: ActivatedRoute,
     private gameService: GameService,
+    private communityService: CommunityService,
+    private newsService: NewsService,
+    private watchlistService: WatchlistService,
+    public authService: AuthService,
     private structuredData: StructuredDataService,
     @Inject(SITE_ORIGIN) private siteOrigin: string,
     @Optional() @Inject(RENDER_STATUS) private renderStatus: RenderStatus | null,
@@ -62,6 +77,24 @@ export class GameComponent implements OnInit {
         this.recommendedRows = this.requirementRows(game.system_requirements.recommended);
         this.isLoading = false;
         this.applySeoTags(game);
+
+        // Fetch related news (if any)
+        this.newsService.getNews(5, 0, game.id).subscribe(res => {
+          this.relatedNews = res.articles;
+        });
+
+        // Fetch community reviews
+        this.communityService.getReviews(game.id).subscribe(res => {
+          this.reviews = res.reviews;
+          this.reviewsTotal = res.total;
+        });
+
+        // Check if game is in watchlist (only if logged in)
+        if (this.authService.isLoggedIn()) {
+          this.watchlistService.getWatchlist().subscribe(res => {
+            this.isInWatchlist = res.items.some(item => item.game_id === game.id);
+          });
+        }
       },
       error: (err: HttpErrorResponse) => {
         this.isLoading = false;
@@ -309,4 +342,28 @@ export class GameComponent implements OnInit {
       });
     }
   }
+
+  toggleWatchlist(): void {
+    if (!this.game) return;
+    
+    this.isWatchlistLoading = true;
+    if (this.isInWatchlist) {
+      this.watchlistService.removeFromWatchlist(this.game.id).subscribe({
+        next: () => {
+          this.isInWatchlist = false;
+          this.isWatchlistLoading = false;
+        },
+        error: () => this.isWatchlistLoading = false
+      });
+    } else {
+      this.watchlistService.addToWatchlist(this.game.id).subscribe({
+        next: () => {
+          this.isInWatchlist = true;
+          this.isWatchlistLoading = false;
+        },
+        error: () => this.isWatchlistLoading = false
+      });
+    }
+  }
 }
+

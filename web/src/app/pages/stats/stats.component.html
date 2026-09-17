@@ -1,0 +1,36 @@
+<div class="container mx-auto px-4 py-8">
+  <div class="mb-8">
+    <h1 class="text-3xl font-bold text-white mb-2">Thống kê hệ thống</h1>
+    <p class="text-slate-400">Tổng quan về dữ liệu mà hệ thống đang theo dõi.</p>
+  </div>
+
+  <div *ngIf="isLoading" class="animate-pulse grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+    <div class="h-32 bg-slate-800 rounded-2xl border border-slate-700" *ngFor="let _ of [1,2,3,4]"></div>
+  </div>
+
+  <div *ngIf="error" class="text-center py-12">
+    <p class="text-red-400 mb-4">{{ error }}</p>
+    <button (click)="loadStats()" class="bg-blue-600 hover:bg-blue-500 text-white font-bold px-4 py-2 rounded">
+      Thử lại
+    </button>
+  </div>
+
+  <div *ngIf="!isLoading && stats" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+    <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700 hover:border-blue-500 transition-colors">
+      <div class="text-slate-400 text-sm font-semibold mb-2">TỔNG GAME ĐANG THEO DÕI</div>
+      <div class="text-4xl font-bold text-white">{{ stats.total_games_tracked | number:'1.0-0':'vi-VN' }}</div>
+    </div>
+    <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700 hover:border-blue-500 transition-colors">
+      <div class="text-slate-400 text-sm font-semibold mb-2">SỐ DEAL ĐANG CÓ</div>
+      <div class="text-4xl font-bold text-blue-400">{{ stats.total_deals_now | number:'1.0-0':'vi-VN' }}</div>
+    </div>
+    <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700 hover:border-blue-500 transition-colors">
+      <div class="text-slate-400 text-sm font-semibold mb-2">ĐÁY LỊCH SỬ</div>
+      <div class="text-4xl font-bold text-yellow-500">{{ stats.total_historical_lows | number:'1.0-0':'vi-VN' }}</div>
+    </div>
+    <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700 hover:border-blue-500 transition-colors">
+      <div class="text-slate-400 text-sm font-semibold mb-2">GAME ĐANG MIỄN PHÍ</div>
+      <div class="text-4xl font-bold text-green-400">{{ stats.total_free_games | number:'1.0-0':'vi-VN' }}</div>
+    </div>
+  </div>
+</div>

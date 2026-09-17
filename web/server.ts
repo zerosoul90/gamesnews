@@ -112,16 +112,6 @@ export function app(): express.Express {
   // `/api/deals` sẽ bị SSR render thành HTML nếu proxy gắn sau.
   mountApiProxy(server);
 
-  // `/` -> `/deals` bằng 302 thật, không để router Angular tự redirect khi SSR.
-  // Redirect phía client cũng ra đúng trang, nhưng HTML của `/deals` khi đó được
-  // trả dưới URL `/` kèm status 200 — hai URL cùng nội dung, cùng `<title>`, nên
-  // bot phải tự đoán bản nào là chuẩn. Chuyển hướng ở tầng HTTP thì chỉ còn một
-  // URL canonical, và cũng không tốn một lượt render SSR cho trang bị bỏ đi.
-  // Phải đứng trước `express.static`, vì `index: 'index.html'` sẽ nhận `/`.
-  server.get('/', (_req, res) => {
-    res.redirect(302, '/deals');
-  });
-
   // Serve static files from /browser
   server.get('**', express.static(browserDistFolder, {
     maxAge: '1y',

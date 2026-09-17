@@ -1,6 +1,6 @@
 <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-50">
   <nav class="container mx-auto px-4 flex items-center justify-between h-16">
-    <a routerLink="/deals" class="text-white font-bold text-xl tracking-tight hover:text-blue-400 transition-colors">
+    <a routerLink="/" class="text-white font-bold text-xl tracking-tight hover:text-blue-400 transition-colors">
       GameNews
     </a>
 
@@ -15,6 +15,43 @@
         >
       </li>
     </ul>
+
+    <!-- Search Box (Desktop & Mobile accessible via toggle) -->
+    <div class="hidden md:block flex-1 max-w-md mx-4">
+      <form (ngSubmit)="onSearch()" class="relative">
+        <input
+          type="text"
+          name="searchQuery"
+          [(ngModel)]="searchQuery"
+          placeholder="Tìm game..."
+          class="w-full bg-slate-800 border border-slate-700 text-white rounded-full pl-10 pr-4 py-1.5 focus:outline-none focus:border-blue-500 transition-colors"
+        />
+        <svg class="w-4 h-4 absolute left-3 top-2.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+      </form>
+    </div>
+
+    <!-- Auth / Profile -->
+    <div class="hidden md:flex items-center gap-4">
+      <ng-container *ngIf="currentUser; else loginBtn">
+        <a routerLink="/profile" class="flex items-center gap-2 hover:bg-slate-800 p-1.5 pr-3 rounded-full transition-colors border border-slate-700">
+          <img *ngIf="currentUser.avatar_url" [src]="currentUser.avatar_url" alt="Avatar" class="w-7 h-7 rounded-full object-cover">
+          <div *ngIf="!currentUser.avatar_url" class="w-7 h-7 bg-blue-600 rounded-full flex items-center justify-center text-xs font-bold text-white uppercase">
+            {{ currentUser.username.charAt(0) || 'U' }}
+          </div>
+          <span class="text-sm font-medium text-slate-200">{{ currentUser.username }}</span>
+        </a>
+        <button (click)="logout()" class="text-slate-400 hover:text-white transition-colors" title="Đăng xuất">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+        </button>
+      </ng-container>
+      <ng-template #loginBtn>
+        <a routerLink="/login" class="bg-blue-600 hover:bg-blue-500 text-white font-medium px-4 py-1.5 rounded-full transition-colors text-sm">
+          Đăng nhập
+        </a>
+      </ng-template>
+    </div>
 
     <!-- Nút mở menu trên màn hình hẹp. `aria-expanded` để trình đọc màn hình
          biết trạng thái, không chỉ là một hình ba gạch. -->
@@ -34,6 +71,20 @@
 
   <!-- Mobile: đóng lại sau khi chọn, nếu không thì menu che mất trang vừa mở. -->
   <ul *ngIf="dangMoMobile" id="menu-mobile" class="md:hidden border-t border-slate-800 px-4 pb-3">
+    <li class="py-3">
+      <form (ngSubmit)="onSearch()" class="relative">
+        <input
+          type="text"
+          name="searchQueryMobile"
+          [(ngModel)]="searchQuery"
+          placeholder="Tìm game..."
+          class="w-full bg-slate-800 border border-slate-700 text-white rounded-lg pl-10 pr-4 py-2 focus:outline-none focus:border-blue-500"
+        />
+        <svg class="w-5 h-5 absolute left-3 top-2.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+      </form>
+    </li>
     <li *ngFor="let m of muc">
       <a
         [routerLink]="m.duongDan"
@@ -42,6 +93,35 @@
         class="block px-4 py-3 rounded text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
         >{{ m.nhan }}</a
       >
+    </li>
+    <li *ngIf="currentUser" class="border-t border-slate-700 mt-2 pt-2">
+      <a
+        routerLink="/profile"
+        (click)="dongMenuMobile()"
+        class="flex items-center gap-3 px-4 py-3 rounded text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
+      >
+        <div *ngIf="!currentUser.avatar_url" class="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center text-xs font-bold text-white uppercase">
+          {{ currentUser.username.charAt(0) || 'U' }}
+        </div>
+        <img *ngIf="currentUser.avatar_url" [src]="currentUser.avatar_url" alt="Avatar" class="w-6 h-6 rounded-full object-cover">
+        <span>Trang cá nhân ({{ currentUser.username }})</span>
+      </a>
+      <button
+        (click)="logout(); dongMenuMobile()"
+        class="w-full text-left flex items-center gap-3 px-4 py-3 rounded text-red-400 hover:text-red-300 hover:bg-slate-800 transition-colors"
+      >
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+        <span>Đăng xuất</span>
+      </button>
+    </li>
+    <li *ngIf="!currentUser" class="border-t border-slate-700 mt-2 pt-2">
+      <a
+        routerLink="/login"
+        (click)="dongMenuMobile()"
+        class="block text-center bg-blue-600 hover:bg-blue-500 text-white font-medium px-4 py-3 rounded-lg transition-colors"
+      >
+        Đăng nhập / Đăng ký
+      </a>
     </li>
   </ul>
 </header>

@@ -1,0 +1,45 @@
+<div class="container mx-auto px-4 py-8">
+  <div class="mb-8 flex items-center justify-between border-b border-slate-700 pb-4">
+    <div>
+      <h1 class="text-3xl font-bold text-white mb-2">Danh sách theo dõi</h1>
+      <p class="text-slate-400">Các tựa game bạn đang chờ giảm giá.</p>
+    </div>
+  </div>
+
+  <div *ngIf="isLoading" class="animate-pulse grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <div class="h-32 bg-slate-800 rounded-lg border border-slate-700" *ngFor="let _ of [1,2,3]"></div>
+  </div>
+
+  <div *ngIf="error" class="text-center py-12 bg-slate-800 rounded-xl border border-slate-700">
+    <p class="text-red-400 mb-4">{{ error }}</p>
+    <a routerLink="/login" class="inline-block bg-blue-600 hover:bg-blue-500 text-white font-bold px-6 py-2 rounded-lg transition-colors">Đăng nhập</a>
+  </div>
+
+  <div *ngIf="!isLoading && !error && items.length === 0" class="text-center py-24 bg-slate-800 rounded-xl border border-slate-700 border-dashed">
+    <svg class="w-16 h-16 text-slate-600 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+    <p class="text-slate-400 text-lg mb-6">Bạn chưa theo dõi game nào.</p>
+    <a routerLink="/search" class="inline-block bg-blue-600 hover:bg-blue-500 text-white font-bold px-6 py-2 rounded-lg transition-colors">Tìm kiếm game</a>
+  </div>
+
+  <div *ngIf="!isLoading && !error && items.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <div *ngFor="let item of items" class="bg-slate-800 rounded-lg border border-slate-700 p-4 flex gap-4">
+      <a [routerLink]="['/game', item.game?.slug || item.game_id]" class="w-24 h-32 bg-slate-700 rounded overflow-hidden shrink-0 block">
+        <img *ngIf="item.game?.cover_image_url" [src]="item.game!.cover_image_url" class="w-full h-full object-cover">
+      </a>
+      <div class="flex-1 flex flex-col">
+        <a [routerLink]="['/game', item.game?.slug || item.game_id]" class="font-bold text-white text-lg leading-tight mb-2 hover:text-blue-400">
+          {{ item.game?.title || 'Game chưa có tên' }}
+        </a>
+        <div class="text-sm text-slate-400 mb-auto">
+          Mức giá mong chờ: <span class="text-white font-medium">{{ item.target_price ? item.target_price.toLocaleString('vi-VN') + '₫' : 'Bất kỳ giá nào' }}</span>
+        </div>
+        <div class="flex justify-end mt-4">
+          <button (click)="removeItem(item.game_id)" class="text-red-400 hover:text-red-300 text-sm font-medium flex items-center gap-1">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+            Huỷ theo dõi
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

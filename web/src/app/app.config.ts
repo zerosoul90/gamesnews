@@ -1,6 +1,7 @@
 import { ApplicationConfig, provideZoneChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
-import { provideHttpClient, withFetch } from '@angular/common/http';
+import { provideHttpClient, withFetch, withInterceptorsFromDi, HTTP_INTERCEPTORS } from '@angular/common/http';
+import { AuthInterceptor } from './services/auth.interceptor';
 
 import { routes } from './app.routes';
 import { provideClientHydration, withNoHttpTransferCache } from '@angular/platform-browser';
@@ -25,6 +26,7 @@ export const appConfig: ApplicationConfig = {
     // SSR gọi qua origin công khai của chính nó, thêm một chặng qua Express của
     // nó và phụ thuộc việc container tự gọi được URL public của mình.
     provideClientHydration(withNoHttpTransferCache()),
-    provideHttpClient(withFetch())
+    provideHttpClient(withFetch(), withInterceptorsFromDi()),
+    { provide: HTTP_INTERCEPTORS, useClass: AuthInterceptor, multi: true }
   ]
 };
