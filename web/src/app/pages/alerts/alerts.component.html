@@ -53,9 +53,7 @@
           <span class="text-white font-medium">{{ a.game?.title || 'Game không rõ tên' }}</span>
         </ng-template>
 
-        <p class="text-slate-400 text-sm mt-1">
-          Báo khi giá {{ a.condition }} <span class="text-blue-400">{{ dinhDangGia(a) }}</span>
-        </p>
+        <p class="text-slate-400 text-sm mt-1">{{ moTaDieuKien(a) }}</p>
 
         <!-- Cờ `owned` phải nói thành lời. Lặng lẽ không gửi thì người dùng chỉ
              đặt lại cảnh báo lần nữa. -->

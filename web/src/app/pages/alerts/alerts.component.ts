@@ -76,11 +76,31 @@ export class AlertsComponent implements OnInit {
     });
   }
 
-  /** `value` lưu theo đơn vị tiền, hiển thị theo locale Việt. */
-  dinhDangGia(alert: PriceAlert): string {
-    if (alert.value === null) {
-      return '—';
+  /**
+   * Câu mô tả điều kiện, viết trọn nghĩa.
+   *
+   * Bản trước ghép `'Báo khi giá ' + condition + ' ' + value` nên màn hình hiện
+   * "Báo khi giá historical_low —": in thẳng tên hằng của backend, cộng một gạch
+   * ngang thay cho `value` vốn **đúng** là `null` với điều kiện này. Người đọc
+   * không suy ra được nó sẽ báo khi nào.
+   */
+  moTaDieuKien(alert: PriceAlert): string {
+    switch (alert.condition) {
+      case 'historical_low':
+        // Điều kiện này không có ngưỡng — `value` luôn null, và đó là đúng.
+        return 'Báo khi giá chạm đáy lịch sử';
+      case 'below_price':
+        return alert.value === null
+          ? 'Báo khi giá giảm'
+          : `Báo khi giá dưới ${alert.value.toLocaleString('vi-VN')} ${alert.currency}`;
+      case 'discount_pct':
+        return alert.value === null
+          ? 'Báo khi có giảm giá'
+          : `Báo khi giảm từ ${alert.value}%`;
+      default:
+        // Điều kiện lạ: hiện nguyên chuỗi thay vì nuốt thành câu chung chung —
+        // nuốt đi là mất manh mối khi backend thêm loại mới.
+        return `Báo khi: ${alert.condition}`;
     }
-    return `${alert.value.toLocaleString('vi-VN')} ${alert.currency}`;
   }
 }
