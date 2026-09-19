@@ -2523,10 +2523,29 @@ file or directory" trong một repo có thư mục `web/`. Đúng cái bẫy s�
 
 **Còn nợ:**
 
-- Đăng nhập Steam **chưa chạy thật một lần nào**: ISP chặn `steamcommunity.com`
-  ở tầng DNS như đã chặn `store.steampowered.com`. Luồng được chốt bằng test
+- Đăng nhập Steam **chưa chạy thật một lần nào**. Luồng được chốt bằng test
   (`return_to`, đổi token, chuyển tham số nguyên văn) nhưng vòng round-trip
   thật qua Steam vẫn chưa có ai đi.
+
+  **Đính chính (đo ngày 2026-09-20).** Câu trên, ở bản commit `983db0c`, viết là
+  "ISP chặn `steamcommunity.com` ở tầng DNS như đã chặn `store.steampowered.com`".
+  **Sai** — đó là suy diễn theo phép loại suy, không phải phép đo. Đo thật:
+
+  | | phân giải | kết nối |
+  |---|---|---|
+  | container `app`/`worker` | `171.236.60.221` | HTTP 302, cert khớp tên |
+  | host Windows (trình duyệt) | `::1`, `127.0.0.1` | không kết nối được |
+
+  Ngược với `store.steampowered.com`: ở đó container mới là phía phải vá. Với
+  `steamcommunity.com` container đã đi được sẵn nhờ `dns: 8.8.8.8` trong
+  override, còn phía hỏng là **host** — tức trình duyệt, tức đúng mắt xích đầu
+  tiên của OpenID.
+
+  Nên `extra_hosts` trong `docker-compose.override.yml` **không sửa được gì ở
+  đây**: nó chỉ tác động tới container, mà container vốn đã chạy. Chỗ cần sửa
+  là hosts file của Windows. Bài học: hai host cùng một nhà cung cấp, cùng một
+  ISP, vẫn có thể bị chặn ở hai tầng khác nhau — phải đo từng host một, và đo ở
+  **cả hai phía** host/container.
 - `condition` `below_price` và `discount_pct` chưa có giao diện nhập ngưỡng —
   trang game mới chỉ bấm được `historical_low`.
 - Chưa có giao diện cho: thư viện Steam (`/api/v1/user/library` đã mở), đánh
