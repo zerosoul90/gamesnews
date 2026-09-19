@@ -2523,9 +2523,23 @@ file or directory" trong một repo có thư mục `web/`. Đúng cái bẫy s�
 
 **Còn nợ:**
 
-- Đăng nhập Steam **chưa chạy thật một lần nào**. Luồng được chốt bằng test
-  (`return_to`, đổi token, chuyển tham số nguyên văn) nhưng vòng round-trip
-  thật qua Steam vẫn chưa có ai đi.
+- ~~Đăng nhập Steam chưa chạy thật một lần nào.~~ **ĐÃ ĐI ĐƯỢC, 2026-09-20.**
+  Mở đường bằng cách ghim `171.236.60.221 steamcommunity.com` vào hosts file
+  của **Windows** (không phải `extra_hosts` của compose — xem đính chính dưới).
+  Vòng thật: `/login` → Steam → `/auth/steam/callback` → về `/`, nav đổi sang
+  trạng thái đã đăng nhập.
+
+  Bằng chứng phía server, không chỉ phía trình duyệt: `db.users` sinh đúng một
+  document với `steam_id64: 76561198061294909`, tức backend đã gọi
+  `check_authentication` và Steam trả `is_valid:true`. Sau đó
+  `GET /api/api/v1/user/alerts` → 200 (đường prod: bundle gọi `/api` +
+  `/api/v1/...`, Express cắt tiền tố đầu), rồi POST tạo cảnh báo → 200 →
+  DELETE → `price_alerts` về 0.
+
+  Đi thật mới lộ một lỗi mà 15 test web không bắt: trang cảnh báo in
+  **"Báo khi giá historical_low —"** — tên hằng của backend cộng một gạch ngang
+  thay cho `value` vốn đúng là `null` ở điều kiện này. Test chốt *đường dẫn*,
+  không chốt *câu chữ*. Sửa ở `f00126f`.
 
   **Đính chính (đo ngày 2026-09-20).** Câu trên, ở bản commit `983db0c`, viết là
   "ISP chặn `steamcommunity.com` ở tầng DNS như đã chặn `store.steampowered.com`".
