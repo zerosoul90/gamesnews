@@ -2370,3 +2370,167 @@ thay vì đọc kết luận.
   / theo dõi / wrapped, đánh giá cộng đồng, banner + giftcode, dashboard.
 - Trang tin chưa có lọc theo game trên giao diện (API đã nhận `game_id`).
 - Các mục còn nợ của lượt 8 và 9 giữ nguyên.
+
+### 2026-09-19 (lượt 11) — 1.513 dòng chưa từng được biên dịch một lần nào
+
+Lượt trước giao mockup cho antigravity. Kết quả quay về là commit `68605e4`,
+1.513 dòng thêm mới, 31 file. Phiên này bắt đầu bằng "xử lý nốt những gì chưa
+xong", và thứ chưa xong hoá ra là chính commit ấy.
+
+#### `main` không biên dịch được, và đã hai ngày như thế
+
+`app.routes.ts` dùng `SearchComponent` ở dòng 27 nhưng không có dòng import
+nào. Một lỗi TypeScript, `npm run build` chết ngay. Nghĩa là **không ai từng
+chạy build trên commit này** — kể cả một lần.
+
+Nó nằm trên `main` hai ngày mà không có tín hiệu nào, vì ba lớp che nhau:
+
+| lớp | vì sao nó im |
+|---|---|
+| CI | không có job nào chạm vào `web/` — không build, không test |
+| container `web` | đang chạy image **cũ**, dựng trước commit; giao diện vẫn bình thường |
+| `git status` | sạch |
+
+Container `web` chỉ chứa `dist` và `package.json` — không có `node_modules`,
+không có `src`. Nên `docker compose exec web npx ng build` trả "could not
+determine executable to run", chứ không phải lỗi biên dịch. Phải `docker
+compose build web` mới thấy. Đây là lần thứ năm trong dự án một bản chạy cũ
+làm phép kiểm nói sai.
+
+#### Sáu đường dẫn được bịa ra, cả sáu 404
+
+Sửa xong lỗi biên dịch thì build xanh — và đó mới là chỗ bắt đầu. Đối chiếu
+từng service với `/openapi.json` của backend:
+
+| service | gọi | thật |
+|---|---|---|
+| `auth.service` | `/auth/login`, `/auth/register` | **không tồn tại** — chỉ có Steam OpenID |
+| `user.service` | `/me`, `/me/follows`, `/me/wrapped?year=` | `/api/v1/user/follows`, `/api/v1/user/me/wrapped/{year}` |
+| `watchlist.service` | `/me/watchlist` | **không có khái niệm watchlist** |
+
+Sáu đường dẫn, sáu lần 404 xác minh bằng log uvicorn của SSR. Ba service còn
+lại (`community`, `dashboard`, `search`) thì đúng từng trường — nên đây không
+phải "AI không đọc backend", mà là đọc chỗ này quên chỗ kia.
+
+Hình dạng lỗi giống hệt `/free` của lượt 10 nhưng tệ hơn một bậc: trang không
+nói sai nội dung, nó nói **"Vui lòng đăng nhập"** trong khi người dùng đã đăng
+nhập. Lỗi bị nuốt vào một dòng `error:` chung, nên 404 và 401 hiện ra y như
+nhau, và trang trông như đang hoạt động đúng.
+
+`WrappedData` còn sai cả hợp đồng: khai `total_hours`, `top_genre`, `top_game`
+— backend trả `total_playtime_minutes`, `top_games`, `message`. Kể cả gọi đúng
+URL thì ba ô to nhất trang vẫn trống.
+
+#### Đăng nhập Steam chưa từng chạy được, vì một số cổng
+
+`FRONTEND_URL=http://localhost:3000`. Web chạy ở **4200**; cổng 3000 là
+container **umami**. `openid.return_to` ghép từ biến này, nên Steam trả người
+dùng về trang thống kê truy cập. `CORS_ORIGINS` ngay dòng dưới đã ghi
+`localhost:4200` từ lâu — hai dòng cạnh nhau, lệch nhau, không ai đối chiếu.
+
+Sửa cổng vẫn chưa đủ. Đường cũ `{frontend_url}/api/v1/auth/steam/callback` đi
+qua Express của web, mà proxy ở đó mount tại `/api` và **cắt bỏ** tiền tố ấy →
+backend nhận `/v1/auth/steam/callback` → 404. Và kể cả tới được endpoint thì nó
+trả JSON: người dùng kết thúc hành trình đăng nhập trước một cục
+`{"access_token": ...}`, token không bao giờ vào được `localStorage`.
+
+Nên `return_to` nay trỏ vào `/auth/steam/callback` — một trang của chính SPA,
+nhận chùm `openid.*` rồi đổi lấy JWT bằng XHR. Trang ấy **chỉ chạy ở trình
+duyệt**: phản hồi OpenID của Steam dùng một lần, để SSR gọi trước thì lượt của
+server tiêu mất chữ ký và trình duyệt nhận 401 ngay sau. Lỗi đó chỉ xuất hiện
+khi bật SSR, tức đúng cấu hình production.
+
+#### Một trường bắt buộc mà server không dùng
+
+`POST /alerts` và `POST /follows` nhận thẳng `PriceAlert` / `UserFollow` làm
+schema body. Hai model ấy khai `user_id` là **bắt buộc**, nhưng router ghi đè
+nó bằng claim `sub` ngay dòng sau. Hai hệ quả:
+
+- Không gửi `user_id` thì ăn 422 — cho một trường server không dùng. Web không
+  gọi nổi endpoint nếu không bịa một giá trị.
+- Trường ấy nằm trong OpenAPI như thể đặt được. Hiện tại bị bỏ qua, nhưng một
+  bản sửa sau lỡ bỏ dòng ghi đè là thành lỗ leo thang quyền ngay.
+
+Tách `AlertRequest` / `FollowRequest` không có `user_id`. Nhân tiện dùng lại
+`TargetType` / `ConditionType` thay vì `str`: giá trị lạ nay bị chặn ở biên và
+trả 422, thay vì lọt qua rồi chết trong constructor Pydantic thành 500.
+
+#### Quyết định phải hỏi
+
+Hai câu, cả hai đều là quyết định sản phẩm chứ không phải kỹ thuật:
+
+**Đăng nhập** — làm backend email/mật khẩu cho khớp UI đã có, hay sửa UI cho
+khớp backend? Chọn Steam OpenID: email + hash mật khẩu là đúng thứ
+`CLAUDE.md` chặn ("không lưu dữ liệu người dùng quá mức cần").
+
+**Watchlist** — backend không có khái niệm ấy. Chọn nối vào cảnh báo giá
+(`/api/v1/user/alerts`), route đổi thành `/canh-bao-gia`. Cờ `owned` mà
+`alerts_of` trả về nay được nói thành lời trên giao diện: "bạn đã có game này —
+cảnh báo sẽ không được gửi". Giấu đi thì người dùng chỉ đặt lại lần nữa.
+
+#### Nghiệm thu
+
+**655 test Python** (646 → 655), **15 test web** (3 → 15), ruff + mypy sạch.
+
+Đỏ khi gỡ fix, xác minh từng cái bằng cách khôi phục code cũ rồi chạy lại:
+
+| chốt | kết quả khi gỡ fix |
+|---|---|
+| schema body của `/alerts` + `/follows` | **4/9 đỏ** |
+| `return_to` trỏ vào SPA | **đỏ**, đúng dòng `/api/v1/auth/steam/callback` |
+| đường dẫn service của web | **đỏ**, `'/me/follows'` không nằm trong danh sách thật |
+
+Năm test còn lại của `test_user_writes.py` xanh ở cả hai phía — chúng chốt hành
+vi code cũ **đã đúng** (chủ sở hữu tới từ JWT, `condition` lạ bị 422). Xanh ở
+đó là kết quả đúng, không phải dương giả; ghi rõ ra để lần sau không ai tưởng
+là đã chứng minh được gì.
+
+Bản đầu của test `return_to` **là** dương giả: nó gọi `get_steam_openid_url`
+với một chuỗi tự viết rồi kiểm chuỗi ấy còn nguyên. Phần có thể sai nằm ở chỗ
+router ghép đường dẫn, mà test không đi qua đó — xanh kể cả khi router ghép
+sai. Viết lại thành gọi thẳng `/api/v1/auth/steam/login` và đọc `Location`.
+
+Và nghiệm thu ở tầng chạy thật, sau `--build` cho **cả hai** service (lần đầu
+chỉ build `web`, nên smoke test đọc code cũ và báo 422 + `return_to` cũ — lần
+thứ sáu một bản chạy cũ nói sai):
+
+| | trước | sau |
+|---|---|---|
+| `npm run build` | **đỏ** | xanh |
+| `POST /alerts` không kèm `user_id` | 422 | **200** |
+| `return_to` | `:3000/api/v1/auth/...` | `:4200/auth/steam/callback` |
+| 404 từ SSR sang backend | 6 | **0** |
+
+#### CI nay chạm vào `web/`
+
+Thêm job `web`: `npm ci` → `npm run build` → `ng test`. Dùng đúng cấu hình
+production, vì bản development xanh không suy ra được production xanh.
+
+Không có job này thì cả phiên vừa rồi lặp lại được y nguyên: một lỗi import một
+dòng vào `main`, không ai biết, và container cũ che mất trong nhiều ngày.
+
+#### Một ghi chú về chính phiên này
+
+`Invoke-WebRequest` không kèm `-UseBasicParsing` trả về **chuỗi rỗng** ở chỗ
+đáng lẽ là mã trạng thái — nó đang cố mở engine IE và bị chặn vì
+`NonInteractive`. Sáu endpoint hiện ra như thể "không lỗi". Đọc kỹ mới thấy ô
+trạng thái trống chứ không phải `200`.
+
+Cùng phiên, `cwd` của Bash tự trôi vào `web/` sau một lệnh `Set-Location` của
+PowerShell — hai công cụ dùng chung thư mục làm việc. `ls web/` báo "No such
+file or directory" trong một repo có thư mục `web/`. Đúng cái bẫy số 2 của lượt
+10, khác vỏ.
+
+**Còn nợ:**
+
+- Đăng nhập Steam **chưa chạy thật một lần nào**: ISP chặn `steamcommunity.com`
+  ở tầng DNS như đã chặn `store.steampowered.com`. Luồng được chốt bằng test
+  (`return_to`, đổi token, chuyển tham số nguyên văn) nhưng vòng round-trip
+  thật qua Steam vẫn chưa có ai đi.
+- `condition` `below_price` và `discount_pct` chưa có giao diện nhập ngưỡng —
+  trang game mới chỉ bấm được `historical_low`.
+- Chưa có giao diện cho: thư viện Steam (`/api/v1/user/library` đã mở), đánh
+  giá cộng đồng (đường GHI), banner + giftcode.
+- Mốc sang ngày của Google — vẫn cần đo lại bằng thiết kế cụm-và-tỉ-lệ.
+- Trang tin chưa có lọc theo game trên giao diện (API đã nhận `game_id`).
+- Các mục còn nợ của lượt 8 và 9 giữ nguyên.

@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from app.adapters.steam.user import PrivateProfileError
 from app.api.auth import get_current_user
 from app.models.game import PyObjectId
-from app.models.user import PriceAlert, UserFollow
+from app.models.user import ConditionType, PriceAlert, TargetType, UserFollow
 from app.services import devices, user_reads
 from app.services.user_library import delete_library, sync_steam_library
 
@@ -160,13 +160,59 @@ async def unregister_device(
     return {"status": "ok", "removed": removed}
 
 
+# --- thân request cho hai đường GHI ------------------------------------------
+#
+# Tách khỏi `UserFollow` / `PriceAlert` vì hai model kia khai `user_id` là
+# **bắt buộc**, mà giá trị client gửi lên lại bị ghi đè ngay bằng claim `sub`
+# của JWT. Dùng thẳng chúng làm schema body gây ra hai chuyện, cái sau tệ hơn:
+#
+# 1. Client không gửi `user_id` thì ăn 422 — cho một trường mà server không hề
+#    dùng. Web không gọi nổi endpoint nếu không bịa ra một giá trị.
+# 2. Trường ấy nằm trong tài liệu OpenAPI như thể đặt được, nên người đọc hợp
+#    lý sẽ tin là mình chỉ định được chủ sở hữu. Nó bị bỏ qua — nhưng nếu một
+#    bản sửa sau này lỡ bỏ dòng ghi đè đi, nó thành lỗ leo thang quyền ngay.
+#
+# Bỏ hẳn khỏi schema thì cả hai chuyện không còn chỗ xảy ra.
+
+
+# Dùng lại đúng `TargetType` / `ConditionType` của model thay vì khai `str`:
+# giá trị lạ bị FastAPI chặn ở biên và trả **422**. Khai `str` thì nó lọt qua
+# tầng này rồi mới chết trong constructor Pydantic — thành 500 cho một lỗi rõ
+# ràng là của client, và thêm một chỗ nữa phải nhớ đồng bộ khi thêm loại mới.
+
+
+class FollowRequest(BaseModel):
+    target_type: TargetType
+    target_id: str
+
+
+class AlertRequest(BaseModel):
+    game_id: str
+    condition: ConditionType
+    value: int | None = None
+    currency: str = "VND"
+
+
 @router.post("/follows")
 async def follow_target(
-    request: Request, follow: UserFollow, current_user: dict[str, Any] = Depends(get_current_user)
+    request: Request,
+    payload: FollowRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
     """User theo dõi game, series, dev, streamer."""
     db: AsyncIOMotorDatabase[dict[str, Any]] = request.app.state.clients.db
-    follow.user_id = PyObjectId(current_user["sub"])
+
+    # `target_id` của game lưu dạng ObjectId để join được với `games`; của
+    # series/streamer là slug hoặc tên, giữ nguyên chuỗi. Xem `follows_of`.
+    target_id: ObjectId | str = payload.target_id
+    if payload.target_type == "game":
+        target_id = _object_id(payload.target_id, "target_id")
+
+    follow = UserFollow(
+        user_id=_user_id(current_user),
+        target_type=payload.target_type,
+        target_id=target_id,
+    )
 
     await db.user_follows.update_one(
         {
@@ -177,16 +223,25 @@ async def follow_target(
         {"$set": follow.to_mongo()},
         upsert=True,
     )
-    return {"status": "ok", "followed": follow.target_id}
+    return {"status": "ok", "followed": str(follow.target_id)}
 
 
 @router.post("/alerts")
 async def set_price_alert(
-    request: Request, alert: PriceAlert, current_user: dict[str, Any] = Depends(get_current_user)
+    request: Request,
+    payload: AlertRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Đặt cảnh báo giá."""
     db: AsyncIOMotorDatabase[dict[str, Any]] = request.app.state.clients.db
-    alert.user_id = PyObjectId(current_user["sub"])
+
+    alert = PriceAlert(
+        user_id=_user_id(current_user),
+        game_id=_object_id(payload.game_id, "game_id"),
+        condition=payload.condition,
+        value=payload.value,
+        currency=payload.currency,
+    )
 
     await db.price_alerts.update_one(
         {"user_id": alert.user_id, "game_id": alert.game_id, "condition": alert.condition},

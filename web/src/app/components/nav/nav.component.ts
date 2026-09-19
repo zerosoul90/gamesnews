@@ -4,7 +4,7 @@ import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 
-import { AuthService, User } from '../../services/auth.service';
+import { AuthService, SteamSession } from '../../services/auth.service';
 
 /**
  * Thanh điều hướng chung.
@@ -17,7 +17,7 @@ import { AuthService, User } from '../../services/auth.service';
 })
 export class NavComponent implements OnInit, OnDestroy {
   searchQuery = '';
-  currentUser: User | null = null;
+  currentUser: SteamSession | null = null;
   private authSub?: Subscription;
 
   constructor(
@@ -37,7 +37,7 @@ export class NavComponent implements OnInit, OnDestroy {
 
   logout(): void {
     this.authService.logout();
-    this.router.navigate(['/login']);
+    this.router.navigate(['/']);
   }
 
   /** Một nguồn sự thật cho danh sách mục, để thêm trang sau này không phải sửa
@@ -47,6 +47,16 @@ export class NavComponent implements OnInit, OnDestroy {
     { duongDan: '/free', nhan: 'Miễn phí' },
     { duongDan: '/news', nhan: 'Tin tức' },
     { duongDan: '/thong-ke', nhan: 'Thống kê' },
+  ];
+
+  /** Mục chỉ hiện khi đã đăng nhập. Tách khỏi `muc` vì ba trang này đòi token;
+   *  để lẫn vào menu chung thì khách vãng lai bấm vào chỉ gặp lời mời đăng
+   *  nhập. Trước đây chúng không nằm trong nav nào — không gõ tay URL thì
+   *  không tới được, đúng lỗi mà `/free` đã mắc ở lượt 10. */
+  readonly mucCaNhan = [
+    { duongDan: '/canh-bao-gia', nhan: 'Cảnh báo giá' },
+    { duongDan: '/follows', nhan: 'Đang theo dõi' },
+    { duongDan: '/wrapped', nhan: 'Wrapped' },
   ];
 
   dangMoMobile = false;

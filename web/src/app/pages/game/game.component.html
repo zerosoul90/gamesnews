@@ -64,20 +64,23 @@
             </h1>
             <p *ngIf="g.title_primary !== g.title" class="text-slate-400">{{ g.title_primary }}</p>
           </div>
+          <!-- Nhãn nói đúng điều kiện đang đặt. "Nhận thông báo" chung chung
+               khiến người dùng tưởng sẽ được báo mọi đợt giảm giá, trong khi
+               cảnh báo này chỉ nổ khi giá chạm đáy lịch sử. -->
           <button
             *ngIf="authService.isLoggedIn()"
-            (click)="toggleWatchlist()"
-            [disabled]="isWatchlistLoading"
+            (click)="doiCanhBao()"
+            [disabled]="dangDoiCanhBao"
             class="shrink-0 px-4 py-2 rounded-lg font-bold transition-colors flex items-center gap-2 border disabled:opacity-50"
-            [ngClass]="isInWatchlist ? 'bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700' : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-500'"
+            [ngClass]="daDatCanhBao ? 'bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700' : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-500'"
           >
-            <svg *ngIf="isWatchlistLoading" class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <svg *ngIf="dangDoiCanhBao" class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
-            <svg *ngIf="!isWatchlistLoading && !isInWatchlist" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
-            <svg *ngIf="!isWatchlistLoading && isInWatchlist" class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
-            {{ isInWatchlist ? 'Đang theo dõi' : 'Nhận thông báo' }}
+            <svg *ngIf="!dangDoiCanhBao && !daDatCanhBao" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+            <svg *ngIf="!dangDoiCanhBao && daDatCanhBao" class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+            {{ daDatCanhBao ? 'Đang chờ đáy lịch sử' : 'Báo khi chạm đáy' }}
           </button>
         </div>
 

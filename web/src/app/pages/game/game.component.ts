@@ -10,7 +10,7 @@ import { GameDetail, GamePrice, GameService, PlayerCountDay } from '../../servic
 import { StructuredDataService } from '../../services/structured-data.service';
 import { CommunityService, Review } from '../../services/community.service';
 import { NewsService, Article } from '../../services/news.service';
-import { WatchlistService, WatchlistItem } from '../../services/watchlist.service';
+import { AlertService } from '../../services/alert.service';
 import { AuthService } from '../../services/auth.service';
 
 /** Một cột của biểu đồ người chơi, toạ độ đã tính sẵn trong viewBox 100x40. */
@@ -43,8 +43,12 @@ export class GameComponent implements OnInit {
   reviews: Review[] = [];
   reviewsTotal = 0;
 
-  isInWatchlist = false;
-  isWatchlistLoading = false;
+  /** Đã có cảnh báo "chạm đáy lịch sử" cho game này. */
+  daDatCanhBao = false;
+  dangDoiCanhBao = false;
+  /** `_id` của cảnh báo, cần để xoá — backend xoá theo id của cảnh báo chứ
+   *  không theo `game_id`. Không giữ lại thì nút bấm chỉ bật được một chiều. */
+  private idCanhBao: string | null = null;
 
   constructor(
     private titleService: Title,
@@ -53,7 +57,7 @@ export class GameComponent implements OnInit {
     private gameService: GameService,
     private communityService: CommunityService,
     private newsService: NewsService,
-    private watchlistService: WatchlistService,
+    private alertService: AlertService,
     public authService: AuthService,
     private structuredData: StructuredDataService,
     @Inject(SITE_ORIGIN) private siteOrigin: string,
@@ -89,10 +93,20 @@ export class GameComponent implements OnInit {
           this.reviewsTotal = res.total;
         });
 
-        // Check if game is in watchlist (only if logged in)
+        // Đã đặt cảnh báo cho game này chưa (chỉ hỏi khi đã đăng nhập).
         if (this.authService.isLoggedIn()) {
-          this.watchlistService.getWatchlist().subscribe(res => {
-            this.isInWatchlist = res.items.some(item => item.game_id === game.id);
+          this.alertService.getAlerts().subscribe({
+            next: (res) => {
+              const cua = res.alerts.find(
+                (a) => a.game_id === game.id && a.condition === 'historical_low',
+              );
+              this.daDatCanhBao = cua !== undefined;
+              this.idCanhBao = cua?.id ?? null;
+            },
+            // Không có `error` thì một lượt 401 sẽ nổ ra console dưới dạng
+            // unhandled, còn trang thì vẫn im. Nuốt gọn: phần còn lại của trang
+            // game không phụ thuộc vào cảnh báo.
+            error: () => undefined,
           });
         }
       },
@@ -343,27 +357,43 @@ export class GameComponent implements OnInit {
     }
   }
 
-  toggleWatchlist(): void {
+  /** Bật/tắt cảnh báo "báo khi chạm đáy lịch sử" cho game đang mở. */
+  doiCanhBao(): void {
     if (!this.game) return;
-    
-    this.isWatchlistLoading = true;
-    if (this.isInWatchlist) {
-      this.watchlistService.removeFromWatchlist(this.game.id).subscribe({
+    const gameId = this.game.id;
+
+    this.dangDoiCanhBao = true;
+
+    if (this.daDatCanhBao && this.idCanhBao) {
+      this.alertService.deleteAlert(this.idCanhBao).subscribe({
         next: () => {
-          this.isInWatchlist = false;
-          this.isWatchlistLoading = false;
+          this.daDatCanhBao = false;
+          this.idCanhBao = null;
+          this.dangDoiCanhBao = false;
         },
-        error: () => this.isWatchlistLoading = false
+        error: () => (this.dangDoiCanhBao = false),
       });
-    } else {
-      this.watchlistService.addToWatchlist(this.game.id).subscribe({
-        next: () => {
-          this.isInWatchlist = true;
-          this.isWatchlistLoading = false;
-        },
-        error: () => this.isWatchlistLoading = false
-      });
+      return;
     }
+
+    this.alertService.themCanhBao(gameId).subscribe({
+      // `POST /alerts` là upsert và chỉ trả `{status, game_id, condition}` —
+      // không có `_id`. Phải đọc lại danh sách mới biết id để còn xoá được.
+      next: () => {
+        this.daDatCanhBao = true;
+        this.alertService.getAlerts().subscribe({
+          next: (res) => {
+            this.idCanhBao =
+              res.alerts.find(
+                (a) => a.game_id === gameId && a.condition === 'historical_low',
+              )?.id ?? null;
+            this.dangDoiCanhBao = false;
+          },
+          error: () => (this.dangDoiCanhBao = false),
+        });
+      },
+      error: () => (this.dangDoiCanhBao = false),
+    });
   }
 }
 

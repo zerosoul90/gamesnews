@@ -1,5 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 
 import { AppComponent } from './app.component';
 
@@ -14,12 +16,15 @@ import { AppComponent } from './app.component';
  *
  * `provideRouter([])` là bắt buộc: nav dùng `routerLink`, và thiếu provider thì
  * `detectChanges()` ném lỗi chứ không phải chỉ render thiếu.
+ *
+ * `provideHttpClient` cũng vậy kể từ khi nav đọc phiên đăng nhập qua
+ * `AuthService` — service ấy tiêm `HttpClient`.
  */
 describe('AppComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [AppComponent],
-      providers: [provideRouter([])],
+      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
     }).compileComponents();
   });
 

@@ -54,7 +54,10 @@ class Settings(BaseSettings):
 
     # --- Auth ---
     jwt_secret: SecretStr = SecretStr(DEFAULT_JWT_SECRET)
-    frontend_url: str = "http://localhost:3000"
+    # Origin của WEB, không phải của API: `openid.return_to` ghép từ đây nên
+    # người dùng sẽ hạ cánh đúng vào chỗ này sau khi rời Steam. Mặc định khớp
+    # `cors_origins` ngay dưới — lệch hai chỗ này là đăng nhập gãy.
+    frontend_url: str = "http://localhost:4200"
 
     # Origin được phép gọi API từ trình duyệt, phân tách bằng dấu phẩy.
     # Mặc định là hai cổng dev của Angular (`ng serve` và bản SSR).

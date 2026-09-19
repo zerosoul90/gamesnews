@@ -1,0 +1,80 @@
+<div class="container mx-auto px-4 py-8">
+  <h1 class="text-3xl font-bold text-white mb-2">Cảnh báo giá của tôi</h1>
+  <p class="text-slate-400 mb-8">Chúng tôi báo cho bạn khi giá chạm mức đã đặt.</p>
+
+  <!-- Chưa đăng nhập: mời đăng nhập, không báo lỗi. Hai ca khác nhau. -->
+  <div *ngIf="canDangNhap" class="bg-slate-800 border border-slate-700 rounded-xl p-8 text-center">
+    <p class="text-slate-300 mb-5">Đăng nhập để xem các cảnh báo giá bạn đã đặt.</p>
+    <a
+      routerLink="/login"
+      class="inline-block bg-blue-600 hover:bg-blue-500 text-white font-medium px-5 py-2.5 rounded-lg transition-colors"
+    >
+      Đăng nhập với Steam
+    </a>
+  </div>
+
+  <div *ngIf="dangTai" class="text-slate-400">Đang tải…</div>
+
+  <div
+    *ngIf="loi"
+    class="bg-red-500/10 border border-red-500/50 text-red-400 px-4 py-3 rounded-lg mb-6"
+  >
+    {{ loi }}
+  </div>
+
+  <div
+    *ngIf="!dangTai && !canDangNhap && alerts.length === 0 && !loi"
+    class="bg-slate-800 border border-slate-700 rounded-xl p-8 text-center text-slate-400"
+  >
+    Bạn chưa đặt cảnh báo nào. Mở trang một game và chọn mức giá muốn theo dõi.
+  </div>
+
+  <ul *ngIf="!dangTai && alerts.length > 0" class="space-y-3">
+    <li
+      *ngFor="let a of alerts"
+      class="bg-slate-800 border border-slate-700 rounded-xl p-4 flex items-center gap-4"
+      [class.opacity-60]="a.owned"
+    >
+      <img
+        *ngIf="a.game?.cover_image_url"
+        [src]="a.game?.cover_image_url"
+        alt=""
+        class="w-16 h-20 object-cover rounded"
+      />
+      <div class="flex-1 min-w-0">
+        <a
+          *ngIf="a.game?.slug; else khongCoTrang"
+          [routerLink]="['/game', a.game?.slug]"
+          class="text-white font-medium hover:text-blue-400 transition-colors"
+        >
+          {{ a.game?.title || 'Game không rõ tên' }}
+        </a>
+        <ng-template #khongCoTrang>
+          <span class="text-white font-medium">{{ a.game?.title || 'Game không rõ tên' }}</span>
+        </ng-template>
+
+        <p class="text-slate-400 text-sm mt-1">
+          Báo khi giá {{ a.condition }} <span class="text-blue-400">{{ dinhDangGia(a) }}</span>
+        </p>
+
+        <!-- Cờ `owned` phải nói thành lời. Lặng lẽ không gửi thì người dùng chỉ
+             đặt lại cảnh báo lần nữa. -->
+        <p *ngIf="a.owned" class="text-amber-400/90 text-sm mt-1">
+          Bạn đã có game này trong thư viện — cảnh báo sẽ không được gửi.
+        </p>
+        <p *ngIf="a.triggered_at" class="text-emerald-400/90 text-sm mt-1">
+          Đã báo lúc {{ a.triggered_at | date: 'short' }}
+        </p>
+      </div>
+
+      <button
+        type="button"
+        (click)="xoa(a)"
+        class="text-slate-400 hover:text-red-400 transition-colors px-3 py-2 shrink-0"
+        [attr.aria-label]="'Xoá cảnh báo cho ' + (a.game?.title || 'game này')"
+      >
+        Xoá
+      </button>
+    </li>
+  </ul>
+</div>

@@ -53,9 +53,24 @@ async def get_current_user_id(
 
 @router.get("/steam/login")
 async def steam_login() -> RedirectResponse:
-    """Redirect tới trang đăng nhập Steam OpenID."""
+    """Redirect tới trang đăng nhập Steam OpenID.
+
+    `return_to` trỏ vào **trang của SPA**, không phải vào endpoint callback
+    ngay dưới đây. Hai lý do, cả hai đều làm hỏng đăng nhập nếu trỏ sai:
+
+    1. Endpoint callback trả JSON. Trỏ Steam thẳng vào đó thì người dùng kết
+       thúc hành trình đăng nhập trước một cục `{"access_token": ...}` trên nền
+       trắng, và token không bao giờ vào được `localStorage` của ứng dụng.
+    2. `frontend_url` là origin của web, nơi Express chỉ proxy tiền tố `/api`
+       và **cắt bỏ tiền tố ấy** trước khi chuyển tiếp. Nên đường cũ
+       `{frontend_url}/api/v1/auth/steam/callback` tới backend thành
+       `/v1/auth/steam/callback` — 404.
+
+    Trang `/auth/steam/callback` của Angular nhận chùm `openid.*` rồi gọi lại
+    endpoint dưới đây bằng XHR.
+    """
     settings = get_settings()
-    return_to = f"{settings.frontend_url}/api/v1/auth/steam/callback"
+    return_to = f"{settings.frontend_url}/auth/steam/callback"
     url = get_steam_openid_url(return_to)
     return RedirectResponse(url)
 
