@@ -67,8 +67,8 @@
           <!-- Nhãn nói đúng điều kiện đang đặt. "Nhận thông báo" chung chung
                khiến người dùng tưởng sẽ được báo mọi đợt giảm giá, trong khi
                cảnh báo này chỉ nổ khi giá chạm đáy lịch sử. -->
+          <div *ngIf="authService.isLoggedIn()" class="flex flex-wrap gap-2 shrink-0">
           <button
-            *ngIf="authService.isLoggedIn()"
             (click)="doiCanhBao()"
             [disabled]="dangDoiCanhBao"
             class="shrink-0 px-4 py-2 rounded-lg font-bold transition-colors flex items-center gap-2 border disabled:opacity-50"
@@ -82,6 +82,109 @@
             <svg *ngIf="!dangDoiCanhBao && daDatCanhBao" class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
             {{ daDatCanhBao ? 'Đang chờ đáy lịch sử' : 'Báo khi chạm đáy' }}
           </button>
+
+          <button
+            type="button"
+            (click)="moFormNguong ? dongForm() : moForm()"
+            [disabled]="dangDoiCanhBao"
+            [attr.aria-expanded]="moFormNguong"
+            aria-controls="form-nguong-gia"
+            class="shrink-0 px-4 py-2 rounded-lg font-bold transition-colors flex items-center gap-2 border disabled:opacity-50 bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700"
+          >
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3" />
+            </svg>
+            <!-- "Chờ mức X", không phải "Chờ dưới X": điều kiện là
+                 `price_final <= value`, nên đúng bằng ngưỡng cũng nổ. Nút ngắn
+                 nên chọn chữ trung tính thay vì một bất đẳng thức sai. -->
+            {{
+              canhBaoNguong
+                ? 'Chờ mức ' + (canhBaoNguong.value || 0).toLocaleString('vi-VN') + '₫'
+                : 'Đặt mức giá'
+            }}
+          </button>
+          </div>
+        </div>
+
+        <!-- Form ngưỡng giá. Điều kiện ở backend là `price_final <= value`, và
+             chỉ được xét khi giá VỪA GIẢM (`services/pricing.py`) — nên phần
+             chữ dưới đây phải nói đúng cả hai điều đó, không hứa một cơ chế
+             theo dõi liên tục mà hệ thống không có. -->
+        <div
+          *ngIf="moFormNguong"
+          id="form-nguong-gia"
+          class="bg-slate-800/60 border border-slate-700 rounded-xl p-4 mb-6"
+        >
+          <label for="nguong-gia" class="block text-sm font-medium text-slate-200 mb-1">
+            Báo tôi khi giá giảm xuống mức này hoặc thấp hơn
+          </label>
+          <p *ngIf="cheapest" class="text-slate-400 text-sm mb-3">
+            Giá đang bán: {{ cheapest.price_final.toLocaleString('vi-VN') }}₫ tại
+            {{ cheapest.store }}
+          </p>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <div class="relative">
+              <input
+                id="nguong-gia"
+                type="number"
+                min="1"
+                step="1"
+                inputmode="numeric"
+                name="nguongNhap"
+                [(ngModel)]="nguongNhap"
+                (keyup.enter)="datNguong()"
+                [placeholder]="cheapest ? cheapest.price_final : 'Ví dụ: 199000'"
+                class="w-48 bg-slate-900 border border-slate-700 text-white rounded-lg pl-3 pr-8 py-2 focus:outline-none focus:border-blue-500 transition-colors"
+              />
+              <span class="absolute right-3 top-2 text-slate-500 pointer-events-none">₫</span>
+            </div>
+
+            <button
+              type="button"
+              (click)="datNguong()"
+              [disabled]="dangDoiCanhBao"
+              class="bg-blue-600 hover:bg-blue-500 text-white font-bold px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {{ canhBaoNguong ? 'Cập nhật' : 'Đặt cảnh báo' }}
+            </button>
+
+            <button
+              *ngIf="canhBaoNguong"
+              type="button"
+              (click)="xoaNguong()"
+              [disabled]="dangDoiCanhBao"
+              class="text-slate-400 hover:text-red-400 px-3 py-2 transition-colors disabled:opacity-50"
+            >
+              Xoá
+            </button>
+
+            <button
+              type="button"
+              (click)="dongForm()"
+              class="text-slate-400 hover:text-white px-3 py-2 transition-colors"
+            >
+              Đóng
+            </button>
+          </div>
+
+          <p *ngIf="loiNguong" class="text-red-400 text-sm mt-3">{{ loiNguong }}</p>
+
+          <!-- Lời nhắc, không phải lỗi: ngưỡng kiểu này vẫn hợp lệ, chỉ là nó
+               sẽ nổ ở lần giảm kế tiếp bất kể giảm bao nhiêu. Im lặng thì người
+               dùng tưởng mình vừa đặt một cái bẫy giá rẻ. -->
+          <p
+            *ngIf="nguongCaoHonGiaHienTai && !loiNguong"
+            class="text-amber-400/90 text-sm mt-3"
+          >
+            Mức này không thấp hơn giá đang bán, nên cảnh báo sẽ nổ ngay ở lần giảm giá kế
+            tiếp — dù giảm ít.
+          </p>
+
+          <p class="text-slate-500 text-xs mt-3">
+            Chúng tôi chỉ kiểm khi giá thay đổi, nên thông báo có thể tới trễ vài chục phút
+            so với lúc store đổi giá.
+          </p>
         </div>
 
         <div class="flex flex-wrap gap-2 mb-6">

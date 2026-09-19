@@ -1,5 +1,6 @@
 import { Component, Inject, OnInit, Optional } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Meta, Title } from '@angular/platform-browser';
 import { ActivatedRoute, RouterLink } from '@angular/router';
@@ -10,7 +11,7 @@ import { GameDetail, GamePrice, GameService, PlayerCountDay } from '../../servic
 import { StructuredDataService } from '../../services/structured-data.service';
 import { CommunityService, Review } from '../../services/community.service';
 import { NewsService, Article } from '../../services/news.service';
-import { AlertService } from '../../services/alert.service';
+import { AlertService, PriceAlert } from '../../services/alert.service';
 import { AuthService } from '../../services/auth.service';
 
 /** Một cột của biểu đồ người chơi, toạ độ đã tính sẵn trong viewBox 100x40. */
@@ -25,7 +26,7 @@ interface PlayerBar {
 @Component({
   selector: 'app-game',
   standalone: true,
-  imports: [CommonModule, RouterLink],
+  imports: [CommonModule, RouterLink, FormsModule],
   templateUrl: './game.component.html',
   styleUrl: './game.component.css',
 })
@@ -43,12 +44,36 @@ export class GameComponent implements OnInit {
   reviews: Review[] = [];
   reviewsTotal = 0;
 
-  /** Đã có cảnh báo "chạm đáy lịch sử" cho game này. */
-  daDatCanhBao = false;
+  /** Cảnh báo của chính game này, giữ nguyên bản ghi thay vì vài cờ rời.
+   *
+   *  Phải giữ cả `id`: backend xoá theo `_id` của cảnh báo chứ không theo
+   *  `game_id`. Không giữ thì nút bấm chỉ bật được một chiều. */
+  private canhBaoCuaGame: PriceAlert[] = [];
   dangDoiCanhBao = false;
-  /** `_id` của cảnh báo, cần để xoá — backend xoá theo id của cảnh báo chứ
-   *  không theo `game_id`. Không giữ lại thì nút bấm chỉ bật được một chiều. */
-  private idCanhBao: string | null = null;
+
+  /** Một game có thể có nhiều cảnh báo ở các điều kiện khác nhau — khoá upsert
+   *  của backend là `{user_id, game_id, condition}`. Nên tra theo `condition`,
+   *  đừng giả định mỗi game một cảnh báo. */
+  private canhBaoTheoDieuKien(condition: string): PriceAlert | null {
+    return this.canhBaoCuaGame.find((a) => a.condition === condition) ?? null;
+  }
+
+  get canhBaoDay(): PriceAlert | null {
+    return this.canhBaoTheoDieuKien('historical_low');
+  }
+
+  get canhBaoNguong(): PriceAlert | null {
+    return this.canhBaoTheoDieuKien('below_price');
+  }
+
+  get daDatCanhBao(): boolean {
+    return this.canhBaoDay !== null;
+  }
+
+  // --- form nhập ngưỡng giá ---
+  moFormNguong = false;
+  nguongNhap: number | null = null;
+  loiNguong: string | null = null;
 
   constructor(
     private titleService: Title,
@@ -95,19 +120,7 @@ export class GameComponent implements OnInit {
 
         // Đã đặt cảnh báo cho game này chưa (chỉ hỏi khi đã đăng nhập).
         if (this.authService.isLoggedIn()) {
-          this.alertService.getAlerts().subscribe({
-            next: (res) => {
-              const cua = res.alerts.find(
-                (a) => a.game_id === game.id && a.condition === 'historical_low',
-              );
-              this.daDatCanhBao = cua !== undefined;
-              this.idCanhBao = cua?.id ?? null;
-            },
-            // Không có `error` thì một lượt 401 sẽ nổ ra console dưới dạng
-            // unhandled, còn trang thì vẫn im. Nuốt gọn: phần còn lại của trang
-            // game không phụ thuộc vào cảnh báo.
-            error: () => undefined,
-          });
+          this.napCanhBao(game.id);
         }
       },
       error: (err: HttpErrorResponse) => {
@@ -357,42 +370,117 @@ export class GameComponent implements OnInit {
     }
   }
 
+  /** Đọc lại cảnh báo của game này.
+   *
+   *  `POST /alerts` là upsert và chỉ trả `{status, game_id, condition}` —
+   *  không có `_id`. Nên sau mỗi lần ghi phải đọc lại mới biết id để còn xoá.
+   */
+  private napCanhBao(gameId: string, xong?: () => void): void {
+    this.alertService.getAlerts().subscribe({
+      next: (res) => {
+        this.canhBaoCuaGame = res.alerts.filter((a) => a.game_id === gameId);
+        xong?.();
+      },
+      // Thiếu nhánh này thì một lượt 401 nổ ra console dưới dạng unhandled còn
+      // trang thì vẫn im. Phần còn lại của trang game không phụ thuộc vào
+      // cảnh báo, nên nuốt gọn.
+      error: () => xong?.(),
+    });
+  }
+
   /** Bật/tắt cảnh báo "báo khi chạm đáy lịch sử" cho game đang mở. */
   doiCanhBao(): void {
     if (!this.game) return;
     const gameId = this.game.id;
+    const dangCo = this.canhBaoDay;
 
     this.dangDoiCanhBao = true;
 
-    if (this.daDatCanhBao && this.idCanhBao) {
-      this.alertService.deleteAlert(this.idCanhBao).subscribe({
-        next: () => {
-          this.daDatCanhBao = false;
-          this.idCanhBao = null;
-          this.dangDoiCanhBao = false;
-        },
+    if (dangCo) {
+      this.alertService.deleteAlert(dangCo.id).subscribe({
+        next: () => this.napCanhBao(gameId, () => (this.dangDoiCanhBao = false)),
         error: () => (this.dangDoiCanhBao = false),
       });
       return;
     }
 
-    this.alertService.themCanhBao(gameId).subscribe({
-      // `POST /alerts` là upsert và chỉ trả `{status, game_id, condition}` —
-      // không có `_id`. Phải đọc lại danh sách mới biết id để còn xoá được.
-      next: () => {
-        this.daDatCanhBao = true;
-        this.alertService.getAlerts().subscribe({
-          next: (res) => {
-            this.idCanhBao =
-              res.alerts.find(
-                (a) => a.game_id === gameId && a.condition === 'historical_low',
-              )?.id ?? null;
-            this.dangDoiCanhBao = false;
-          },
-          error: () => (this.dangDoiCanhBao = false),
-        });
-      },
+    this.alertService.themCanhBao(gameId, 'historical_low').subscribe({
+      next: () => this.napCanhBao(gameId, () => (this.dangDoiCanhBao = false)),
       error: () => (this.dangDoiCanhBao = false),
+    });
+  }
+
+  // --- ngưỡng giá -----------------------------------------------------------
+
+  moForm(): void {
+    // Đang sửa một cảnh báo có sẵn thì hiện đúng con số cũ, không bắt gõ lại.
+    this.nguongNhap = this.canhBaoNguong?.value ?? null;
+    this.loiNguong = null;
+    this.moFormNguong = true;
+  }
+
+  dongForm(): void {
+    this.moFormNguong = false;
+    this.loiNguong = null;
+  }
+
+  /**
+   * Ngưỡng đặt **không thấp hơn** giá đang bán.
+   *
+   * Không phải lỗi, nên đây là lời nhắc chứ không chặn: điều kiện ở backend là
+   * `price_final <= value`, mà cảnh báo chỉ được xét khi giá **vừa giảm**. Nên
+   * ngưỡng kiểu này sẽ nổ ở đúng lần giảm kế tiếp, bất kể giảm bao nhiêu —
+   * người dùng cần biết trước để khỏi tưởng mình vừa đặt một cái bẫy giá rẻ.
+   */
+  get nguongCaoHonGiaHienTai(): boolean {
+    const gia = this.cheapest?.price_final;
+    return gia !== undefined && this.nguongNhap !== null && this.nguongNhap >= gia;
+  }
+
+  datNguong(): void {
+    if (!this.game) return;
+    const gameId = this.game.id;
+
+    // `value` ở backend là `int`. Chặn số lẻ/âm/0 ngay tại đây thay vì để
+    // Pydantic trả 422 rồi hiện một thông báo chung chung.
+    const gia = this.nguongNhap;
+    if (gia === null || !Number.isFinite(gia) || !Number.isInteger(gia) || gia <= 0) {
+      this.loiNguong = 'Nhập một mức giá nguyên, lớn hơn 0.';
+      return;
+    }
+
+    this.dangDoiCanhBao = true;
+    this.loiNguong = null;
+    this.alertService.themCanhBao(gameId, 'below_price', gia).subscribe({
+      next: () =>
+        this.napCanhBao(gameId, () => {
+          this.dangDoiCanhBao = false;
+          this.moFormNguong = false;
+        }),
+      error: () => {
+        this.dangDoiCanhBao = false;
+        this.loiNguong = 'Không đặt được cảnh báo. Thử lại sau.';
+      },
+    });
+  }
+
+  xoaNguong(): void {
+    if (!this.game) return;
+    const gameId = this.game.id;
+    const dangCo = this.canhBaoNguong;
+    if (!dangCo) return;
+
+    this.dangDoiCanhBao = true;
+    this.alertService.deleteAlert(dangCo.id).subscribe({
+      next: () =>
+        this.napCanhBao(gameId, () => {
+          this.dangDoiCanhBao = false;
+          this.moFormNguong = false;
+        }),
+      error: () => {
+        this.dangDoiCanhBao = false;
+        this.loiNguong = 'Không xoá được cảnh báo. Thử lại sau.';
+      },
     });
   }
 }

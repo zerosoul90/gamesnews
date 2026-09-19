@@ -90,9 +90,14 @@ export class AlertsComponent implements OnInit {
         // Điều kiện này không có ngưỡng — `value` luôn null, và đó là đúng.
         return 'Báo khi giá chạm đáy lịch sử';
       case 'below_price':
+        // "hoặc thấp hơn", không phải "dưới": điều kiện ở backend là
+        // `price_final <= value` (`services/pricing.py`). Đúng bằng ngưỡng là
+        // nổ, nên viết "dưới" sẽ hụt mất đúng một ca — và là ca hay gặp, vì
+        // người ta thường đặt ngưỡng vào những con số tròn mà store cũng hay
+        // dùng.
         return alert.value === null
           ? 'Báo khi giá giảm'
-          : `Báo khi giá dưới ${alert.value.toLocaleString('vi-VN')} ${alert.currency}`;
+          : `Báo khi giá còn ${this.dinhDangTien(alert.value, alert.currency)} hoặc thấp hơn`;
       case 'discount_pct':
         return alert.value === null
           ? 'Báo khi có giảm giá'
@@ -102,5 +107,11 @@ export class AlertsComponent implements OnInit {
         // nuốt đi là mất manh mối khi backend thêm loại mới.
         return `Báo khi: ${alert.condition}`;
     }
+  }
+
+  /** `₫` cho VND, còn lại thì kèm mã tiền tệ — đừng gắn ký hiệu đồng vào USD. */
+  private dinhDangTien(value: number, currency: string): string {
+    const so = value.toLocaleString('vi-VN');
+    return currency === 'VND' ? `${so}₫` : `${so} ${currency}`;
   }
 }

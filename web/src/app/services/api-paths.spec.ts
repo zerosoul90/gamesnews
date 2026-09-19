@@ -133,6 +133,23 @@ describe('service gọi đúng đường dẫn backend có thật', () => {
     req.flush({});
   });
 
+  it('AlertService.themCanhBao gửi đúng below_price kèm ngưỡng', () => {
+    const s = TestBed.inject(AlertService);
+    s.themCanhBao('65f1a2b3c4d5e6f708192a3b', 'below_price', 199000).subscribe();
+    const req = http.expectOne(() => true);
+
+    expect(req.request.url).toBe(`${GOC}/api/v1/user/alerts`);
+    expect(req.request.body.condition).toBe('below_price');
+    expect(req.request.body.value).toBe(199000);
+    // Chỉ chốt phần service KHÔNG bóp méo giá trị được truyền vào. Việc ô
+    // `type=number` có trả số hay trả chuỗi là chuyện của `NumberValueAccessor`
+    // và phải kiểm trên trình duyệt thật — test này không đi qua form nên đừng
+    // đọc nó như một bảo chứng cho điều đó.
+    expect(typeof req.request.body.value).toBe('number');
+    expect(Object.keys(req.request.body)).not.toContain('user_id');
+    req.flush({});
+  });
+
   it('CommunityService -> /community/games/{id}/reviews', () => {
     const s = TestBed.inject(CommunityService);
     expect(kiem(() => s.getReviews('65f1a2b3c4d5e6f708192a3b').subscribe())).toBe(
