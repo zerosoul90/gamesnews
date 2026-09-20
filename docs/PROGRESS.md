@@ -2830,3 +2830,102 @@ nào tới `MockFirebaseMessaging` ngoài phần chú thích ghi lại lịch s�
   và lint, không bắt được logic sai.
 - Chặng cuối — FCM thật đẩy tới máy — vẫn chưa ai đi được.
 - Các mục còn nợ của lượt 8, 9, 11, 12, 13 giữ nguyên.
+
+### 2026-09-20 (lượt 15) — Endpoint đúng hết, hợp đồng dữ liệu vẫn bịa
+
+Review commit `2bb2a3b` — bàn giao lượt 2 cho antigravity, 11 file, 581 dòng,
+làm theo `docs/HANDOFF-2.md`.
+
+#### Điều đã khá lên
+
+Bốn cổng nghiệm thu xanh thật: `npm run build` (production), `ng test` 28/28,
+`ruff` + `mypy`, và không một `Mock`/`setTimeout` giả nào. Quan trọng nhất:
+**cả 6 endpoint mới đều có thật** trong `/openapi.json`. Lượt 11 bịa ra sáu
+đường 404; lượt này không đường nào.
+
+`web/src/app/services/api-paths.spec.ts` — lưới dựng ở lượt 11 — đã làm đúng
+việc của nó.
+
+#### Nhưng lưới ấy không phủ được hạng lỗi thứ hai
+
+`Badge` khai `name`, `description`, `icon_url`. Không trường nào tồn tại:
+`GET /community/users/{id}/badges` trả thẳng document `user_badges`, mà
+`UserBadge` chỉ có `user_id`, `badge_type`, `earned_at` — cộng `_id` do Mongo
+gán, và `jsonify` không đổi tên khoá thành `id`.
+
+Kết quả trên màn hình: một lưới ô xám. `*ngIf="badge.icon_url"` không bao giờ
+đúng, `<h3>` rỗng, `<p>` rỗng.
+
+**Bài học đáng ghi nhất của lượt này: `/openapi.json` không cứu được ca này.**
+Những endpoint ấy khai `-> list[dict[str, Any]]`, nên OpenAPI ghi schema rỗng —
+không có gì để đối chiếu. Đối chiếu URL là một bước; đối chiếu *hình dạng phản
+hồi* là một bước khác, và nguồn sự thật cho nó là model Pydantic trong
+`app/models/`, hoặc gọi thật endpoint với dữ liệu thật.
+
+`user_badges` đang rỗng nên không gọi thử được. Cách rẻ nhất: `mongosh` chèn
+một document, `curl`, rồi xoá. Làm rồi, và phản hồi thật xác nhận đúng bốn
+trường:
+
+```json
+[{"_id":"6aafedfe...","user_id":"0000...","badge_type":"reviewer","earned_at":"2026-09-01T10:00:00+00:00"}]
+```
+
+`HANDOFF-2.md` §4.4 có dặn làm badge *sau* 4.3 để còn dữ liệu mà kiểm. Không ai
+làm, nên phần này chưa từng chạy thật lần nào.
+
+#### Hai lỗi còn lại, cùng một hình dạng
+
+**Kết quả đồng bộ bị nuốt.** `dongBo()` gán `dongBoKetQua = res` rồi gọi ngay
+`tai()`, mà `tai()` mở đầu bằng `dongBoKetQua = null`. Đồng bộ, cùng một lượt,
+nên băng rôn không hiện lần nào — kể cả ca `{synced: 0, skipped: N}`, đúng ca
+`HANDOFF-2.md` §4.2 đặt làm điều kiện nghiệm thu.
+
+**`routerLink="/auth"`.** Route không tồn tại; `app.routes.ts` chỉ khai
+`auth/steam/callback` dưới tiền tố đó. Đáng nhớ: **Router của Angular không
+bao giờ báo lỗi vì một `routerLink` sai** — route `**` khớp mọi thứ, nên liên
+kết hỏng chỉ lặng lẽ mở trang 404. `routerLink` nhận chuỗi bất kỳ, build xanh,
+SSR trả 200.
+
+Cả ba lỗi cùng một hình dạng với lượt 11: **xanh ở mọi tầng quen thuộc, sai ở
+chỗ không tầng nào nhìn tới.**
+
+#### Bản sửa
+
+Bốn commit: `9b96107` (hợp đồng badge), `3e9092c` (kết quả đồng bộ),
+`ad2d36d` (liên kết đăng nhập), `70cdd7a` (phân trang thư viện — §4.2 yêu cầu
+mà bản đầu chỉ gọi `getLibrary(50, 0)` một lần, ai có hơn 50 game thì mất phần
+còn lại trong im lặng).
+
+Thêm `routes.spec-util.ts::duongDanCoThat()`: đối chiếu href với bảng route
+thật, cố ý **không** tính `**` là khớp.
+
+#### Nghiệm thu
+
+`ng test` 28 → 45. Mỗi bản sửa đã được gỡ ra một lần để xem test có đỏ không —
+không cái nào chỉ xanh trên code sai:
+
+| bản sửa gỡ ra | test đỏ với |
+|---|---|
+| nhãn huy hiệu | `Expected '' to be 'Người đánh giá'` |
+| `conNua` đổi sang `% 50 === 0` | ca "trang cuối vừa tròn một trang" |
+| reset `dongBoKetQua` | `Expected null to equal { synced: 0, skipped: 3 }` |
+| `/login` → `/auth` | `Expected false to be true` (`duongDanCoThat`) |
+
+Build production xanh, `ruff` + `mypy` xanh (backend không đổi).
+
+Một chi tiết về kênh đo: lần chạy `ng test` đầu tiên trả về **không một dòng
+nào** vì cwd đã trượt khỏi `web/`, và `grep` của tôi nuốt mất thông báo lỗi
+`npm error`. Không có output trông y hệt "không có test nào đỏ". Phải in
+`EXIT=` mới thấy.
+
+**Còn nợ:**
+
+- Liên kết `/login` ở `game.component.html` đã sửa nhưng **chưa có test** — nó
+  nằm trong `*ngIf="game as g"`, muốn render phải dựng cả một `GameDetail` đầy
+  đủ cùng sáu service.
+- `news.component.ts`: `searchSubject.subscribe()` không có `OnDestroy`.
+- Lối đặt tên trộn Anh–Việt ở code lượt 2 (`reviewScore`, `selectedGameId`)
+  ngược với `HANDOFF-2.md` §6.
+- Badge chưa kiểm được với dữ liệu sinh ra tự nhiên: phải có người viết đánh
+  giá thật thì `award_badge` mới chạy.
+- Các mục còn nợ của lượt 8, 9, 11, 12, 13, 14 giữ nguyên.
