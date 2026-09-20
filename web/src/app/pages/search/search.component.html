@@ -3,17 +3,22 @@
     <h1 class="text-3xl font-bold text-white mb-4">Tìm kiếm</h1>
     
     <div class="flex flex-wrap gap-4 mb-4">
-      <select [(ngModel)]="platform" (ngModelChange)="onFilterChange()" class="bg-slate-800 border border-slate-700 text-white rounded px-3 py-2 focus:outline-none focus:border-blue-500">
+      <!-- Nhãn tiếng Việt, `value` là slug nguyên văn: backend so chuỗi nên
+           gửi nhãn lên là 0 kết quả. Bản trước hiện `{{ slug | titlecase }}`,
+           ra "Fps", "Mmorpg", "Crpg", "Early-Access". -->
+      <select [(ngModel)]="platform" (ngModelChange)="onFilterChange()" aria-label="Lọc theo hệ máy" class="bg-slate-800 border border-slate-700 text-white rounded px-3 py-2 focus:outline-none focus:border-blue-500">
         <option value="">Tất cả hệ máy</option>
-        <option *ngFor="let p of PLATFORMS" [value]="p">{{ p | titlecase }}</option>
+        <option *ngFor="let p of PLATFORMS" [value]="p.slug">{{ p.label }}</option>
       </select>
-      
-      <select [(ngModel)]="genre" (ngModelChange)="onFilterChange()" class="bg-slate-800 border border-slate-700 text-white rounded px-3 py-2 focus:outline-none focus:border-blue-500">
+
+      <select [(ngModel)]="genre" (ngModelChange)="onFilterChange()" aria-label="Lọc theo thể loại" class="bg-slate-800 border border-slate-700 text-white rounded px-3 py-2 focus:outline-none focus:border-blue-500">
         <option value="">Tất cả thể loại</option>
-        <option *ngFor="let g of GENRES" [value]="g">{{ g | titlecase }}</option>
+        <option *ngFor="let g of GENRES" [value]="g.slug">{{ g.label }}</option>
       </select>
-      
-      <input type="number" [(ngModel)]="year" (ngModelChange)="onFilterChange()" placeholder="Năm phát hành" min="1970" max="2030" class="w-40 bg-slate-800 border border-slate-700 text-white rounded px-3 py-2 focus:outline-none focus:border-blue-500">
+
+      <!-- `onYearInput()` chứ không phải `onFilterChange()`: ô này gõ từng ký
+           tự nên phải qua hàng giãn, xem chú thích ở `ngOnInit`. -->
+      <input type="number" [(ngModel)]="year" (ngModelChange)="onYearInput()" placeholder="Năm phát hành" aria-label="Lọc theo năm phát hành" min="1970" max="2030" class="w-40 bg-slate-800 border border-slate-700 text-white rounded px-3 py-2 focus:outline-none focus:border-blue-500">
     </div>
 
     <p class="text-slate-400" *ngIf="query">Kết quả cho: <span class="text-white font-bold">"{{ query }}"</span></p>
@@ -67,7 +72,14 @@
     </a>
   </div>
 
-  <!-- Phân trang cơ bản -->
+  <!-- Phân trang. Hai liên kết phải mang theo ĐỦ ba bộ lọc: bản đầu dựng lại
+       `queryParams` chỉ với `{q, page}` nên bấm sang trang 2 là mất sạch lọc —
+       lỗi chỉ lộ ra ở trang thứ hai.
+
+       Điều kiện `page * limit < response.total` đúng nhờ một trùng hợp đáng
+       giữ: Meilisearch chặn `total` ở 1000 (`maxTotalHits` mặc định), và ở
+       trang 50 thì `50*20 = 1000`, không nhỏ hơn 1000, nên nút "sau" tự ẩn
+       đúng chỗ dữ liệu cạn. Đừng "sửa" nó. -->
   <div *ngIf="!isLoading && response && response.total > limit" class="mt-12 flex justify-center gap-2">
     <!-- Prev button -->
     <a *ngIf="page > 1" [routerLink]="['/search']" [queryParams]="{ q: query || undefined, platform: platform || undefined, genre: genre || undefined, year: year || undefined, page: page - 1 }" class="px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-300 hover:text-white hover:bg-slate-700">
