@@ -97,32 +97,32 @@
             <!-- "Chờ mức X", không phải "Chờ dưới X": điều kiện là
                  `price_final <= value`, nên đúng bằng ngưỡng cũng nổ. Nút ngắn
                  nên chọn chữ trung tính thay vì một bất đẳng thức sai. -->
-            {{
-              canhBaoNguong
-                ? 'Chờ mức ' + (canhBaoNguong.value || 0).toLocaleString('vi-VN') + '₫'
-                : 'Đặt mức giá'
-            }}
+            {{ nhanNutNguong }}
           </button>
           </div>
         </div>
 
-        <!-- Form ngưỡng giá. Điều kiện ở backend là `price_final <= value`, và
-             chỉ được xét khi giá VỪA GIẢM (`services/pricing.py`) — nên phần
-             chữ dưới đây phải nói đúng cả hai điều đó, không hứa một cơ chế
-             theo dõi liên tục mà hệ thống không có. -->
+        <!-- Bảng đặt ngưỡng. Hai điều kiện ở backend (`services/pricing.py`):
+             `price_final <= value` và `discount_percent >= value`. Cả hai chỉ
+             được xét khi giá VỪA GIẢM — nên phần chữ dưới đây phải nói đúng cả
+             hai điều đó, không hứa một cơ chế theo dõi liên tục mà hệ thống
+             không có. -->
         <div
           *ngIf="moFormNguong"
           id="form-nguong-gia"
           class="bg-slate-800/60 border border-slate-700 rounded-xl p-4 mb-6"
         >
-          <label for="nguong-gia" class="block text-sm font-medium text-slate-200 mb-1">
-            Báo tôi khi giá giảm xuống mức này hoặc thấp hơn
-          </label>
-          <p *ngIf="cheapest" class="text-slate-400 text-sm mb-3">
-            Giá đang bán: {{ cheapest.price_final.toLocaleString('vi-VN') }}₫ tại
-            {{ cheapest.store }}
+          <p class="text-sm font-medium text-slate-200 mb-1">Báo tôi khi…</p>
+          <p *ngIf="cheapest" class="text-slate-400 text-sm mb-4">
+            Đang bán {{ cheapest.price_final.toLocaleString('vi-VN') }}₫ tại
+            {{ cheapest.store }}<span *ngIf="cheapest.discount_percent > 0">, giảm
+            {{ cheapest.discount_percent }}%</span>
           </p>
 
+          <!-- Hai điều kiện độc lập, đặt được cả hai cùng lúc. -->
+          <label for="nguong-gia" class="block text-sm text-slate-300 mb-1">
+            Giá còn mức này hoặc thấp hơn
+          </label>
           <div class="flex flex-wrap items-center gap-2">
             <div class="relative">
               <input
@@ -158,28 +158,79 @@
             >
               Xoá
             </button>
-
-            <button
-              type="button"
-              (click)="dongForm()"
-              class="text-slate-400 hover:text-white px-3 py-2 transition-colors"
-            >
-              Đóng
-            </button>
           </div>
 
-          <p *ngIf="loiNguong" class="text-red-400 text-sm mt-3">{{ loiNguong }}</p>
+          <p *ngIf="loiNguong" class="text-red-400 text-sm mt-2">{{ loiNguong }}</p>
 
           <!-- Lời nhắc, không phải lỗi: ngưỡng kiểu này vẫn hợp lệ, chỉ là nó
                sẽ nổ ở lần giảm kế tiếp bất kể giảm bao nhiêu. Im lặng thì người
                dùng tưởng mình vừa đặt một cái bẫy giá rẻ. -->
-          <p
-            *ngIf="nguongCaoHonGiaHienTai && !loiNguong"
-            class="text-amber-400/90 text-sm mt-3"
-          >
+          <p *ngIf="nguongCaoHonGiaHienTai && !loiNguong" class="text-amber-400/90 text-sm mt-2">
             Mức này không thấp hơn giá đang bán, nên cảnh báo sẽ nổ ngay ở lần giảm giá kế
             tiếp — dù giảm ít.
           </p>
+
+          <!-- Điều kiện thứ hai: `discount_percent >= value`. -->
+          <label for="nguong-phan-tram" class="block text-sm text-slate-300 mt-5 mb-1">
+            Giảm từ mức này trở lên
+          </label>
+          <div class="flex flex-wrap items-center gap-2">
+            <div class="relative">
+              <input
+                id="nguong-phan-tram"
+                type="number"
+                min="1"
+                max="100"
+                step="1"
+                inputmode="numeric"
+                name="phanTramNhap"
+                [(ngModel)]="phanTramNhap"
+                (keyup.enter)="datPhanTram()"
+                placeholder="Ví dụ: 50"
+                class="w-48 bg-slate-900 border border-slate-700 text-white rounded-lg pl-3 pr-8 py-2 focus:outline-none focus:border-blue-500 transition-colors"
+              />
+              <span class="absolute right-3 top-2 text-slate-500 pointer-events-none">%</span>
+            </div>
+
+            <button
+              type="button"
+              (click)="datPhanTram()"
+              [disabled]="dangDoiCanhBao"
+              class="bg-blue-600 hover:bg-blue-500 text-white font-bold px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {{ canhBaoPhanTram ? 'Cập nhật' : 'Đặt cảnh báo' }}
+            </button>
+
+            <button
+              *ngIf="canhBaoPhanTram"
+              type="button"
+              (click)="xoaPhanTram()"
+              [disabled]="dangDoiCanhBao"
+              class="text-slate-400 hover:text-red-400 px-3 py-2 transition-colors disabled:opacity-50"
+            >
+              Xoá
+            </button>
+          </div>
+
+          <p *ngIf="loiPhanTram" class="text-red-400 text-sm mt-2">{{ loiPhanTram }}</p>
+
+          <p
+            *ngIf="phanTramThapHonMucDangGiam && !loiPhanTram"
+            class="text-amber-400/90 text-sm mt-2"
+          >
+            Game đang giảm {{ cheapest?.discount_percent }}% rồi, nên cảnh báo sẽ nổ ngay ở
+            lần giảm giá kế tiếp.
+          </p>
+
+          <div class="mt-5 pt-4 border-t border-slate-700">
+            <button
+              type="button"
+              (click)="dongForm()"
+              class="text-slate-400 hover:text-white transition-colors text-sm"
+            >
+              Đóng
+            </button>
+          </div>
 
           <p class="text-slate-500 text-xs mt-3">
             Chúng tôi chỉ kiểm khi giá thay đổi, nên thông báo có thể tới trễ vài chục phút

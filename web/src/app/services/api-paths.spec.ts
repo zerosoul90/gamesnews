@@ -150,6 +150,18 @@ describe('service gọi đúng đường dẫn backend có thật', () => {
     req.flush({});
   });
 
+  it('AlertService.themCanhBao gửi đúng discount_pct kèm ngưỡng', () => {
+    const s = TestBed.inject(AlertService);
+    s.themCanhBao('65f1a2b3c4d5e6f708192a3b', 'discount_pct', 50).subscribe();
+    const req = http.expectOne(() => true);
+
+    expect(req.request.url).toBe(`${GOC}/api/v1/user/alerts`);
+    expect(req.request.body.condition).toBe('discount_pct');
+    expect(req.request.body.value).toBe(50);
+    expect(Object.keys(req.request.body)).not.toContain('user_id');
+    req.flush({});
+  });
+
   it('CommunityService -> /community/games/{id}/reviews', () => {
     const s = TestBed.inject(CommunityService);
     expect(kiem(() => s.getReviews('65f1a2b3c4d5e6f708192a3b').subscribe())).toBe(

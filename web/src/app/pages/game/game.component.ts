@@ -12,6 +12,7 @@ import { StructuredDataService } from '../../services/structured-data.service';
 import { CommunityService, Review } from '../../services/community.service';
 import { NewsService, Article } from '../../services/news.service';
 import { AlertService, PriceAlert } from '../../services/alert.service';
+import { kiemNguongGia, kiemPhanTram } from './nguong';
 import { AuthService } from '../../services/auth.service';
 
 /** Một cột của biểu đồ người chơi, toạ độ đã tính sẵn trong viewBox 100x40. */
@@ -66,14 +67,25 @@ export class GameComponent implements OnInit {
     return this.canhBaoTheoDieuKien('below_price');
   }
 
+  get canhBaoPhanTram(): PriceAlert | null {
+    return this.canhBaoTheoDieuKien('discount_pct');
+  }
+
   get daDatCanhBao(): boolean {
     return this.canhBaoDay !== null;
   }
 
-  // --- form nhập ngưỡng giá ---
+  // --- form đặt ngưỡng ---
+  //
+  // Hai điều kiện nằm chung một bảng, mỗi cái một dòng có nút lưu/xoá riêng —
+  // KHÔNG phải hai lựa chọn loại trừ nhau. Khoá upsert của backend là
+  // `{user_id, game_id, condition}`, nên một game đặt được cả hai cùng lúc; làm
+  // radio thì giao diện nói sai về chính mô hình dữ liệu bên dưới.
   moFormNguong = false;
   nguongNhap: number | null = null;
   loiNguong: string | null = null;
+  phanTramNhap: number | null = null;
+  loiPhanTram: string | null = null;
 
   constructor(
     private titleService: Title,
@@ -412,16 +424,33 @@ export class GameComponent implements OnInit {
 
   // --- ngưỡng giá -----------------------------------------------------------
 
+  /** Nhãn nút mở bảng: tóm tắt đúng những gì đang đặt.
+   *
+   *  Không rút gọn thành "2 cảnh báo" khi có cả hai: con số cụ thể là thứ người
+   *  ta quay lại trang này để xem, và nút là chỗ duy nhất thấy được mà không
+   *  phải mở bảng ra. */
+  get nhanNutNguong(): string {
+    const gia = this.canhBaoNguong?.value;
+    const pt = this.canhBaoPhanTram?.value;
+    const phan: string[] = [];
+    if (gia != null) phan.push(`${gia.toLocaleString('vi-VN')}₫`);
+    if (pt != null) phan.push(`${pt}%`);
+    return phan.length ? `Chờ ${phan.join(' · ')}` : 'Đặt cảnh báo';
+  }
+
   moForm(): void {
     // Đang sửa một cảnh báo có sẵn thì hiện đúng con số cũ, không bắt gõ lại.
     this.nguongNhap = this.canhBaoNguong?.value ?? null;
+    this.phanTramNhap = this.canhBaoPhanTram?.value ?? null;
     this.loiNguong = null;
+    this.loiPhanTram = null;
     this.moFormNguong = true;
   }
 
   dongForm(): void {
     this.moFormNguong = false;
     this.loiNguong = null;
+    this.loiPhanTram = null;
   }
 
   /**
@@ -437,49 +466,71 @@ export class GameComponent implements OnInit {
     return gia !== undefined && this.nguongNhap !== null && this.nguongNhap >= gia;
   }
 
+  /** Cùng lý lẽ như trên, phía `discount_pct`: điều kiện là
+   *  `discount_percent >= value`, nên ngưỡng không cao hơn mức giảm đang chạy
+   *  sẽ khớp ngay ở lần giá giảm kế tiếp. */
+  get phanTramThapHonMucDangGiam(): boolean {
+    const giam = this.cheapest?.discount_percent;
+    return giam !== undefined && this.phanTramNhap !== null && this.phanTramNhap <= giam;
+  }
+
   datNguong(): void {
+    if (!this.game) return;
+
+    this.loiNguong = kiemNguongGia(this.nguongNhap);
+    if (this.loiNguong !== null) return;
+
+    this.ghiCanhBao('below_price', this.nguongNhap as number, (loi) => (this.loiNguong = loi));
+  }
+
+  datPhanTram(): void {
+    if (!this.game) return;
+
+    this.loiPhanTram = kiemPhanTram(this.phanTramNhap);
+    if (this.loiPhanTram !== null) return;
+
+    this.ghiCanhBao('discount_pct', this.phanTramNhap as number, (loi) => (this.loiPhanTram = loi));
+  }
+
+  xoaNguong(): void {
+    this.xoaCanhBao(this.canhBaoNguong, (loi) => (this.loiNguong = loi));
+  }
+
+  xoaPhanTram(): void {
+    this.xoaCanhBao(this.canhBaoPhanTram, (loi) => (this.loiPhanTram = loi));
+  }
+
+  /** Đặt hoặc cập nhật một cảnh báo. `POST` là upsert nên hai việc là một. */
+  private ghiCanhBao(
+    condition: 'below_price' | 'discount_pct',
+    value: number,
+    baoLoi: (loi: string) => void,
+  ): void {
     if (!this.game) return;
     const gameId = this.game.id;
 
-    // `value` ở backend là `int`. Chặn số lẻ/âm/0 ngay tại đây thay vì để
-    // Pydantic trả 422 rồi hiện một thông báo chung chung.
-    const gia = this.nguongNhap;
-    if (gia === null || !Number.isFinite(gia) || !Number.isInteger(gia) || gia <= 0) {
-      this.loiNguong = 'Nhập một mức giá nguyên, lớn hơn 0.';
-      return;
-    }
-
     this.dangDoiCanhBao = true;
-    this.loiNguong = null;
-    this.alertService.themCanhBao(gameId, 'below_price', gia).subscribe({
-      next: () =>
-        this.napCanhBao(gameId, () => {
-          this.dangDoiCanhBao = false;
-          this.moFormNguong = false;
-        }),
+    this.alertService.themCanhBao(gameId, condition, value).subscribe({
+      // Không đóng bảng sau khi lưu: người dùng thường đặt tiếp điều kiện còn
+      // lại, và đóng đi thì họ mất luôn chỗ để thấy kết quả vừa lưu.
+      next: () => this.napCanhBao(gameId, () => (this.dangDoiCanhBao = false)),
       error: () => {
         this.dangDoiCanhBao = false;
-        this.loiNguong = 'Không đặt được cảnh báo. Thử lại sau.';
+        baoLoi('Không đặt được cảnh báo. Thử lại sau.');
       },
     });
   }
 
-  xoaNguong(): void {
-    if (!this.game) return;
+  private xoaCanhBao(alert: PriceAlert | null, baoLoi: (loi: string) => void): void {
+    if (!this.game || !alert) return;
     const gameId = this.game.id;
-    const dangCo = this.canhBaoNguong;
-    if (!dangCo) return;
 
     this.dangDoiCanhBao = true;
-    this.alertService.deleteAlert(dangCo.id).subscribe({
-      next: () =>
-        this.napCanhBao(gameId, () => {
-          this.dangDoiCanhBao = false;
-          this.moFormNguong = false;
-        }),
+    this.alertService.deleteAlert(alert.id).subscribe({
+      next: () => this.napCanhBao(gameId, () => (this.dangDoiCanhBao = false)),
       error: () => {
         this.dangDoiCanhBao = false;
-        this.loiNguong = 'Không xoá được cảnh báo. Thử lại sau.';
+        baoLoi('Không xoá được cảnh báo. Thử lại sau.');
       },
     });
   }

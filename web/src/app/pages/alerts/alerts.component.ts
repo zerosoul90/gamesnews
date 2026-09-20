@@ -99,9 +99,11 @@ export class AlertsComponent implements OnInit {
           ? 'Báo khi giá giảm'
           : `Báo khi giá còn ${this.dinhDangTien(alert.value, alert.currency)} hoặc thấp hơn`;
       case 'discount_pct':
+        // "trở lên": điều kiện là `discount_percent >= value`. Thiếu hai chữ
+        // đó thì câu đọc như một khoảng đóng ở cả hai đầu.
         return alert.value === null
           ? 'Báo khi có giảm giá'
-          : `Báo khi giảm từ ${alert.value}%`;
+          : `Báo khi giảm từ ${alert.value}% trở lên`;
       default:
         // Điều kiện lạ: hiện nguyên chuỗi thay vì nuốt thành câu chung chung —
         // nuốt đi là mất manh mối khi backend thêm loại mới.
