@@ -1,6 +1,21 @@
 <div class="container mx-auto px-4 py-8">
   <div class="mb-8">
-    <h1 class="text-3xl font-bold text-white mb-2">Tìm kiếm</h1>
+    <h1 class="text-3xl font-bold text-white mb-4">Tìm kiếm</h1>
+    
+    <div class="flex flex-wrap gap-4 mb-4">
+      <select [(ngModel)]="platform" (ngModelChange)="onFilterChange()" class="bg-slate-800 border border-slate-700 text-white rounded px-3 py-2 focus:outline-none focus:border-blue-500">
+        <option value="">Tất cả hệ máy</option>
+        <option *ngFor="let p of PLATFORMS" [value]="p">{{ p | titlecase }}</option>
+      </select>
+      
+      <select [(ngModel)]="genre" (ngModelChange)="onFilterChange()" class="bg-slate-800 border border-slate-700 text-white rounded px-3 py-2 focus:outline-none focus:border-blue-500">
+        <option value="">Tất cả thể loại</option>
+        <option *ngFor="let g of GENRES" [value]="g">{{ g | titlecase }}</option>
+      </select>
+      
+      <input type="number" [(ngModel)]="year" (ngModelChange)="onFilterChange()" placeholder="Năm phát hành" min="1970" max="2030" class="w-40 bg-slate-800 border border-slate-700 text-white rounded px-3 py-2 focus:outline-none focus:border-blue-500">
+    </div>
+
     <p class="text-slate-400" *ngIf="query">Kết quả cho: <span class="text-white font-bold">"{{ query }}"</span></p>
   </div>
 
@@ -15,12 +30,12 @@
     </button>
   </div>
 
-  <div *ngIf="!isLoading && !error && hits.length === 0 && query" class="text-center py-12 text-slate-400">
-    Không tìm thấy game nào phù hợp với "{{ query }}".
+  <div *ngIf="!isLoading && !error && hits.length === 0 && (query || platform || genre || year)" class="text-center py-12 text-slate-400">
+    Không tìm thấy game nào phù hợp với bộ lọc và từ khóa của bạn.
   </div>
 
-  <div *ngIf="!isLoading && !error && !query" class="text-center py-12 text-slate-400">
-    Vui lòng nhập từ khóa để tìm kiếm.
+  <div *ngIf="!isLoading && !error && !query && !platform && !genre && !year" class="text-center py-12 text-slate-400">
+    Vui lòng nhập từ khóa hoặc chọn bộ lọc để tìm kiếm.
   </div>
 
   <div *ngIf="!isLoading && hits.length > 0" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
@@ -45,9 +60,8 @@
         </div>
         <h3 class="font-bold text-white mb-1 group-hover:text-blue-400 truncate text-lg">{{ hit.titles.vi || hit.titles.primary }}</h3>
         <p class="text-xs text-slate-500 line-clamp-1" *ngIf="hit.titles.vi && hit.titles.primary !== hit.titles.vi">{{ hit.titles.primary }}</p>
-        <div class="mt-2 text-sm text-slate-400 flex justify-between">
+        <div class="mt-2 text-sm text-slate-400">
           <span>{{ hit.release_year || 'Chưa rõ' }}</span>
-          <span class="uppercase text-xs">{{ hit.type }}</span>
         </div>
       </div>
     </a>
@@ -56,14 +70,14 @@
   <!-- Phân trang cơ bản -->
   <div *ngIf="!isLoading && response && response.total > limit" class="mt-12 flex justify-center gap-2">
     <!-- Prev button -->
-    <a *ngIf="page > 1" [routerLink]="['/search']" [queryParams]="{ q: query, page: page - 1 }" class="px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-300 hover:text-white hover:bg-slate-700">
+    <a *ngIf="page > 1" [routerLink]="['/search']" [queryParams]="{ q: query || undefined, platform: platform || undefined, genre: genre || undefined, year: year || undefined, page: page - 1 }" class="px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-300 hover:text-white hover:bg-slate-700">
       Trang trước
     </a>
     
     <span class="px-4 py-2 text-slate-400">Trang {{ page }}</span>
 
     <!-- Next button -->
-    <a *ngIf="page * limit < response.total" [routerLink]="['/search']" [queryParams]="{ q: query, page: page + 1 }" class="px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-300 hover:text-white hover:bg-slate-700">
+    <a *ngIf="page * limit < response.total" [routerLink]="['/search']" [queryParams]="{ q: query || undefined, platform: platform || undefined, genre: genre || undefined, year: year || undefined, page: page + 1 }" class="px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-300 hover:text-white hover:bg-slate-700">
       Trang sau
     </a>
   </div>

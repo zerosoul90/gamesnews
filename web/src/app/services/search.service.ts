@@ -35,11 +35,22 @@ export class SearchService {
     this.apiUrl = `${apiBaseUrl}/search`;
   }
 
-  search(query: string, page = 1, limit = 20): Observable<SearchResponse> {
-    const params = new HttpParams()
+  search(query: string, page = 1, limit = 20, platform?: string, genre?: string, year?: number): Observable<SearchResponse> {
+    let params = new HttpParams()
       .set('q', query)
       .set('page', page)
       .set('limit', limit);
+    
+    if (platform) {
+      params = params.set('platform', platform);
+    }
+    if (genre) {
+      params = params.set('genre', genre);
+    }
+    if (year) {
+      params = params.set('year', year);
+    }
+
     return this.http.get<SearchResponse>(this.apiUrl, { params });
   }
 }
