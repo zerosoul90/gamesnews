@@ -193,9 +193,25 @@ describe('service gọi đúng đường dẫn backend có thật', () => {
     );
   });
 
+  /**
+   * Hình dạng THẬT của `POST /api/v1/user/follows`.
+   *
+   * Nếu một ngày file này đỏ vì interface phản hồi không khớp — sửa interface,
+   * đừng sửa hằng số này.
+   */
+  const FOLLOW_THAT = {
+    status: 'ok',
+    followed: '65f1a2b3c4d5e6f708192a3b'
+  };
+
   it('UserService.follow -> POST /api/v1/user/follows, không gửi user_id', () => {
     const s = TestBed.inject(UserService);
-    s.follow('game', '65f1a2b3c4d5e6f708192a3b').subscribe();
+    s.follow('game', '65f1a2b3c4d5e6f708192a3b').subscribe(res => {
+      // Type assertion based on interface definition in UserService
+      const typecheck: { status: string, followed: string } = res;
+      expect(typecheck.status).toBe('ok');
+      expect(typecheck.followed).toBe('65f1a2b3c4d5e6f708192a3b');
+    });
     const req = http.expectOne(() => true);
 
     expect(req.request.method).toBe('POST');
@@ -204,7 +220,7 @@ describe('service gọi đúng đường dẫn backend có thật', () => {
     // backend; giá trị ngoài tập đó trả 422.
     expect(req.request.body.target_type).toBe('game');
     expect(Object.keys(req.request.body)).not.toContain('user_id');
-    req.flush({});
+    req.flush(FOLLOW_THAT);
   });
 
   it('UserService.getLibrary -> /api/v1/user/library kèm limit/offset', () => {

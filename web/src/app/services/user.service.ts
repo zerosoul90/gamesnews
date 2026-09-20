@@ -99,8 +99,12 @@ export class UserService {
     return this.http.get<WrappedData>(`${this.apiUrl}/me/wrapped/${year}`);
   }
 
-  follow(targetType: 'game' | 'series' | 'developer' | 'streamer', targetId: string): Observable<{ status: string, followed: boolean }> {
-    return this.http.post<{ status: string, followed: boolean }>(`${this.apiUrl}/follows`, {
+  /**
+   * Theo dõi một mục.
+   * `followed` là chuỗi `target_id`, không phải cờ bật/tắt (boolean).
+   */
+  follow(targetType: 'game' | 'series' | 'developer' | 'streamer', targetId: string): Observable<{ status: string, followed: string }> {
+    return this.http.post<{ status: string, followed: string }>(`${this.apiUrl}/follows`, {
       target_type: targetType,
       target_id: targetId
     });
