@@ -2929,3 +2929,114 @@ nào** vì cwd đã trượt khỏi `web/`, và `grep` của tôi nuốt mất t
 - Badge chưa kiểm được với dữ liệu sinh ra tự nhiên: phải có người viết đánh
   giá thật thì `award_badge` mới chạy.
 - Các mục còn nợ của lượt 8, 9, 11, 12, 13, 14 giữ nguyên.
+
+### 2026-09-20 (lượt 16) — Tài liệu giao việc sai, và một cổng chưa ai chạy
+
+Review bốn commit lượt 3 của antigravity (`2a0c07d`, `a73df9a`, `65d8c80`,
+`6ef2d96`) theo `HANDOFF-3.md`, rồi sửa ba thứ.
+
+#### Đã khá lên
+
+Bốn commit, **mỗi hạng mục một cái** — lượt 2 gộp cả năm vào một. Không
+endpoint bịa. Test nav là bản guard đúng nghĩa: duyệt **mọi** `a[href]` qua
+`duongDanCoThat()` chứ không chốt riêng một liên kết, nên lỗi "trang không có
+trong nav" không tái diễn được. Hai test mới đều đỏ thật khi gỡ bản sửa ra —
+đã kiểm bằng mutation.
+
+Cạm bẫy `HANDOFF-3.md` §4.3 nêu đều xử lý đúng: trạng thái bận **theo từng
+nút** (`Record<string, boolean>`), và **một** lần `GET /follows` cho cả trang
+chứ không phải mỗi nút một lần.
+
+#### Nút Series là mã chết — và lỗi ở tài liệu, không ở người làm
+
+`*ngIf="g.series"` không bao giờ đúng. Đo trên catalog thật:
+
+```
+tong game        = 38721
+series != null   = 0          <- trường có, giá trị null 100%
+developers != [] = 35909      (92,7%)
+```
+
+Không job nào ghi vào `series`. Chỗ duy nhất chạm tới là `services/catalog.py`
+khi gộp bản ghi trùng (`keep.series or drop.series`) — giữ nguyên, tức null.
+
+`HANDOFF-3.md` §4.3 giao việc dựng nút ấy sau khi tôi kiểm `GameDetail.series`
+tồn tại trong `game.service.ts` và backend map nó ở `games.py:163`. **Tôi kiểm
+khai báo kiểu, không kiểm dữ liệu.** Đúng cái sai mà §0 của chính tài liệu đó
+dựng ra để cảnh báo, chỉ khác là lần này nó xảy ra ở phía ra đề.
+
+Bài học bổ sung cho lệ đang có: trước khi giao một hạng mục giao diện, phải
+đếm dữ liệu thật của trường mà nó đọc — `countDocuments({truong: {$ne: null}})`
+— không chỉ xác nhận trường ấy có trong schema hay trong interface.
+
+#### Hạng mục chính không có test nào
+
+`65d8c80` đổi 76 dòng, 0 spec. Test web đi 45 → 47, cả hai ca mới thuộc hạng
+mục khác. `game.component.spec.ts` thêm ở commit sau không chạm tới được kể cả
+về nguyên tắc: stub `isLoggedIn: () => false` trong khi cụm nút nằm trong
+`*ngIf="authService.isLoggedIn()"`, và fixture đặt `developers: []`.
+
+Ca liên kết đăng nhập ở đó còn là một vòng lặp kín: chọn phần tử bằng
+`a[routerLink="/login"]` rồi khẳng định chính giá trị vừa dùng để chọn là route
+thật. Nó đỏ khi revert nên qua cổng, nhưng không bắt được liên kết hỏng nào
+khác trên trang.
+
+#### Cổng `pytest` chưa từng được chạy
+
+`tests/test_notification_gate.py::test_gui_ngay_toi_noi_thi_khong_xep_hang`
+đỏ **9 tiếng mỗi ngày**, từ 22:00 tới 07:00 giờ VN. `process_notification` đọc
+`dt.datetime.now(dt.UTC)` rồi quy ra giờ VN; trong khung im lặng thông báo
+xuống hàng đợi digest đúng như thiết kế, và assert `== 0` gãy.
+
+`is_in_quiet_hours` không sai — đo từng mốc thì mọi kết quả khớp phép đổi +7
+kèm khoảng qua đêm. Suýt báo nhầm thành lỗi sản phẩm.
+
+Hai test cùng file tệ hơn theo kiểu khó thấy: vẫn **xanh** trong khung giờ ấy
+nhưng rỗng nghĩa — cả nhánh chúng muốn kiểm lẫn nhánh giờ im lặng đều kết thúc
+bằng đúng một dòng trong hàng đợi. Đỏ nửa ngày thì còn thấy; xanh rỗng nghĩa
+nửa ngày mới là phần đáng sợ.
+
+Lỗi có sẵn từ trước cả lượt 2. Nó nằm im vì cổng `pytest` chưa ai chạy — **kể
+cả tôi**, ở đầu phiên này, khi báo cổng python xanh dựa trên mỗi `ruff` +
+`mypy` trong khi §2 định nghĩa cổng ấy gồm cả ba.
+
+#### Hai bẫy đo đạc gặp trong phiên
+
+- Chạy hai tiến trình `pytest` chồng nhau làm `test_entity_matcher.py` đỏ ba
+  ca. Fixture `mongo_db` gọi `drop_database` mỗi test và cả hai tiến trình
+  dùng chung `gamesnews_test`. Chạy một mình thì xanh — không phải lỗi thật.
+- Chạy `uv run mypy` từ thư mục `web/` cho "Found 1 error in 1 file". Từ gốc
+  thì sạch. Cùng loại với lần `ng test` chạy sai thư mục ở lượt 15.
+
+#### Bản sửa
+
+`faba51d` ghim giờ im lặng cho ba test gatekeeper; `a6cf172` gỡ nút Series kèm
+chú thích chặn dựng lại, sửa `napTheoDoi` nuốt callback ở nhánh early-return,
+thu hẹp `targetType` còn `'game' | 'developer'`; `aae061e` sáu ca cho nút
+studio và viết lại ca liên kết cho hết vòng lặp kín.
+
+#### Nghiệm thu
+
+Bốn cổng, chạy từ đúng thư mục: build sạch, web 53/53, `ruff` + `mypy` sạch,
+`pytest` **662 passed**. Ba mutation, ba ca đỏ đúng chỗ:
+
+| gỡ ra | đỏ với |
+|---|---|
+| gửi cứng `'game'` thay vì `targetType` | `Expected $[0] = 'game' to equal 'developer'` |
+| cờ bận dùng chung cả cụm | `Expected true to be false` |
+| `/login` → `/auth` | `/auth: Expected false to be true` |
+
+**Còn nợ:**
+
+- `series` vẫn không có nguồn. Muốn có nút theo dõi series thì việc đầu tiên
+  nằm ở backend, và nó là một hạng mục riêng.
+- `dangTheoDoi` đánh khoá bằng `target_id` trần trong khi khoá thật là cặp
+  `{target_type, target_id}`. Chưa sai được vì hai loại trên trang không đụng
+  nhau; thêm loại thứ ba dùng chuỗi tên thì phải đổi khoá.
+- Đổi tên nửa chừng ở lượt 3: `news.component.ts` trộn `ketQuaTimKiem` với
+  `searchQuery`/`searchSubject`; `game.component.ts` trộn `diemDanhGia` với
+  `dangGuiReview`/`reviewsTotal`, trong cùng khối khai báo.
+- `CommunityScore` ở `community.service.ts` thành mã chết sau khi xoá
+  `getScore()`.
+- Commit lượt 3 đều là message một dòng tả *cái gì*, không có phần *vì sao*.
+- Các mục còn nợ của lượt 8, 9, 11, 12, 13, 14, 15 giữ nguyên.
