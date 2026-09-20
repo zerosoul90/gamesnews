@@ -88,9 +88,6 @@ export class CommunityService {
     this.apiUrl = `${this.goc}/games`;
   }
 
-  getScore(gameId: string): Observable<CommunityScore> {
-    return this.http.get<CommunityScore>(`${this.apiUrl}/${gameId}/reviews/score`);
-  }
 
   getReviews(gameId: string, limit = 20, offset = 0): Observable<ReviewsResponse> {
     const params = new HttpParams().set('limit', limit).set('offset', offset);

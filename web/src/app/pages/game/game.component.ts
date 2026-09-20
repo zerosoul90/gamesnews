@@ -57,8 +57,8 @@ export class GameComponent implements OnInit {
   dangDoiTheoDoi: Record<string, boolean> = {};
 
   // Form review
-  reviewScore: number | null = null;
-  reviewComment = '';
+  diemDanhGia: number | null = null;
+  binhLuan = '';
   dangGuiReview = false;
   loiReview: string | null = null;
 
@@ -453,8 +453,8 @@ export class GameComponent implements OnInit {
   }
 
   guiReview(): void {
-    if (!this.game || this.reviewScore === null) return;
-    if (this.reviewScore < 1 || this.reviewScore > 10 || !Number.isInteger(this.reviewScore)) {
+    if (!this.game || this.diemDanhGia === null) return;
+    if (this.diemDanhGia < 1 || this.diemDanhGia > 10 || !Number.isInteger(this.diemDanhGia)) {
       this.loiReview = 'Điểm phải là số nguyên từ 1 đến 10.';
       return;
     }
@@ -462,11 +462,11 @@ export class GameComponent implements OnInit {
     this.dangGuiReview = true;
     const gameId = this.game.id;
 
-    this.communityService.postReview(gameId, this.reviewScore, this.reviewComment.trim() || null).subscribe({
+    this.communityService.postReview(gameId, this.diemDanhGia, this.binhLuan.trim() || null).subscribe({
       next: () => {
         this.dangGuiReview = false;
-        this.reviewScore = null;
-        this.reviewComment = '';
+        this.diemDanhGia = null;
+        this.binhLuan = '';
         // Đọc lại danh sách sau khi lưu xong
         this.communityService.getReviews(gameId).subscribe(res => {
           this.reviews = res.reviews;

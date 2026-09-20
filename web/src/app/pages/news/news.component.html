@@ -9,14 +9,14 @@
 
     <!-- Filter by game -->
     <div class="relative w-full md:w-80">
-      <div *ngIf="selectedGameId" class="flex items-center justify-between bg-blue-900/40 border border-blue-500/50 rounded-lg px-3 py-2">
-        <span class="text-blue-200 text-sm font-semibold truncate mr-2">Đang lọc: {{ selectedGameTitle }}</span>
+      <div *ngIf="idGameChon" class="flex items-center justify-between bg-blue-900/40 border border-blue-500/50 rounded-lg px-3 py-2">
+        <span class="text-blue-200 text-sm font-semibold truncate mr-2">Đang lọc: {{ tenGameChon }}</span>
         <button (click)="xoaLoc()" class="text-blue-400 hover:text-blue-300">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
         </button>
       </div>
 
-      <div *ngIf="!selectedGameId" class="relative">
+      <div *ngIf="!idGameChon" class="relative">
         <input 
           type="text" 
           [(ngModel)]="searchQuery" 
@@ -32,9 +32,9 @@
         </div>
         
         <!-- Dropdown -->
-        <div *ngIf="hienDropdown && searchResults.length > 0" class="absolute z-10 mt-1 w-full bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden">
+        <div *ngIf="hienDanhSach && ketQuaTimKiem.length > 0" class="absolute z-10 mt-1 w-full bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden">
           <button 
-            *ngFor="let hit of searchResults" 
+            *ngFor="let hit of ketQuaTimKiem" 
             (click)="chonGame(hit)"
             class="w-full text-left px-4 py-2 hover:bg-slate-700 text-sm text-slate-200 focus:outline-none focus:bg-slate-700"
           >
