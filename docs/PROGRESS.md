@@ -2756,3 +2756,77 @@ vô hiệu hoá. `user_devices` vẫn **0** — không token giả nào lọt v�
   hướng bất-hoạt-khi-thiếu-cấu-hình.
 - Chặng cuối — FCM thật nhận và đẩy tới máy — vẫn chưa ai đi được.
 - Các mục còn nợ của lượt 8, 9, 11, 12 giữ nguyên.
+
+### 2026-09-20 (lượt 14) — Mock bên Flutter không chỉ giả dữ liệu, nó giả cả hành vi
+
+Dọn `MockFirebaseMessaging`. Đọc kỹ trước khi xoá thì thấy nó gây ba chuyện,
+và chuyện thứ ba mới là nặng nhất.
+
+#### Ba hệ quả, đều chạy trong mọi bản build
+
+**1. Token giả được server tin là thật.** `getToken()` trả chuỗi cứng rồi POST
+lên `/api/v1/user/device`. Sau đó `tokens_of()` trả về nó và
+`send_push_notification` đếm nó vào số máy nhận được.
+
+**2. Điều kiện điều hướng không bao giờ khớp.**
+`data['type'] == 'PRICE_ALERT'` — nhưng `adapters/fcm/adapter.py` chỉ đẩy
+`payload.data` vào tin nhắn, mà với cảnh báo giá `data` là
+`{"game_id": ..., "store": ...}`. Không có khoá `type` nào cả, và
+`NotificationPayload.type` thì viết thường. Tức kể cả khi Firebase chạy thật,
+chạm vào thông báo cũng không đi đâu.
+
+**3. App tự điều hướng người dùng sau 15 giây.**
+
+```dart
+Future.delayed(const Duration(seconds: 15), () {
+  handler({'type': 'PRICE_ALERT', 'game_id': 'elden-ring'});
+});
+```
+
+Không có cờ debug nào bọc ngoài. Nghĩa là trong một bản build giao tới tay
+người dùng, cứ 15 giây sau khi mở app là màn hình tự nhảy sang một game viết
+cứng — ở mọi phiên. Đây không còn là dữ liệu giả mà là **hành vi giả**.
+
+Phân biệt này đáng ghi lại: một mock trả dữ liệu sai thì sai ở chỗ nó được
+đọc; một mock *hành động* thì sai ở khắp nơi.
+
+#### Vì sao nó nằm im được
+
+`mobile/` chưa từng được kiểm bởi bất cứ thứ gì — không CI, không test. Và trên
+máy dev thì `flutter pub get` **không chạy nổi**: pubspec đòi Dart `^3.12.0`
+trong khi Flutter cài sẵn là 3.35.7 (Dart 3.9.2). Nên không ai từng biên dịch
+thư mục này.
+
+Đó cũng là lý do lượt này phải thêm job CI `mobile` chạy `flutter analyze`
+trước khi tin vào chính bản sửa của mình: tôi không kiểm chứng được nó ở local.
+Runner dùng stable (Flutter 3.47.5 / Dart 3.13.4) nên thoả ràng buộc pubspec.
+Bước `flutter analyze` đã chạy thật và xanh — kiểm bằng endpoint `/jobs`, không
+đọc mỗi chữ "success" ở tầng run.
+
+Cùng hình dạng với job `web` thêm ở lượt 11, và cùng một bài học: **thư mục nào
+không có cổng thì thứ gì cũng nằm im trong đó được.**
+
+#### Bản sửa
+
+Chưa có Firebase thì không đăng ký gì cả. Chỗ nối để sẵn trong `layFcmToken()`
+kèm đúng đoạn code cần điền. **Không** thêm `firebase_core`/`firebase_messaging`
+vào pubspec: thiếu `google-services.json` thì hỏng ở bước *build*, không phải
+lúc chạy — tức đổi một lỗi im lặng lấy một lỗi chặn cả dự án.
+
+`xuLyChamThongBao()` tách thành hàm công khai và khớp theo `game_id` thay vì
+theo `type` không tồn tại. Route mobile là `/game/:id` và backend gửi ObjectId —
+khác web vốn dùng slug, nên hai bên không dùng chung được một hàm.
+
+#### Nghiệm thu
+
+Bốn job CI xanh: `lint-test`, `web`, `mobile`, `compose`. Không còn tham chiếu
+nào tới `MockFirebaseMessaging` ngoài phần chú thích ghi lại lịch sử.
+
+**Còn nợ:**
+
+- Năm giá trị Firebase (web) + ba biến `FCM_*` (server) + hai file cấu hình
+  native (`google-services.json`, `GoogleService-Info.plist`) cho mobile.
+- `mobile/` vẫn **không có test nào**. `flutter analyze` bắt được lỗi biên dịch
+  và lint, không bắt được logic sai.
+- Chặng cuối — FCM thật đẩy tới máy — vẫn chưa ai đi được.
+- Các mục còn nợ của lượt 8, 9, 11, 12, 13 giữ nguyên.
