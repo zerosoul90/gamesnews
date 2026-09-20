@@ -30,6 +30,42 @@
       <a routerLink="/login" class="bg-blue-600 hover:bg-blue-500 text-white font-bold px-6 py-2 rounded-lg transition-colors inline-block">Đăng nhập với Steam</a>
     </div>
 
+    <!-- Thông báo đẩy. Chỉ hiện khi đã đăng nhập: token gắn với user, mà
+         `/device` đòi JWT. -->
+    <div
+      *ngIf="phien"
+      class="bg-slate-800 border border-slate-700 rounded-2xl p-6 mb-6 flex flex-col sm:flex-row sm:items-center gap-4"
+    >
+      <div class="flex-1">
+        <h2 class="text-lg font-bold text-white mb-1">Thông báo đẩy</h2>
+        <p class="text-slate-400 text-sm">
+          Nhận báo ngay trên trình duyệt khi giá chạm mức bạn đặt.
+        </p>
+
+        <!-- Nói thẳng lý do khi chưa bật được, thay vì một nút bấm không phản
+             ứng. Trường hợp hay gặp nhất hiện nay là 'chua-cau-hinh'. -->
+        <p
+          *ngIf="pushService.lyDoKhongBat as lyDo"
+          class="text-amber-400/90 text-sm mt-2"
+        >
+          {{ moTaLyDo(lyDo) }}
+        </p>
+        <p *ngIf="loiPush" class="text-red-400 text-sm mt-2">{{ loiPush }}</p>
+        <p *ngIf="daBatPush" class="text-emerald-400 text-sm mt-2">
+          Đã bật. Trình duyệt này sẽ nhận thông báo.
+        </p>
+      </div>
+
+      <button
+        type="button"
+        (click)="batThongBao()"
+        [disabled]="dangBatPush || daBatPush || pushService.lyDoKhongBat !== null"
+        class="shrink-0 bg-blue-600 hover:bg-blue-500 text-white font-bold px-5 py-2.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        {{ dangBatPush ? 'Đang bật…' : daBatPush ? 'Đã bật' : 'Bật thông báo' }}
+      </button>
+    </div>
+
     <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
       <a routerLink="/canh-bao-gia" class="bg-slate-800 hover:bg-slate-700 rounded-2xl p-6 border border-slate-700 hover:border-blue-500 transition-all group block">
         <div class="w-12 h-12 bg-blue-900/30 text-blue-400 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">

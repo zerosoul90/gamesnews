@@ -4,6 +4,7 @@ import { RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 
 import { AuthService, SteamSession } from '../../services/auth.service';
+import { LyDoKhongBat, PushService } from '../../services/push.service';
 
 /**
  * Trang cá nhân.
@@ -22,7 +23,15 @@ export class UserProfileComponent implements OnInit, OnDestroy {
   phien: SteamSession | null = null;
   private sub?: Subscription;
 
-  constructor(private authService: AuthService) {}
+  // --- push ---
+  dangBatPush = false;
+  daBatPush = false;
+  loiPush: string | null = null;
+
+  constructor(
+    private authService: AuthService,
+    public pushService: PushService,
+  ) {}
 
   ngOnInit(): void {
     this.sub = this.authService.currentUser$.subscribe((p) => (this.phien = p));
@@ -30,5 +39,39 @@ export class UserProfileComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.sub?.unsubscribe();
+  }
+
+  async batThongBao(): Promise<void> {
+    this.dangBatPush = true;
+    this.loiPush = null;
+    try {
+      const ket_qua = await this.pushService.dangKyThietBi();
+      if (ket_qua.ok) {
+        this.daBatPush = true;
+      } else {
+        this.loiPush = this.moTaLyDo(ket_qua.lyDo);
+      }
+    } catch {
+      // Lỗi mạng hoặc Firebase từ chối. Nói là chưa bật được, đừng để nút quay
+      // về trạng thái ban đầu như thể chưa ai bấm.
+      this.loiPush = 'Không bật được thông báo. Thử lại sau.';
+    } finally {
+      this.dangBatPush = false;
+    }
+  }
+
+  /** Bốn lý do, bốn hành động khác nhau — gộp thành một câu là bỏ rơi người
+   *  dùng ở ba trong bốn ca. */
+  moTaLyDo(lyDo: LyDoKhongBat): string {
+    switch (lyDo) {
+      case 'chua-cau-hinh':
+        return 'Máy chủ chưa cấu hình dịch vụ thông báo. Đây là việc của người quản trị, không phải của bạn.';
+      case 'trinh-duyet-khong-ho-tro':
+        return 'Trình duyệt này không hỗ trợ thông báo đẩy.';
+      case 'bi-tu-choi':
+        return 'Bạn đã chặn thông báo cho trang này. Mở cài đặt trang trong trình duyệt để bật lại.';
+      default:
+        return 'Không bật được thông báo.';
+    }
   }
 }

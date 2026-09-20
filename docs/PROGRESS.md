@@ -2667,3 +2667,92 @@ một dòng 101 ký tự. Nhắc rằng "test xanh" không phải là toàn bộ
   giữ lại khi gửi hỏng. Chưa thành vấn đề ở quy mô hiện tại, nhưng là một mục
   phải nhớ.
 - Các mục còn nợ của lượt 8, 9, 11 giữ nguyên.
+
+### 2026-09-20 (lượt 13) — Web đăng ký thiết bị, và phát hiện Flutter chỉ là mock
+
+Yêu cầu: "làm phần web đăng ký thiết bị". Bước kiểm tra đầu tiên đổi hẳn phạm
+vi việc.
+
+#### Đính chính lượt 12: mobile cũng chưa bao giờ chạy
+
+Lượt trước tôi viết "`POST /device` chỉ có app Flutter gọi", ngụ ý phía mobile
+hoạt động. **Sai.** `mobile/lib/core/notification_service.dart` dùng
+`MockFirebaseMessaging`, và `getToken()` trả về chuỗi cứng:
+
+```dart
+static Future<String?> getToken() async {
+  return "mock_device_fcm_token_12345";
+}
+```
+
+`pubspec.yaml` có **0** dependency firebase. Nghĩa là chưa từng có một FCM token
+thật nào trong dự án này — và mỗi lần app Flutter khởi động, nó đẩy chuỗi giả ấy
+lên `/device`. Server sau đó tin là có thiết bị thật.
+
+Đây đúng là lớp lỗi mà hai lượt vừa rồi đang dọn: một cái mock nằm ở chỗ mọi
+tầng phía trên coi là thật.
+
+#### Quyết định phải hỏi
+
+Token FCM chỉ sinh ra từ Firebase SDK, cần `apiKey` / `projectId` /
+`messagingSenderId` / `appId` + VAPID key. Dự án không có project Firebase, và
+tạo tài khoản dịch vụ là quyết định của người dùng.
+
+Chọn: **dựng sẵn toàn bộ, bất hoạt khi thiếu cấu hình.** Không mock, không
+token giả.
+
+#### Bất biến số một: thiếu cấu hình thì không đăng ký gì
+
+`PushService.dangKyThietBi()` kiểm `lyDoKhongBat` trước mọi thứ khác. Thiếu cấu
+hình thì nó **không xin quyền** (hỏi một câu vô nghĩa rồi trả lỗi là tệ hơn im
+lặng) và **không gọi `/device`**.
+
+Test chốt đúng điều đó, và đã xác minh đỏ khi gỡ chốt ra. `afterEach` gọi
+`http.verify()` nên bất kỳ request nào lọt ra cũng làm đỏ.
+
+Bốn lý do không bật được được phân biệt rõ, vì bốn ca cần bốn hành động khác
+nhau và ba trong số đó người dùng tự sửa được:
+
+| lý do | ai sửa |
+|---|---|
+| `chua-cau-hinh` | quản trị — giao diện nói thẳng "không phải của bạn" |
+| `trinh-duyet-khong-ho-tro` | không ai |
+| `bi-tu-choi` | người dùng, trong cài đặt trang |
+
+#### Ba chi tiết dễ sai
+
+**`vapidKey` phải nằm trong phép kiểm "đã cấu hình".** Thiếu riêng nó thì
+`getToken()` vẫn chạy và trả về một token mà FCM không nhận cho web push —
+hỏng ở tận chặng gửi, xa nhất khỏi chỗ gây ra lỗi.
+
+**`import()` động, không import tĩnh.** Firebase SDK chạm `navigator` nên
+import tĩnh sẽ nổ khi SSR render. Thêm nữa nó nặng, mà người không bật thông
+báo thì không nên phải tải.
+
+**Service worker phải ở gốc origin.** `public/` được copy nguyên vào gốc site
+nên `/firebase-messaging-sw.js` ra đúng chỗ — đã kiểm bằng HTTP 200 trên
+container. Đặt sâu hơn thì scope không phủ hết trang và FCM từ chối.
+
+Cấu hình Firebase **web** để trong `environment.ts`, và có chú thích dài giải
+thích vì sao đó không vi phạm "secret chỉ ở server" của `CLAUDE.md`: web config
+và VAPID *public* key nằm trong bundle của mọi trang dùng FCM, chúng định danh
+project chứ không cấp quyền. `FCM_PRIVATE_KEY` vẫn chỉ ở server.
+
+#### Nghiệm thu
+
+**28 test web** (23 → 28). Build production xanh — tức `import()` động qua được
+cả cấu hình SSR. `/firebase-messaging-sw.js` trả HTTP 200 ở gốc. Giao diện
+`/profile` hiện đúng câu "Máy chủ chưa cấu hình dịch vụ thông báo" với nút bị
+vô hiệu hoá. `user_devices` vẫn **0** — không token giả nào lọt vào.
+
+**Còn nợ:**
+
+- **Năm giá trị Firebase.** Dán vào `environment.ts`, `environment.prod.ts` và
+  `public/firebase-messaging-sw.js` (service worker không đọc được
+  `environment`, nên đây là chỗ duy nhất phải chép tay — nhớ giữ khớp). Cộng ba
+  biến `FCM_*` phía server ở `.env`.
+- **`MockFirebaseMessaging` bên Flutter vẫn còn**, vẫn đang đẩy
+  `mock_device_fcm_token_12345` lên server mỗi lần app chạy. Cần xử lý cùng
+  hướng bất-hoạt-khi-thiếu-cấu-hình.
+- Chặng cuối — FCM thật nhận và đẩy tới máy — vẫn chưa ai đi được.
+- Các mục còn nợ của lượt 8, 9, 11, 12 giữ nguyên.
