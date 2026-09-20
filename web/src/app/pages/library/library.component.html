@@ -1,0 +1,131 @@
+<div class="container mx-auto px-4 py-8">
+  <div class="flex flex-col md:flex-row md:items-end justify-between mb-8 gap-4">
+    <div>
+      <h1 class="text-3xl font-bold text-white mb-2">Thư viện Steam</h1>
+      <p class="text-slate-400">Danh sách game đã đồng bộ từ Steam của bạn.</p>
+    </div>
+    
+    <div class="flex flex-wrap items-center gap-3" *ngIf="authService.isLoggedIn()">
+      <button 
+        (click)="dongBo()" 
+        [disabled]="dangDongBo || dangTai || dangXoa"
+        class="bg-blue-600 hover:bg-blue-500 text-white font-bold px-4 py-2 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50"
+      >
+        <svg *ngIf="dangDongBo" class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        Đồng bộ từ Steam
+      </button>
+      
+      <button 
+        *ngIf="items.length > 0"
+        (click)="xoaThuVien()" 
+        [disabled]="dangXoa || dangTai || dangDongBo"
+        class="bg-slate-800 hover:bg-red-900/50 text-red-400 border border-slate-700 hover:border-red-800 font-bold px-4 py-2 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50"
+      >
+        Xóa thư viện
+      </button>
+    </div>
+  </div>
+
+  <div *ngIf="canDangNhap" class="bg-slate-800 rounded-2xl p-8 border border-slate-700 text-center max-w-xl mx-auto">
+    <div class="mb-4">
+      <svg class="w-16 h-16 text-slate-500 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8V7a4 4 0 00-8 0v4h8z"></path>
+      </svg>
+    </div>
+    <h2 class="text-2xl font-bold text-white mb-2">Đăng nhập để xem</h2>
+    <p class="text-slate-400 mb-6">Bạn cần đăng nhập để quản lý và xem thư viện game của mình.</p>
+    <a routerLink="/auth" class="inline-block bg-blue-600 hover:bg-blue-500 text-white font-bold px-6 py-3 rounded-xl transition-colors">
+      Tới trang Đăng nhập
+    </a>
+  </div>
+
+  <div *ngIf="loi" class="bg-red-900/30 border border-red-800/50 text-red-400 p-4 rounded-xl mb-6 flex gap-3">
+    <svg class="w-5 h-5 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+    </svg>
+    <span>{{ loi }}</span>
+  </div>
+
+  <div *ngIf="loiPrivateProfile" class="bg-orange-900/30 border border-orange-800/50 p-6 rounded-xl mb-6">
+    <h3 class="text-orange-400 font-bold text-lg mb-2 flex items-center gap-2">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+      </svg>
+      Profile Steam đang để chế độ riêng tư (Private)
+    </h3>
+    <p class="text-slate-300 mb-4">Hệ thống không thể đọc được danh sách game do cài đặt quyền riêng tư trên Steam của bạn. Vui lòng mở công khai chi tiết game (Game Details) và thử lại.</p>
+    
+    <div class="bg-slate-900 p-4 rounded-lg border border-slate-700 space-y-3">
+      <h4 class="font-semibold text-white">Cách mở:</h4>
+      <ol class="list-decimal pl-5 space-y-2 text-slate-300 text-sm">
+        <li>Mở ứng dụng Steam hoặc trang web Steam, vào trang <strong>Hồ sơ của bạn (Profile)</strong>.</li>
+        <li>Bấm nút <strong>Sửa hồ sơ (Edit Profile)</strong>.</li>
+        <li>Chọn mục <strong>Thiết lập quyền riêng tư (Privacy Settings)</strong> ở cột bên phải.</li>
+        <li>Ở phần <strong>Chi tiết trò chơi (Game details)</strong>, chuyển sang <strong>Công khai (Public)</strong>.</li>
+        <li>Bỏ tick ô <em>"Always keep my total playtime private"</em> nếu muốn hiển thị giờ chơi.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div *ngIf="dongBoKetQua" class="bg-green-900/30 border border-green-800/50 text-green-400 p-4 rounded-xl mb-6 flex gap-3">
+    <svg class="w-5 h-5 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+    </svg>
+    <span>Đã đồng bộ xong! Thêm/cập nhật {{ dongBoKetQua.synced }} game. Bỏ qua {{ dongBoKetQua.skipped }} game.</span>
+  </div>
+
+  <div *ngIf="dangTai && !canDangNhap" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+    <div *ngFor="let _ of [1, 2, 3, 4, 5, 6]" class="animate-pulse flex flex-col gap-2">
+      <div class="aspect-[3/4] bg-slate-800 rounded-xl"></div>
+      <div class="h-4 bg-slate-800 rounded w-3/4"></div>
+      <div class="h-3 bg-slate-800 rounded w-1/2"></div>
+    </div>
+  </div>
+
+  <ng-container *ngIf="!dangTai && !canDangNhap">
+    <div *ngIf="items.length === 0" class="text-center py-16">
+      <div class="text-slate-500 mb-4">
+        <svg class="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+        </svg>
+      </div>
+      <p class="text-xl font-bold text-slate-300 mb-2">Thư viện trống</p>
+      <p class="text-slate-400 mb-6">Bạn chưa đồng bộ game nào từ Steam.</p>
+    </div>
+
+    <div *ngIf="items.length > 0" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+      <a
+        *ngFor="let item of items"
+        [routerLink]="item.game?.slug ? ['/game', item.game?.slug] : null"
+        class="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden group hover:border-blue-500 transition-colors flex flex-col"
+        [class.cursor-default]="!item.game?.slug"
+      >
+        <div class="aspect-[3/4] bg-slate-900 relative">
+          <img
+            *ngIf="item.game?.cover_image_url; else noCover"
+            [src]="item.game?.cover_image_url"
+            [alt]="item.game?.title || item.game_id"
+            class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            loading="lazy"
+          />
+          <ng-template #noCover>
+            <div class="absolute inset-0 flex items-center justify-center text-slate-600 text-xs px-2 text-center">
+              {{ item.game?.title || item.game_id }}
+            </div>
+          </ng-template>
+        </div>
+        <div class="p-3 flex-1 flex flex-col">
+          <div class="font-bold text-slate-200 text-sm line-clamp-2 mb-1 group-hover:text-blue-400 transition-colors">
+            {{ item.game?.title || 'Unknown Game (ID: ' + item.game_id + ')' }}
+          </div>
+          <div class="mt-auto text-xs text-slate-400 font-medium">
+            {{ (item.playtime_minutes / 60).toFixed(1) }} giờ
+          </div>
+        </div>
+      </a>
+    </div>
+  </ng-container>
+</div>

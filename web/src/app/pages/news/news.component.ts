@@ -4,6 +4,10 @@ import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 
 import { Article, NewsService } from '../../services/news.service';
+import { SearchService, SearchHit } from '../../services/search.service';
+import { FormsModule } from '@angular/forms';
+import { Subject } from 'rxjs';
+import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 
 /**
  * Trang tin.
@@ -15,7 +19,7 @@ import { Article, NewsService } from '../../services/news.service';
 @Component({
   selector: 'app-news',
   standalone: true,
-  imports: [CommonModule, RouterLink],
+  imports: [CommonModule, RouterLink, FormsModule],
   templateUrl: './news.component.html',
 })
 export class NewsComponent implements OnInit {
@@ -30,10 +34,20 @@ export class NewsComponent implements OnInit {
 
   private readonly soMoiTrang = 20;
 
+  // Game filter
+  selectedGameId: string | null = null;
+  selectedGameTitle: string | null = null;
+  searchQuery = '';
+  searchResults: SearchHit[] = [];
+  dangTimKiem = false;
+  hienDropdown = false;
+  private searchSubject = new Subject<string>();
+
   constructor(
     private titleService: Title,
     private metaService: Meta,
     private newsService: NewsService,
+    private searchService: SearchService,
   ) {}
 
   ngOnInit(): void {
@@ -46,6 +60,55 @@ export class NewsComponent implements OnInit {
     this.metaService.updateTag({ property: 'og:title', content: pageTitle });
     this.metaService.updateTag({ property: 'og:description', content: description });
 
+    this.searchSubject.pipe(
+      debounceTime(300),
+      distinctUntilChanged()
+    ).subscribe(query => {
+      this.thucHienTimKiem(query);
+    });
+
+    this.tai();
+  }
+
+  onSearchChange(): void {
+    this.hienDropdown = true;
+    this.searchSubject.next(this.searchQuery);
+  }
+
+  private thucHienTimKiem(query: string): void {
+    if (!query.trim()) {
+      this.searchResults = [];
+      this.dangTimKiem = false;
+      return;
+    }
+    this.dangTimKiem = true;
+    this.searchService.search(query, 1, 5).subscribe({
+      next: (res) => {
+        this.searchResults = res.hits;
+        this.dangTimKiem = false;
+      },
+      error: () => {
+        this.dangTimKiem = false;
+        this.searchResults = [];
+      }
+    });
+  }
+
+  chonGame(hit: SearchHit): void {
+    this.selectedGameId = hit.id;
+    this.selectedGameTitle = hit.titles.primary || hit.titles.vi || hit.slug;
+    this.searchQuery = '';
+    this.hienDropdown = false;
+    // Reset and fetch
+    this.articles = [];
+    this.tai();
+  }
+
+  xoaLoc(): void {
+    this.selectedGameId = null;
+    this.selectedGameTitle = null;
+    this.searchQuery = '';
+    this.articles = [];
     this.tai();
   }
 
@@ -64,7 +127,7 @@ export class NewsComponent implements OnInit {
     }
     this.coLoi = false;
 
-    this.newsService.getNews(this.soMoiTrang, this.articles.length).subscribe({
+    this.newsService.getNews(this.soMoiTrang, this.articles.length, this.selectedGameId || undefined).subscribe({
       next: (res) => {
         this.articles = [...this.articles, ...(res.articles || [])];
         this.total = res.total ?? 0;

@@ -1,9 +1,48 @@
 <div class="container mx-auto px-4 py-8">
-  <div class="mb-8">
-    <h1 class="text-3xl font-bold text-white mb-2">Tin Game Mới Nhất</h1>
-    <p class="text-slate-400">
-      Tin quốc tế được tóm tắt sang tiếng Việt. Bấm vào tiêu đề để đọc bài gốc tại nguồn.
-    </p>
+  <div class="mb-8 flex flex-col md:flex-row md:items-start justify-between gap-4">
+    <div>
+      <h1 class="text-3xl font-bold text-white mb-2">Tin Game Mới Nhất</h1>
+      <p class="text-slate-400">
+        Tin quốc tế được tóm tắt sang tiếng Việt. Bấm vào tiêu đề để đọc bài gốc tại nguồn.
+      </p>
+    </div>
+
+    <!-- Filter by game -->
+    <div class="relative w-full md:w-80">
+      <div *ngIf="selectedGameId" class="flex items-center justify-between bg-blue-900/40 border border-blue-500/50 rounded-lg px-3 py-2">
+        <span class="text-blue-200 text-sm font-semibold truncate mr-2">Đang lọc: {{ selectedGameTitle }}</span>
+        <button (click)="xoaLoc()" class="text-blue-400 hover:text-blue-300">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+      </div>
+
+      <div *ngIf="!selectedGameId" class="relative">
+        <input 
+          type="text" 
+          [(ngModel)]="searchQuery" 
+          (ngModelChange)="onSearchChange()"
+          placeholder="Lọc tin theo game..." 
+          class="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500 transition-colors"
+        >
+        <div *ngIf="dangTimKiem" class="absolute right-3 top-2.5">
+          <svg class="animate-spin h-5 w-5 text-slate-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        </div>
+        
+        <!-- Dropdown -->
+        <div *ngIf="hienDropdown && searchResults.length > 0" class="absolute z-10 mt-1 w-full bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden">
+          <button 
+            *ngFor="let hit of searchResults" 
+            (click)="chonGame(hit)"
+            class="w-full text-left px-4 py-2 hover:bg-slate-700 text-sm text-slate-200 focus:outline-none focus:bg-slate-700"
+          >
+            {{ hit.titles.primary || hit.titles.vi || hit.slug }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div *ngIf="isLoading" class="text-center py-12 text-slate-400">Đang tải tin...</div>

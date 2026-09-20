@@ -13,6 +13,7 @@ import { UserProfileComponent } from './pages/user-profile/user-profile.componen
 import { FollowsComponent } from './pages/follows/follows.component';
 import { WrappedComponent } from './pages/wrapped/wrapped.component';
 import { SearchComponent } from './pages/search/search.component';
+import { LibraryComponent } from './pages/library/library.component';
 
 export const routes: Routes = [
     { path: '', component: HomeComponent, pathMatch: 'full' },
@@ -34,6 +35,7 @@ export const routes: Routes = [
     { path: 'game/:slug', component: GameComponent },
     { path: 'search', component: SearchComponent },
     { path: 'thong-ke', component: StatsComponent },
+    { path: 'thu-vien', component: LibraryComponent },
 
     // Phải là route cuối: '**' khớp mọi thứ nên đặt trên sẽ che hết bên dưới.
     // Thiếu nó thì router ném NG04002 và SSR trả 200 kèm vỏ app rỗng — Chrome

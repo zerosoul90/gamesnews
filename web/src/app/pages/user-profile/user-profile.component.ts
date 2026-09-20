@@ -5,6 +5,7 @@ import { Subscription } from 'rxjs';
 
 import { AuthService, SteamSession } from '../../services/auth.service';
 import { LyDoKhongBat, PushService } from '../../services/push.service';
+import { CommunityService, Badge } from '../../services/community.service';
 
 /**
  * Trang cá nhân.
@@ -31,10 +32,34 @@ export class UserProfileComponent implements OnInit, OnDestroy {
   constructor(
     private authService: AuthService,
     public pushService: PushService,
+    private communityService: CommunityService,
   ) {}
 
+  badges: Badge[] = [];
+  dangTaiBadges = false;
+
   ngOnInit(): void {
-    this.sub = this.authService.currentUser$.subscribe((p) => (this.phien = p));
+    this.sub = this.authService.currentUser$.subscribe((p) => {
+      this.phien = p;
+      if (this.phien) {
+        this.taiBadges(this.phien.user_id);
+      } else {
+        this.badges = [];
+      }
+    });
+  }
+
+  private taiBadges(userId: string): void {
+    this.dangTaiBadges = true;
+    this.communityService.getBadges(userId).subscribe({
+      next: (badges) => {
+        this.badges = badges;
+        this.dangTaiBadges = false;
+      },
+      error: () => {
+        this.dangTaiBadges = false;
+      }
+    });
   }
 
   ngOnDestroy(): void {

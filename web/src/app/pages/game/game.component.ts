@@ -14,6 +14,7 @@ import { NewsService, Article } from '../../services/news.service';
 import { AlertService, PriceAlert } from '../../services/alert.service';
 import { kiemNguongGia, kiemPhanTram } from './nguong';
 import { AuthService } from '../../services/auth.service';
+import { UserService, Follow } from '../../services/user.service';
 
 /** Một cột của biểu đồ người chơi, toạ độ đã tính sẵn trong viewBox 100x40. */
 interface PlayerBar {
@@ -51,6 +52,15 @@ export class GameComponent implements OnInit {
    *  `game_id`. Không giữ thì nút bấm chỉ bật được một chiều. */
   private canhBaoCuaGame: PriceAlert[] = [];
   dangDoiCanhBao = false;
+
+  dangTheoDoi: Follow | null = null;
+  dangDoiTheoDoi = false;
+
+  // Form review
+  reviewScore: number | null = null;
+  reviewComment = '';
+  dangGuiReview = false;
+  loiReview: string | null = null;
 
   /** Một game có thể có nhiều cảnh báo ở các điều kiện khác nhau — khoá upsert
    *  của backend là `{user_id, game_id, condition}`. Nên tra theo `condition`,
@@ -96,6 +106,7 @@ export class GameComponent implements OnInit {
     private newsService: NewsService,
     private alertService: AlertService,
     public authService: AuthService,
+    private userService: UserService,
     private structuredData: StructuredDataService,
     @Inject(SITE_ORIGIN) private siteOrigin: string,
     @Optional() @Inject(RENDER_STATUS) private renderStatus: RenderStatus | null,
@@ -133,6 +144,7 @@ export class GameComponent implements OnInit {
         // Đã đặt cảnh báo cho game này chưa (chỉ hỏi khi đã đăng nhập).
         if (this.authService.isLoggedIn()) {
           this.napCanhBao(game.id);
+          this.napTheoDoi(game.id);
         }
       },
       error: (err: HttpErrorResponse) => {
@@ -397,6 +409,72 @@ export class GameComponent implements OnInit {
       // trang thì vẫn im. Phần còn lại của trang game không phụ thuộc vào
       // cảnh báo, nên nuốt gọn.
       error: () => xong?.(),
+    });
+  }
+
+  private napTheoDoi(gameId: string, xong?: () => void): void {
+    this.userService.getFollows().subscribe({
+      next: (res) => {
+        this.dangTheoDoi = res.follows.find((f) => f.target_type === 'game' && f.target_id === gameId) ?? null;
+        xong?.();
+      },
+      error: () => xong?.(),
+    });
+  }
+
+  doiTheoDoi(): void {
+    if (!this.game) return;
+    const gameId = this.game.id;
+    this.dangDoiTheoDoi = true;
+
+    if (this.dangTheoDoi) {
+      this.userService.unfollow(this.dangTheoDoi.id).subscribe({
+        next: () => this.napTheoDoi(gameId, () => (this.dangDoiTheoDoi = false)),
+        error: () => (this.dangDoiTheoDoi = false),
+      });
+    } else {
+      this.userService.follow('game', gameId).subscribe({
+        next: () => this.napTheoDoi(gameId, () => (this.dangDoiTheoDoi = false)),
+        error: () => (this.dangDoiTheoDoi = false),
+      });
+    }
+  }
+
+  guiReview(): void {
+    if (!this.game || this.reviewScore === null) return;
+    if (this.reviewScore < 1 || this.reviewScore > 10 || !Number.isInteger(this.reviewScore)) {
+      this.loiReview = 'Điểm phải là số nguyên từ 1 đến 10.';
+      return;
+    }
+    this.loiReview = null;
+    this.dangGuiReview = true;
+    const gameId = this.game.id;
+
+    this.communityService.postReview(gameId, this.reviewScore, this.reviewComment.trim() || null).subscribe({
+      next: () => {
+        this.dangGuiReview = false;
+        this.reviewScore = null;
+        this.reviewComment = '';
+        // Đọc lại danh sách sau khi lưu xong
+        this.communityService.getReviews(gameId).subscribe(res => {
+          this.reviews = res.reviews;
+          this.reviewsTotal = res.total;
+        });
+        // Có thể điểm trung bình thay đổi
+        this.gameService.getBySlug(this.game!.slug).subscribe(updatedGame => {
+            if(this.game) {
+                this.game.community_score = updatedGame.community_score;
+            }
+        });
+      },
+      error: (err) => {
+        this.dangGuiReview = false;
+        if (err.status === 422) {
+           this.loiReview = 'Dữ liệu không hợp lệ.';
+        } else {
+           this.loiReview = 'Không thể gửi đánh giá lúc này. Vui lòng thử lại sau.';
+        }
+      }
     });
   }
 

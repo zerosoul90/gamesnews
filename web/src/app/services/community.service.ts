@@ -24,6 +24,14 @@ export interface ReviewsResponse {
   offset: number;
 }
 
+export interface Badge {
+  id: string;
+  name: string;
+  description: string;
+  icon_url: string;
+  earned_at: string;
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -44,5 +52,19 @@ export class CommunityService {
   getReviews(gameId: string, limit = 20, offset = 0): Observable<ReviewsResponse> {
     const params = new HttpParams().set('limit', limit).set('offset', offset);
     return this.http.get<ReviewsResponse>(`${this.apiUrl}/${gameId}/reviews`, { params });
+  }
+
+  postReview(gameId: string, score: number, comment: string | null): Observable<void> {
+    const baseUrl = this.apiUrl.replace('/games', '');
+    return this.http.post<void>(`${baseUrl}/reviews`, {
+      game_id: gameId,
+      score: score,
+      comment: comment
+    });
+  }
+
+  getBadges(userId: string): Observable<Badge[]> {
+    const baseUrl = this.apiUrl.replace('/games', '');
+    return this.http.get<Badge[]>(`${baseUrl}/users/${userId}/badges`);
   }
 }
