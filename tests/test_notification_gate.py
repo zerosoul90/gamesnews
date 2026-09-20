@@ -44,6 +44,60 @@ async def test_thieu_http_thi_vao_hang_doi_chu_khong_bien_mat(mongo_db: Db) -> N
     assert await mongo_db.notification_queue.count_documents({"user_id": user_id}) == 1
 
 
+async def test_gui_ngay_khong_toi_thi_vao_hang_doi_chu_khong_bien_mat(
+    mongo_db: Db, monkeypatch: Any
+) -> None:
+    """Biến thể thứ hai của cùng một lỗi: **có** http client, nhưng gửi trả 0.
+
+    Bản trước `return` vô điều kiện sau `send_push_notification`, nên mọi lượt
+    không gửi được — FCM chưa cấu hình, user chưa có thiết bị, hay cả loạt
+    token đều chết — đều đánh rơi thông báo, để lại đúng một dòng log.
+
+    Đo được trên stack thật (2026-09-20): FCM chưa có khoá, cảnh báo
+    `below_price` khớp đúng điều kiện, và sau đó nó không nằm ở
+    `notification_queue` lẫn bất cứ đâu. Đây là trạng thái mặc định của dự án
+    lúc này, không phải một ca hiếm.
+    """
+    import httpx
+
+    from app.services import notification as mod
+
+    user_id = await make_user(mongo_db)
+
+    async def khong_gui_duoc(*args: Any, **kwargs: Any) -> int:
+        return 0
+
+    monkeypatch.setattr(mod, "send_push_notification", khong_gui_duoc)
+
+    async with httpx.AsyncClient() as http:
+        await process_notification(mongo_db, alert(user_id), http=http)
+
+    assert await mongo_db.notification_queue.count_documents({"user_id": user_id}) == 1
+
+
+async def test_gui_ngay_toi_noi_thi_khong_xep_hang(mongo_db: Db, monkeypatch: Any) -> None:
+    """Chiều ngược lại — thiếu nó thì mọi thông báo đều bị nhân đôi.
+
+    Gửi thành công mà vẫn xếp hàng nghĩa là digest sẽ gửi lại lần nữa vào 2h
+    sáng hôm sau.
+    """
+    import httpx
+
+    from app.services import notification as mod
+
+    user_id = await make_user(mongo_db)
+
+    async def gui_duoc(*args: Any, **kwargs: Any) -> int:
+        return 1
+
+    monkeypatch.setattr(mod, "send_push_notification", gui_duoc)
+
+    async with httpx.AsyncClient() as http:
+        await process_notification(mongo_db, alert(user_id), http=http)
+
+    assert await mongo_db.notification_queue.count_documents({"user_id": user_id}) == 0
+
+
 async def test_user_khong_ton_tai_thi_khong_ghi_gi(mongo_db: Db) -> None:
     await process_notification(mongo_db, alert(ObjectId()), http=None)
     assert await mongo_db.notification_queue.count_documents({}) == 0

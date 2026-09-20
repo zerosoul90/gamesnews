@@ -162,10 +162,28 @@ async def process_notification(
         wants_immediate = False
 
     if wants_immediate and http is not None:
-        await send_push_notification(
+        delivered = await send_push_notification(
             db, http, payload.user_id, payload.title, payload.body, payload.data
         )
-        return
+        if delivered > 0:
+            return
+
+        # Gửi ngay không tới thì **hạ xuống hàng đợi**, không đánh rơi.
+        #
+        # Bản trước `return` vô điều kiện, nên mọi lượt trả 0 — FCM chưa cấu
+        # hình, user chưa có thiết bị nào, hay cả loạt token đều chết — đều
+        # khiến cảnh báo biến mất, để lại đúng một dòng log. Đo trên stack thật
+        # 2026-09-20: FCM chưa có khoá, cảnh báo `below_price` khớp đúng điều
+        # kiện, và sau đó nó không nằm ở `notification_queue` lẫn bất cứ đâu.
+        #
+        # Cùng lý lẽ với nhánh thiếu http client ngay trên, và với
+        # `jobs/notification_digest.py` vốn GIỮ hàng đợi khi gửi hỏng. Ba chỗ
+        # này phải nhất quán, nếu không thì "thông báo đi đâu khi gửi hỏng" trả
+        # lời khác nhau tuỳ đường vào.
+        logger.warning(
+            "gửi ngay không tới, hạ thông báo xuống hàng đợi digest",
+            extra={"user_id": str(payload.user_id), "type": payload.type},
+        )
 
     # Nhét vào queue chờ Job gom Digest hàng ngày bắn
     await db.notification_queue.insert_one(

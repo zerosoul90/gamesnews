@@ -2567,3 +2567,103 @@ file or directory" trong một repo có thư mục `web/`. Đúng cái bẫy s�
 - Mốc sang ngày của Google — vẫn cần đo lại bằng thiết kế cụm-và-tỉ-lệ.
 - Trang tin chưa có lọc theo game trên giao diện (API đã nhận `game_id`).
 - Các mục còn nợ của lượt 8 và 9 giữ nguyên.
+
+### 2026-09-20 (lượt 12) — Nghiệm thu đường thông báo, và một cảnh báo biến mất không dấu vết
+
+Yêu cầu: "nghiệm thu đường thông báo". Phép đo tìm ra một lỗi mà cả 655 test
+đang xanh đều không chạm tới.
+
+#### Bản đồ: chỗ nào đã được kiểm, chỗ nào chưa
+
+Trước khi đo, lập bản đồ từng chặng thay vì chạy thử một phát rồi kết luận:
+
+| chặng | trạng thái trước lượt này |
+|---|---|
+| giá giảm → `dropped_prices` | có test, Mongo thật |
+| khớp điều kiện ba loại | có test |
+| gatekeeper (kênh tắt, đã sở hữu, giờ im lặng, fail-closed) | có test |
+| → `notification_queue` | có test |
+| job digest **được lên lịch** | có test |
+| job digest **làm đúng việc** | **không test nào** |
+| định dạng FCM v1 | có test, httpx giả |
+| FCM thật nhận | không đo được |
+
+`send_notification_digest` chỉ được kiểm là *có tên trong danh sách cron*. Hành
+vi của nó — gom nhóm, giữ hàng đợi khi gửi hỏng, chỉ xoá phần của đúng user —
+chưa ai kiểm, dù chú thích trong chính file ấy ghi nó từng `delete_many({})` và
+cuốn mất hàng đợi của người khác.
+
+Thêm 5 test. Hai chốt quan trọng đều xác minh đỏ khi gỡ fix: trả `delete_many`
+về `{}` làm đỏ đúng test hai-user, và gỡ nhánh `if delivered == 0` làm đỏ hai
+test. Test một-user sẽ **không** bắt được lỗi `{}` — phải từ hai user trở lên.
+
+#### Cảnh báo giá biến mất, để lại đúng một dòng log
+
+Truy vết trên container đang chạy (không phải trong test), nhánh **gửi ngay** —
+đường mà cron `sync_steam_prices` thật sự đi, vì worker luôn có `clients.http`:
+
+```
+thiết bị đã đăng ký       : 1
+FCM chưa cấu hình, không gửi được push
+  trong notification_queue: 0
+```
+
+`process_notification` gọi `send_push_notification`, nhận về `0`, rồi `return`
+vô điều kiện. Thông báo không được gửi, cũng không vào hàng đợi. Nó **biến mất**.
+
+Ba đường vào cùng một câu hỏi "gửi hỏng thì thông báo đi đâu", trả lời khác nhau:
+
+| chỗ | khi gửi hỏng |
+|---|---|
+| nhánh thiếu http client | hạ xuống hàng đợi — có chú thích giải thích vì sao |
+| `notification_digest` | GIỮ hàng đợi — có chú thích "xoá đi là mất hẳn" |
+| nhánh gửi ngay | **đánh rơi** |
+
+Hai chỗ đầu đã học đúng bài; chỗ thứ ba thì chưa. Và đây không phải ca hiếm:
+FCM chưa cấu hình là **trạng thái mặc định hiện tại của dự án**, nên mọi cảnh
+báo giá nổ ngoài giờ im lặng đều đang rơi vào hư không.
+
+Sửa: chỉ `return` khi `delivered > 0`, còn lại rơi xuống hàng đợi. Nghiệm thu
+lại trên container sau `--build`:
+
+```
+gửi ngay không tới, hạ thông báo xuống hàng đợi digest
+  trong notification_queue: 1
+```
+
+#### Ba chốt nghiệm thu trên stack thật
+
+Chạy bằng code đã bake trong image, không phải code trong repo:
+
+| | kết quả |
+|---|---|
+| giá 500.000₫, ngưỡng 300.000₫ | hàng đợi 0 — chưa chạm |
+| giá giảm còn 250.000₫ | hàng đợi 1, nội dung đúng số tiền và % |
+| game đã có trong thư viện | hàng đợi 0 — luật `CLAUDE.md` |
+
+Chốt thứ ba là ranh giới "không được vượt" của `CLAUDE.md`, nên đáng đo ở tầng
+chạy thật chứ không chỉ tin test.
+
+#### Nghiệm thu
+
+**662 test** (655 → 662), ruff + mypy sạch. Dữ liệu truy vết đã dọn: bốn
+collection liên quan đều về 0.
+
+Hai lỗi ruff của chính tôi bị bắt ở cổng cuối — tên hàm có chữ hoa (`N802`) và
+một dòng 101 ký tự. Nhắc rằng "test xanh" không phải là toàn bộ cổng.
+
+**Còn nợ — hai chặng cuối không đo được ở đây:**
+
+- **FCM chưa cấu hình.** `fcm_project_id`, `fcm_client_email`,
+  `fcm_private_key` đều rỗng, `adapter.configured` là `False`. Cần một project
+  Firebase; việc tạo tài khoản/dịch vụ là quyết định của người dùng, không phải
+  của tôi. Chừng nào chưa có, mọi thông báo dồn vào `notification_queue` và
+  digest giữ nguyên ở đó — nay không mất, nhưng cũng không tới ai.
+- **Web chưa bao giờ đăng ký thiết bị.** `POST /api/v1/user/device` chỉ có app
+  Flutter gọi. Trình duyệt cần service worker + VAPID key, mà key ấy cũng nằm
+  trong project Firebase chưa có. Nên kể cả cấu hình xong FCM, người dùng web
+  vẫn chưa nhận được gì.
+- Hàng đợi không có giới hạn: user chưa có thiết bị sẽ tích luỹ mãi, vì digest
+  giữ lại khi gửi hỏng. Chưa thành vấn đề ở quy mô hiện tại, nhưng là một mục
+  phải nhớ.
+- Các mục còn nợ của lượt 8, 9, 11 giữ nguyên.
