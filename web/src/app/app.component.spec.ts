@@ -4,6 +4,9 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 
 import { AppComponent } from './app.component';
+import { AuthService } from './services/auth.service';
+import { duongDanCoThat } from './routes.spec-util';
+import { By } from '@angular/platform-browser';
 
 /**
  * Bản trước của file này là scaffold mặc định của `ng new` và **đã hỏng sẵn**:
@@ -53,5 +56,46 @@ describe('AppComponent', () => {
     expect(duongDan).toContain('/deals');
     expect(duongDan).toContain('/free');
     expect(duongDan).toContain('/news');
+    
+    // Check that all routes exist
+    duongDan.forEach(href => {
+      if (href) expect(duongDanCoThat(href)).toBeTrue();
+    });
+  });
+
+  it('nav trỏ tới nhóm cá nhân khi đăng nhập và mở menu mobile', () => {
+    // Stub AuthService
+    const authServiceStub = {
+      currentUser$: {
+        subscribe: (fn: any) => {
+          fn({ user_id: 'test_user', token: 'test_token' });
+          return { unsubscribe: () => {} };
+        }
+      }
+    };
+    TestBed.overrideProvider(AuthService, { useValue: authServiceStub });
+    
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+
+    // Simulate opening mobile menu
+    const navComponentNode = fixture.debugElement.query(By.css('app-nav'));
+    navComponentNode.componentInstance.doiMenuMobile();
+    fixture.detectChanges();
+
+    const duongDan = Array.from(compiled.querySelectorAll('a[href]')).map((a) =>
+      a.getAttribute('href'),
+    );
+
+    expect(duongDan).toContain('/canh-bao-gia');
+    expect(duongDan).toContain('/follows');
+    expect(duongDan).toContain('/thu-vien');
+    expect(duongDan).toContain('/wrapped');
+
+    // Assert using duongDanCoThat
+    duongDan.forEach(href => {
+      if (href) expect(duongDanCoThat(href)).toBeTrue();
+    });
   });
 });

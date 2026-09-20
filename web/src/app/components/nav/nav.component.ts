@@ -56,6 +56,7 @@ export class NavComponent implements OnInit, OnDestroy {
   readonly mucCaNhan = [
     { duongDan: '/canh-bao-gia', nhan: 'Cảnh báo giá' },
     { duongDan: '/follows', nhan: 'Đang theo dõi' },
+    { duongDan: '/thu-vien', nhan: 'Thư viện' },
     { duongDan: '/wrapped', nhan: 'Wrapped' },
   ];
 
