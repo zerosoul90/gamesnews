@@ -6,6 +6,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { API_BASE_URL } from '../../api-base-url';
 import { AuthService } from '../../services/auth.service';
 import { LibraryComponent } from './library.component';
+import { duongDanCoThat } from '../../routes.spec-util';
 
 const GOC = 'http://api.test';
 
@@ -14,11 +15,17 @@ const THU_VIEN_RONG = { items: [], total: 0, limit: 50, offset: 0 };
 /**
  * Trang thư viện Steam.
  *
- * Bất biến chính: **kết quả đồng bộ phải hiện ra.** Bản đầu gán
+ * Hai bất biến ở đây đều là lỗi đã xảy ra thật, không phải giả định.
+ *
+ * Một: **kết quả đồng bộ phải hiện ra.** Bản đầu gán
  * `dongBoKetQua = res` rồi gọi ngay `tai()`, mà `tai()` lại mở đầu bằng
  * `dongBoKetQua = null`. Hai việc chạy đồng bộ trong cùng một lượt, nên băng
  * rôn không hiện lần nào — kể cả ca `{synced: 0, skipped: N}`, đúng ca người
  * dùng cần được giải thích nhất.
+ *
+ * Hai: **liên kết đăng nhập phải tới được.** Bản đầu trỏ `/auth`, một đường
+ * không có trong `app.routes.ts`, nên nút rơi vào route `**` và mở trang 404.
+ * Build xanh, test xanh, chỉ người bấm mới biết.
  */
 describe('LibraryComponent', () => {
   let http: HttpTestingController;
@@ -77,6 +84,19 @@ describe('LibraryComponent', () => {
 
     // Để lại "đã đồng bộ 7 game" bên cạnh một thư viện rỗng là nói sai.
     expect(fixture.componentInstance.dongBoKetQua).toBeNull();
+  });
+
+  it('nút đăng nhập trỏ tới một route có thật', () => {
+    daDangNhap = false;
+    fixture.detectChanges();
+
+    const neo = (fixture.nativeElement as HTMLElement).querySelector('a[href]');
+    const dich = neo?.getAttribute('href') ?? '';
+
+    expect(dich).toBe('/login');
+    // Khẳng định thứ hai mới là cái bắt được lỗi cũ: `/auth` cũng là một chuỗi
+    // trông hợp lệ, nhưng không khớp route nào ngoài `**`.
+    expect(duongDanCoThat(dich)).toBeTrue();
   });
 
   it('profile riêng tư hiện hướng dẫn, không phải lỗi chung chung', () => {
