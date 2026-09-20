@@ -70,6 +70,7 @@
           <div *ngIf="authService.isLoggedIn()" class="flex flex-wrap gap-2 shrink-0">
           <!-- Nút Theo dõi Game -->
           <button
+            [attr.data-theo-doi]="g.id"
             (click)="doiTheoDoi('game', g.id)"
             [disabled]="dangDoiTheoDoi[g.id]"
             class="shrink-0 px-4 py-2 rounded-lg font-bold transition-colors flex items-center gap-2 border disabled:opacity-50"
@@ -283,8 +284,12 @@
             <dd class="text-slate-200 flex flex-col gap-1.5">
               <div *ngFor="let dev of g.developers" class="flex items-center gap-2">
                 <span>{{ dev }}</span>
+                <!-- `data-theo-doi` là móc cho test: cụm này có nhiều nút mang
+                     cùng một dòng chữ "Theo dõi", nên chọn theo nội dung thì
+                     không phân biệt được studio nào với game. -->
                 <button
                   *ngIf="authService.isLoggedIn()"
+                  [attr.data-theo-doi]="dev"
                   (click)="doiTheoDoi('developer', dev)"
                   [disabled]="dangDoiTheoDoi[dev]"
                   class="text-[10px] px-1.5 py-0.5 rounded border transition-colors flex items-center gap-1 disabled:opacity-50 shrink-0"
