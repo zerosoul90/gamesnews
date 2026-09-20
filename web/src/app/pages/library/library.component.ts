@@ -41,7 +41,11 @@ export class LibraryComponent implements OnInit {
     this.dangTai = true;
     this.loi = null;
     this.loiPrivateProfile = false;
-    this.dongBoKetQua = null;
+    // KHÔNG xoá `dongBoKetQua` ở đây. `dongBo()` gán kết quả rồi gọi ngay
+    // `tai()` để nạp lại danh sách — đồng bộ, cùng một lượt — nên dòng reset
+    // đặt ở đây nuốt mất băng rôn trước khi nó kịp hiện một lần nào. Ca
+    // `{synced: 0, skipped: N}`, ca cần nói nhất, im hoàn toàn.
+    // Việc dọn thuộc về lúc *bắt đầu* một lần đồng bộ mới, xem `dongBo()`.
 
     this.userService.getLibrary(50, 0).subscribe({
       next: (res) => {
@@ -89,6 +93,9 @@ export class LibraryComponent implements OnInit {
     }
     this.dangXoa = true;
     this.loi = null;
+    // Xoá sạch thư viện thì băng rôn "đã đồng bộ N game" của lượt trước thành
+    // lời nói dối; dọn nó cùng lúc với dữ liệu nó mô tả.
+    this.dongBoKetQua = null;
     this.userService.deleteLibrary().subscribe({
       next: () => {
         this.dangXoa = false;
