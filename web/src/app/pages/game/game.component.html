@@ -267,27 +267,17 @@
         </div>
 
         <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm mb-6">
-          <div *ngIf="g.series">
-            <dt class="text-slate-500 mb-1">Series</dt>
-            <dd class="text-slate-200 flex flex-col gap-1.5">
-              <div class="flex items-center gap-2">
-                <span>{{ g.series }}</span>
-                <button
-                  *ngIf="authService.isLoggedIn()"
-                  (click)="doiTheoDoi('series', g.series)"
-                  [disabled]="dangDoiTheoDoi[g.series]"
-                  class="text-[10px] px-1.5 py-0.5 rounded border transition-colors flex items-center gap-1 disabled:opacity-50 shrink-0"
-                  [ngClass]="dangTheoDoi[g.series] ? 'bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700' : 'bg-slate-700 text-white border-slate-600 hover:bg-slate-600'"
-                >
-                  <svg *ngIf="dangDoiTheoDoi[g.series]" class="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  {{ dangTheoDoi[g.series] ? 'Đang theo dõi' : 'Theo dõi' }}
-                </button>
-              </div>
-            </dd>
-          </div>
+          <!-- KHÔNG có ô "Series" ở đây, và đừng dựng lại.
+               `games.series` là null trên **cả 38.721** document của catalog —
+               trường có trong schema và backend map nó ra `GameDetail`, nhưng
+               không job nào ghi vào. Chỗ duy nhất chạm tới là
+               `services/catalog.py` khi gộp hai bản ghi trùng
+               (`keep.series or drop.series`), tức giữ nguyên null.
+               Nút "theo dõi series" từng được dựng ở đây và `*ngIf="g.series"`
+               không bao giờ đúng, nên nó là mã chết — cùng loại với banner và
+               giftcode, đã bị gạch khỏi lượt 2 vì đúng lý do ấy.
+               Muốn có lại thì việc cần làm trước nằm ở backend: một nguồn điền
+               `series`. -->
           <div *ngIf="g.developers.length">
             <dt class="text-slate-500 mb-1">Nhà phát triển</dt>
             <dd class="text-slate-200 flex flex-col gap-1.5">

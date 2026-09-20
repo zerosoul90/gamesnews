@@ -412,19 +412,33 @@ export class GameComponent implements OnInit {
     });
   }
 
+  /** Nạp trạng thái theo dõi cho mọi mục hiện trên trang: game và các studio.
+   *
+   *  MỘT lần `GET /follows` cho cả trang, không phải một lần mỗi nút — game
+   *  bốn studio thì cách sau là năm vòng khứ hồi cho một lần mở trang.
+   *
+   *  Khoá của `dangTheoDoi` là `target_id` trần, trong khi khoá thật ở backend
+   *  là cặp `{target_type, target_id}`. Hiện không sai được vì hai loại duy
+   *  nhất trên trang này là game (ObjectId) và studio (tên) — không đụng nhau.
+   *  Thêm loại thứ ba dùng chuỗi tên (series, streamer) thì phải đổi khoá
+   *  thành `${target_type}:${target_id}`, nếu không một chuỗi vừa là studio
+   *  vừa là series sẽ hiện sai trạng thái và xoá nhầm bản ghi.
+   */
   private napTheoDoi(xong?: () => void): void {
-    if (!this.game) return;
+    if (!this.game) {
+      // Vẫn phải gọi `xong` — bỏ qua nó thì nút gọi tới đây kẹt disabled kèm
+      // spinner vĩnh viễn, vì cờ bận chỉ được hạ trong chính callback này.
+      xong?.();
+      return;
+    }
     const g = this.game;
-    const relevantIds = new Set<string>();
-    relevantIds.add(g.id);
-    if (g.series) relevantIds.add(g.series);
-    g.developers.forEach(d => relevantIds.add(d));
+    const idLienQuan = new Set<string>([g.id, ...g.developers]);
 
     this.userService.getFollows().subscribe({
       next: (res) => {
         const moi: Record<string, Follow> = {};
         for (const f of res.follows) {
-          if (relevantIds.has(f.target_id)) {
+          if (idLienQuan.has(f.target_id)) {
             moi[f.target_id] = f;
           }
         }
@@ -435,7 +449,10 @@ export class GameComponent implements OnInit {
     });
   }
 
-  doiTheoDoi(targetType: 'game' | 'series' | 'developer', targetId: string): void {
+  /** `targetType` cố ý hẹp hơn `UserService.follow`: trang này chỉ đặt được
+   *  hai loại. `series` bị gỡ vì dữ liệu rỗng (xem chú thích ở template),
+   *  `streamer` chưa có chỗ đặt nút. */
+  doiTheoDoi(targetType: 'game' | 'developer', targetId: string): void {
     this.dangDoiTheoDoi[targetId] = true;
     const dangCo = this.dangTheoDoi[targetId];
 
