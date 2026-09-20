@@ -21,6 +21,20 @@ export class LibraryComponent implements OnInit {
   dangDongBo = false;
   dongBoKetQua: { synced: number; skipped: number } | null = null;
   dangXoa = false;
+  dangTaiThem = false;
+
+  private readonly soMoiTrang = 50;
+
+  /** Còn game chưa tải hay không.
+   *
+   * So `items.length` với `total` của API, không so độ dài trang vừa nhận với
+   * `limit`: cách sau sai đúng ở ca trang cuối vừa tròn 50 — nó mời người dùng
+   * bấm "tải thêm" một lần nữa để nhận về mảng rỗng. Cùng lý do đã ghi ở
+   * `news.component.ts`.
+   */
+  get conNua(): boolean {
+    return this.items.length < this.total;
+  }
 
   constructor(
     private userService: UserService,
@@ -47,7 +61,7 @@ export class LibraryComponent implements OnInit {
     // `{synced: 0, skipped: N}`, ca cần nói nhất, im hoàn toàn.
     // Việc dọn thuộc về lúc *bắt đầu* một lần đồng bộ mới, xem `dongBo()`.
 
-    this.userService.getLibrary(50, 0).subscribe({
+    this.userService.getLibrary(this.soMoiTrang, 0).subscribe({
       next: (res) => {
         this.items = res.items;
         this.total = res.total;
@@ -60,6 +74,38 @@ export class LibraryComponent implements OnInit {
           return;
         }
         this.loi = 'Không tải được thư viện. Thử lại sau ít phút.';
+      },
+    });
+  }
+
+  /** Nạp trang tiếp theo và nối vào cuối danh sách.
+   *
+   * `offset` lấy từ `items.length` chứ không đếm số trang: hai cách chỉ khác
+   * nhau khi một trang trả về thiếu, và khi đó đếm trang sẽ nhảy cóc qua vài
+   * game mà không ai biết.
+   *
+   * Trước bản này trang chỉ gọi `getLibrary(50, 0)` đúng một lần: ai có hơn 50
+   * game thì mất phần còn lại, im lặng — `total` vẫn nhận về nhưng không hiện
+   * ở đâu, nên không có cả dấu hiệu nào cho thấy còn thiếu.
+   */
+  taiThem(): void {
+    if (this.dangTaiThem || !this.conNua) {
+      return;
+    }
+    this.dangTaiThem = true;
+    this.loi = null;
+
+    this.userService.getLibrary(this.soMoiTrang, this.items.length).subscribe({
+      next: (res) => {
+        this.items = [...this.items, ...res.items];
+        this.total = res.total;
+        this.dangTaiThem = false;
+      },
+      error: () => {
+        this.dangTaiThem = false;
+        // Giữ nguyên những gì đã tải được. Xoá sạch danh sách vì một trang
+        // hỏng là phạt người dùng nặng hơn hẳn lỗi thật sự xảy ra.
+        this.loi = 'Không tải thêm được. Thử lại sau ít phút.';
       },
     });
   }

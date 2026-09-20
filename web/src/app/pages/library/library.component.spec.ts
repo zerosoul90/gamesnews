@@ -12,6 +12,23 @@ const GOC = 'http://api.test';
 
 const THU_VIEN_RONG = { items: [], total: 0, limit: 50, offset: 0 };
 
+/** Một trang phản hồi của `GET /api/v1/user/library`, đúng hình dạng backend
+ *  trả: `{items[], total, limit, offset}` với `game` được phép `null`. */
+function trang(soLuong: number, total: number, offset = 0) {
+  return {
+    items: Array.from({ length: soLuong }, (_, i) => ({
+      game_id: `65f1a2b3c4d5e6f70819${String(offset + i).padStart(4, '0')}`,
+      store: 'steam',
+      playtime_minutes: 600 - (offset + i),
+      synced_at: '2026-09-01T00:00:00+00:00',
+      game: null,
+    })),
+    total,
+    limit: 50,
+    offset,
+  };
+}
+
 /**
  * Trang thư viện Steam.
  *
@@ -50,11 +67,15 @@ describe('LibraryComponent', () => {
 
   afterEach(() => http.verify());
 
-  /** Dựng trang ở trạng thái đã đăng nhập, thư viện rỗng. */
-  function moTrang(): void {
+  /** Dựng trang ở trạng thái đã đăng nhập, mặc định thư viện rỗng. */
+  function moTrang(duLieu: object = THU_VIEN_RONG): void {
     fixture.detectChanges();
-    http.expectOne((r) => r.url === `${GOC}/api/v1/user/library`).flush(THU_VIEN_RONG);
+    http.expectOne((r) => r.url === `${GOC}/api/v1/user/library`).flush(duLieu);
     fixture.detectChanges();
+  }
+
+  function chu(): string {
+    return (fixture.nativeElement as HTMLElement).textContent ?? '';
   }
 
   it('giữ lại kết quả đồng bộ sau khi nạp lại danh sách', () => {
@@ -84,6 +105,59 @@ describe('LibraryComponent', () => {
 
     // Để lại "đã đồng bộ 7 game" bên cạnh một thư viện rỗng là nói sai.
     expect(fixture.componentInstance.dongBoKetQua).toBeNull();
+  });
+
+  describe('phân trang', () => {
+    it('tải thêm dùng offset bằng số game đã có và nối vào cuối', () => {
+      moTrang(trang(50, 120));
+      expect(fixture.componentInstance.conNua).toBeTrue();
+      expect(chu()).toContain('Đang hiện 50 trong 120 game');
+
+      fixture.componentInstance.taiThem();
+      const req = http.expectOne(
+        (r) => r.url === `${GOC}/api/v1/user/library` && r.params.get('offset') === '50',
+      );
+      expect(req.request.params.get('limit')).toBe('50');
+      req.flush(trang(50, 120, 50));
+      fixture.detectChanges();
+
+      // Nối, không thay thế. Trước bản này trang chỉ gọi đúng một lần với
+      // `offset=0`, nên 70 game còn lại không có đường nào tới được.
+      expect(fixture.componentInstance.items.length).toBe(100);
+      expect(chu()).toContain('Đang hiện 100 trong 120 game');
+    });
+
+    it('trang cuối vừa tròn một trang thì không mời bấm thêm', () => {
+      // Ca mà cách "so độ dài trang với limit" làm sai: 50 game, đủ một trang
+      // chẵn, nhưng không còn gì phía sau.
+      moTrang(trang(50, 50));
+
+      expect(fixture.componentInstance.conNua).toBeFalse();
+      expect(chu()).not.toContain('Tải thêm');
+    });
+
+    it('tải thêm hỏng thì giữ nguyên phần đã tải được', () => {
+      moTrang(trang(50, 120));
+
+      fixture.componentInstance.taiThem();
+      http
+        .expectOne((r) => r.params.get('offset') === '50')
+        .flush(null, { status: 500, statusText: 'Server Error' });
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.items.length).toBe(50);
+      expect(fixture.componentInstance.loi).toContain('Không tải thêm được');
+    });
+
+    it('không bắn request thứ hai khi đã tải hết', () => {
+      moTrang(trang(30, 30));
+
+      fixture.componentInstance.taiThem();
+
+      // `conNua` sai mà vẫn gọi thì backend nhận `offset` vượt quá `total` và
+      // trả mảng rỗng — vô hại nhưng là một vòng khứ hồi thừa mỗi lần bấm.
+      http.expectNone(() => true);
+    });
   });
 
   it('nút đăng nhập trỏ tới một route có thật', () => {
