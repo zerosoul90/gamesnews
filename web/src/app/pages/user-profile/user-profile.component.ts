@@ -5,7 +5,18 @@ import { Subscription } from 'rxjs';
 
 import { AuthService, SteamSession } from '../../services/auth.service';
 import { LyDoKhongBat, PushService } from '../../services/push.service';
-import { CommunityService, Badge } from '../../services/community.service';
+import { Badge, CommunityService, NhanHuyHieu, nhanHuyHieu } from '../../services/community.service';
+
+/** Huy hiệu đã gắn sẵn nhãn tiếng Việt.
+ *
+ * Dựng trước trong `taiBadges` thay vì gọi `nhanHuyHieu()` ngay trong
+ * `*ngFor`: hàm trả object mới mỗi lần change detection chạy, nên ngFor phải
+ * diff lại toàn bộ danh sách mỗi vòng. Cùng lý do đã ghi ở `game.component.ts`.
+ */
+interface HuyHieuHienThi extends NhanHuyHieu {
+  loai: string;
+  nhanLuc: string;
+}
 
 /**
  * Trang cá nhân.
@@ -35,7 +46,7 @@ export class UserProfileComponent implements OnInit, OnDestroy {
     private communityService: CommunityService,
   ) {}
 
-  badges: Badge[] = [];
+  badges: HuyHieuHienThi[] = [];
   dangTaiBadges = false;
 
   ngOnInit(): void {
@@ -53,7 +64,11 @@ export class UserProfileComponent implements OnInit, OnDestroy {
     this.dangTaiBadges = true;
     this.communityService.getBadges(userId).subscribe({
       next: (badges) => {
-        this.badges = badges;
+        this.badges = badges.map((b: Badge) => ({
+          loai: b.badge_type,
+          nhanLuc: b.earned_at,
+          ...nhanHuyHieu(b.badge_type),
+        }));
         this.dangTaiBadges = false;
       },
       error: () => {

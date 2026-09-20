@@ -39,6 +39,8 @@ const DUONG_DAN_THAT = [
   '/api/v1/user/me/wrapped/{}',
   '/community/games/{}/reviews',
   '/community/games/{}/reviews/score',
+  '/community/reviews',
+  '/community/users/{}/badges',
   '/dashboard/stats',
   '/deals',
   '/free-games',
@@ -167,6 +169,73 @@ describe('service gọi đúng đường dẫn backend có thật', () => {
     expect(kiem(() => s.getReviews('65f1a2b3c4d5e6f708192a3b').subscribe())).toBe(
       '/community/games/{}/reviews',
     );
+  });
+
+  it('CommunityService.postReview -> /community/reviews, không gửi user_id', () => {
+    const s = TestBed.inject(CommunityService);
+    s.postReview('65f1a2b3c4d5e6f708192a3b', 8, 'hay').subscribe();
+    const req = http.expectOne(() => true);
+
+    expect(req.request.method).toBe('POST');
+    // Không phải `/community/games/{id}/reviews` — đó là đường ĐỌC. Đường ghi
+    // nằm ở gốc `/community` và nhận `game_id` trong body.
+    expect(req.request.url).toBe(`${GOC}/community/reviews`);
+    expect(req.request.body.game_id).toBe('65f1a2b3c4d5e6f708192a3b');
+    expect(req.request.body.score).toBe(8);
+    expect(Object.keys(req.request.body)).not.toContain('user_id');
+    req.flush({});
+  });
+
+  it('CommunityService.getBadges -> /community/users/{id}/badges', () => {
+    const s = TestBed.inject(CommunityService);
+    expect(kiem(() => s.getBadges('65f1a2b3c4d5e6f708192a3b').subscribe())).toBe(
+      '/community/users/{}/badges',
+    );
+  });
+
+  it('UserService.follow -> POST /api/v1/user/follows, không gửi user_id', () => {
+    const s = TestBed.inject(UserService);
+    s.follow('game', '65f1a2b3c4d5e6f708192a3b').subscribe();
+    const req = http.expectOne(() => true);
+
+    expect(req.request.method).toBe('POST');
+    expect(req.request.url).toBe(`${GOC}/api/v1/user/follows`);
+    // `target_type` là `Literal["game","series","developer","streamer"]` ở
+    // backend; giá trị ngoài tập đó trả 422.
+    expect(req.request.body.target_type).toBe('game');
+    expect(Object.keys(req.request.body)).not.toContain('user_id');
+    req.flush({});
+  });
+
+  it('UserService.getLibrary -> /api/v1/user/library kèm limit/offset', () => {
+    const s = TestBed.inject(UserService);
+    s.getLibrary(50, 100).subscribe();
+    const req = http.expectOne(() => true);
+
+    expect(chuanHoa(req.request.url)).toBe('/api/v1/user/library');
+    expect(req.request.params.get('limit')).toBe('50');
+    expect(req.request.params.get('offset')).toBe('100');
+    req.flush({});
+  });
+
+  it('UserService.syncLibrary -> POST /api/v1/user/library/sync', () => {
+    const s = TestBed.inject(UserService);
+    s.syncLibrary().subscribe();
+    const req = http.expectOne(() => true);
+
+    expect(req.request.method).toBe('POST');
+    expect(chuanHoa(req.request.url)).toBe('/api/v1/user/library/sync');
+    req.flush({});
+  });
+
+  it('UserService.deleteLibrary -> DELETE /api/v1/user/library', () => {
+    const s = TestBed.inject(UserService);
+    s.deleteLibrary().subscribe();
+    const req = http.expectOne(() => true);
+
+    expect(req.request.method).toBe('DELETE');
+    expect(chuanHoa(req.request.url)).toBe('/api/v1/user/library');
+    req.flush({});
   });
 
   it('DashboardService -> /dashboard/stats', () => {

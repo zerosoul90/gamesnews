@@ -70,10 +70,12 @@
     <div *ngIf="phien && !dangTaiBadges && badges.length > 0" class="mb-8">
       <h2 class="text-2xl font-bold text-white mb-4">Huy hiệu cộng đồng</h2>
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <!-- Backend không trả ảnh huy hiệu: `user_badges` chỉ có `badge_type`
+             và `earned_at`. Nên không có <img> ở đây — bản trước bind vào
+             `badge.icon_url` không tồn tại và mọi ô đều rỗng. -->
         <div *ngFor="let badge of badges" class="bg-slate-800 border border-slate-700 rounded-xl p-4 text-center">
-          <img *ngIf="badge.icon_url" [src]="badge.icon_url" [alt]="badge.name" class="w-16 h-16 mx-auto mb-3 object-contain">
-          <h3 class="text-white font-bold text-sm mb-1">{{ badge.name }}</h3>
-          <p class="text-slate-400 text-xs line-clamp-2" [title]="badge.description">{{ badge.description }}</p>
+          <h3 class="text-white font-bold text-sm mb-1">{{ badge.ten }}</h3>
+          <p *ngIf="badge.moTa" class="text-slate-400 text-xs line-clamp-2" [title]="badge.moTa">{{ badge.moTa }}</p>
         </div>
       </div>
     </div>
