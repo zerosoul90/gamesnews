@@ -53,8 +53,8 @@ export class GameComponent implements OnInit {
   private canhBaoCuaGame: PriceAlert[] = [];
   dangDoiCanhBao = false;
 
-  dangTheoDoi: Follow | null = null;
-  dangDoiTheoDoi = false;
+  dangTheoDoi: Record<string, Follow> = {};
+  dangDoiTheoDoi: Record<string, boolean> = {};
 
   // Form review
   reviewScore: number | null = null;
@@ -144,7 +144,7 @@ export class GameComponent implements OnInit {
         // Đã đặt cảnh báo cho game này chưa (chỉ hỏi khi đã đăng nhập).
         if (this.authService.isLoggedIn()) {
           this.napCanhBao(game.id);
-          this.napTheoDoi(game.id);
+          this.napTheoDoi();
         }
       },
       error: (err: HttpErrorResponse) => {
@@ -412,30 +412,42 @@ export class GameComponent implements OnInit {
     });
   }
 
-  private napTheoDoi(gameId: string, xong?: () => void): void {
+  private napTheoDoi(xong?: () => void): void {
+    if (!this.game) return;
+    const g = this.game;
+    const relevantIds = new Set<string>();
+    relevantIds.add(g.id);
+    if (g.series) relevantIds.add(g.series);
+    g.developers.forEach(d => relevantIds.add(d));
+
     this.userService.getFollows().subscribe({
       next: (res) => {
-        this.dangTheoDoi = res.follows.find((f) => f.target_type === 'game' && f.target_id === gameId) ?? null;
+        const moi: Record<string, Follow> = {};
+        for (const f of res.follows) {
+          if (relevantIds.has(f.target_id)) {
+            moi[f.target_id] = f;
+          }
+        }
+        this.dangTheoDoi = moi;
         xong?.();
       },
       error: () => xong?.(),
     });
   }
 
-  doiTheoDoi(): void {
-    if (!this.game) return;
-    const gameId = this.game.id;
-    this.dangDoiTheoDoi = true;
+  doiTheoDoi(targetType: 'game' | 'series' | 'developer', targetId: string): void {
+    this.dangDoiTheoDoi[targetId] = true;
+    const dangCo = this.dangTheoDoi[targetId];
 
-    if (this.dangTheoDoi) {
-      this.userService.unfollow(this.dangTheoDoi.id).subscribe({
-        next: () => this.napTheoDoi(gameId, () => (this.dangDoiTheoDoi = false)),
-        error: () => (this.dangDoiTheoDoi = false),
+    if (dangCo) {
+      this.userService.unfollow(dangCo.id).subscribe({
+        next: () => this.napTheoDoi(() => (this.dangDoiTheoDoi[targetId] = false)),
+        error: () => (this.dangDoiTheoDoi[targetId] = false),
       });
     } else {
-      this.userService.follow('game', gameId).subscribe({
-        next: () => this.napTheoDoi(gameId, () => (this.dangDoiTheoDoi = false)),
-        error: () => (this.dangDoiTheoDoi = false),
+      this.userService.follow(targetType, targetId).subscribe({
+        next: () => this.napTheoDoi(() => (this.dangDoiTheoDoi[targetId] = false)),
+        error: () => (this.dangDoiTheoDoi[targetId] = false),
       });
     }
   }
