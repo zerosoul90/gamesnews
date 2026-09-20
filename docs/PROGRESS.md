@@ -2930,7 +2930,7 @@ nào** vì cwd đã trượt khỏi `web/`, và `grep` của tôi nuốt mất t
   giá thật thì `award_badge` mới chạy.
 - Các mục còn nợ của lượt 8, 9, 11, 12, 13, 14 giữ nguyên.
 
-### 2026-09-20 (lượt 16) — Tài liệu giao việc sai, và một cổng chưa ai chạy
+### 2026-09-20 (lượt 16) — Tài liệu giao việc sai, và một test đỏ trượt khung giờ CI
 
 Review bốn commit lượt 3 của antigravity (`2a0c07d`, `a73df9a`, `65d8c80`,
 `6ef2d96`) theo `HANDOFF-3.md`, rồi sửa ba thứ.
@@ -2981,7 +2981,7 @@ Ca liên kết đăng nhập ở đó còn là một vòng lặp kín: chọn ph
 thật. Nó đỏ khi revert nên qua cổng, nhưng không bắt được liên kết hỏng nào
 khác trên trang.
 
-#### Cổng `pytest` chưa từng được chạy
+#### Một test đỏ 9 tiếng mỗi ngày, và CI chưa lần nào chạm vào khung đó
 
 `tests/test_notification_gate.py::test_gui_ngay_toi_noi_thi_khong_xep_hang`
 đỏ **9 tiếng mỗi ngày**, từ 22:00 tới 07:00 giờ VN. `process_notification` đọc
@@ -2996,9 +2996,31 @@ nhưng rỗng nghĩa — cả nhánh chúng muốn kiểm lẫn nhánh giờ im 
 bằng đúng một dòng trong hàng đợi. Đỏ nửa ngày thì còn thấy; xanh rỗng nghĩa
 nửa ngày mới là phần đáng sợ.
 
-Lỗi có sẵn từ trước cả lượt 2. Nó nằm im vì cổng `pytest` chưa ai chạy — **kể
-cả tôi**, ở đầu phiên này, khi báo cổng python xanh dựa trên mỗi `ruff` +
-`mypy` trong khi §2 định nghĩa cổng ấy gồm cả ba.
+**Đính chính — bản viết đầu của mục này đổ lỗi sai chỗ.** Tôi ghi "cổng
+`pytest` chưa ai chạy" và ngờ job `lint-test` không thật sự chạy nó. Kiểm lại
+bằng API công khai thì ngược hẳn: `ci.yml` có một step `pytest` riêng, kèm
+`set -o pipefail | tee` và một script đăng phần thất bại ra annotation đọc
+được không cần đăng nhập. CI chạy đúng và đủ.
+
+Lý do thật đơn giản hơn nhiều — **trùng giờ**:
+
+| run | giờ VN | commit | kết luận |
+|---|---|---|---|
+| #82 | 11:24 | `456630c` ← ca test ra đời ở đây | success |
+| #83–#87 | 13:02 → 13:52 | tới hết lượt 2 | success |
+| #88 | **22:36** | `80773ec` (đã có bản sửa) | — |
+
+Ca test ấy chỉ mới 11 tiếng tuổi, và cả sáu run kể từ lúc nó ra đời đều rơi
+vào 10:40–13:52 giờ VN — giữa trưa, ngoài khung im lặng. Nó chưa từng có cơ
+hội đỏ. Run #88 là lần đầu tiên CI chạy trong khung 22:00–07:00, và tới đúng
+lúc mang theo bản vá.
+
+Đáng chú ý: **30 run trước đó** đã rơi vào khung nguy hiểm (15:00–19:00 UTC),
+nhưng đều cũ hơn ca test này nên không liên quan.
+
+Phần "kể cả tôi" thì vẫn đúng và là chỗ đáng nhớ: ở đầu phiên này tôi báo cổng
+python xanh dựa trên mỗi `ruff` + `mypy`, trong khi §2 định nghĩa cổng ấy gồm
+cả ba lệnh. CI nghiêm hơn tôi.
 
 #### Hai bẫy đo đạc gặp trong phiên
 
