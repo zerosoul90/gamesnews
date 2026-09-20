@@ -3062,3 +3062,112 @@ Bốn cổng, chạy từ đúng thư mục: build sạch, web 53/53, `ruff` + `
   `getScore()`.
 - Commit lượt 3 đều là message một dòng tả *cái gì*, không có phần *vì sao*.
 - Các mục còn nợ của lượt 8, 9, 11, 12, 13, 14, 15 giữ nguyên.
+
+### 2026-09-20 (lượt 17) — Đếm dữ liệu cứu được một hạng mục, nhưng ngưỡng thì quên cho
+
+Review hai commit lượt 4 của antigravity (`b83be31`, `c5ba2ef`) theo
+`HANDOFF-4.md`, rồi sửa bốn thứ.
+
+#### Cách ra đề đã tốt lên
+
+`HANDOFF-4.md` là tài liệu đầu tiên đếm dữ liệu thật trước khi giao việc, và
+phép đếm ấy **loại một hạng mục trước khi nó kịp được giao**: endpoint
+`/search` có nhận `type`, trông hoàn toàn hợp lý nếu chỉ đọc OpenAPI, nhưng
+dữ liệu là 39.282 `game` / 1 `dlc` / 1 `demo`. Nó cũng chỉ ra việc ngược lại
+cần làm — thẻ kết quả in `{{ hit.type }}` nên **mọi** thẻ hiện chữ "GAME".
+
+Kết quả: lượt này không có mã chết nào. Ba trong bốn cạm bẫy ghi sẵn được xử
+lý đúng, và `PLATFORMS`/`GENRES` khớp `distinct()` từng giá trị — họ có kiểm
+dữ liệu thật.
+
+#### Nhưng cho danh sách mà quên cho ngưỡng
+
+Tài liệu đưa top 8 genre kèm số lượng rồi dặn *"đừng viết cứng danh sách tám
+genre ở trên"*. Cách hiểu theo nghĩa đen là viết cứng cả 59. Đúng chữ, hỏng ý:
+
+```
+tong genre   = 59
+<= 1 game    = 13      (rts, mmorpg, battle-royale, crpg, accounting…)
+<= 10 game   = 31
+>= 1000 game = 11
+```
+
+Quá nửa dropdown là ngõ cụt — chọn "MMORPG" nhận về đúng một game.
+
+Bài học nối tiếp lượt 16: **đếm dữ liệu là chưa đủ, phải nói luôn ngưỡng nào
+là đủ dùng.** Lượt 16 học được "trường có trong schema vẫn có thể rỗng"; lượt
+này học thêm "trường có dữ liệu vẫn có thể không dùng được".
+
+Một chi tiết không gộp được dù nghe như trùng: `rpg` (6.734) và `role-playing`
+(793) là hai nhánh **rời nhau** — đo ra 788/793 game mang `role-playing` không
+hề có `rpg`. Hai nguồn tag khác nhau. Bỏ một cái là 788 game mất đường tới.
+
+#### Ô năm bắn một lượt tìm kiếm mỗi phím
+
+`(ngModelChange)` của input `type="number"` bắn theo từng ký tự. Đo bằng probe
+tạm chứ không suy luận — gõ "2024" sinh **4** lần `router.navigate`, với
+`year` = 2, 20, 202, 2024. Ba giá trị dở dang đều gọi backend thật và đều trả
+0, nên người dùng thấy "Không tìm thấy game nào" nháy ba lần trong lúc gõ, rồi
+phải bấm Back bốn lần mới rời được trang.
+
+Cách sửa đã có sẵn trong repo: `news.component.ts` dùng `debounceTime(300)`
+cho đúng tình huống này — và file ấy nằm trong commit thứ hai của cùng lượt.
+
+#### Hạng mục chính lại không có test nào
+
+74 dòng, 0 spec. Số test web 53 → 53. Lần thứ hai liên tiếp, và lần này §0 của
+tài liệu đã nêu đích danh nó là một trong hai thứ lọt lưới lượt 3.
+
+#### Một cạm bẫy trong tài liệu là vô nghĩa
+
+`HANDOFF-4.md` §3 dặn "khi `total === 1000` thì hiện **1000+**". Kiểm lại thì
+`response.total` **không được hiển thị ở đâu cả**, chỉ dùng trong hai điều
+kiện phân trang. Tôi viết hướng dẫn cho một thành phần giao diện không tồn
+tại. Không tính là họ bỏ sót.
+
+Ngược lại, có một thứ đáng giữ mà suýt bị dọn nhầm: điều kiện
+`page * limit < response.total` đúng nhờ **trùng hợp** — Meilisearch chặn
+`total` ở 1000, nên ở trang 50 thì `50*20 = 1000` không nhỏ hơn 1000 và nút
+"sau" tự ẩn đúng chỗ dữ liệu cạn. Đã ghi chú "đừng sửa nó" ngay tại chỗ.
+
+#### Bản sửa
+
+`cefbd73`: debounce ô năm, cắt dropdown xuống 19 thể loại từ 100 game trở lên,
+nhãn tiếng Việt (`value` vẫn là slug nguyên văn — đã đối chiếu cả 27 slug với
+`distinct()`), và `search.component.spec.ts` phủ cả bốn cạm bẫy.
+
+#### Nghiệm thu
+
+Bốn cổng, chạy từ đúng thư mục: build sạch, web **61/61** (53 → 61), `ruff` +
+`mypy` + `pytest` sạch, `mobile` không đụng (0 file). Bốn mutation, bốn ca đỏ
+đúng chỗ:
+
+| gỡ ra | đỏ với |
+|---|---|
+| debounce ô năm | `Expected 4 to be 1` |
+| `page: 1` khi đổi lọc | `Expected 7 to be 1` |
+| lọc trong link phân trang | `Expected '/search?q=elden&page=2' to contain 'genre=rpg'` |
+| guard `q` rỗng | `Expected spy search to have been called` |
+
+#### Hai lần tôi tự đo sai, lần thứ hai là lặp lại
+
+- **Chạy hai tiến trình `pytest` chồng nhau** làm `test_mobile_catalog.py` và
+  `test_news_feed.py` đỏ. Đúng cái bẫy đã ghi ở lượt 16 — cùng một DB test,
+  fixture `drop_database` mỗi test. Chạy một mình thì xanh. Ghi lần hai vì lần
+  một rõ ràng chưa đủ để tôi nhớ.
+- **Regex `[a-z-]+` khi đối chiếu slug** lặng lẽ bỏ qua `ps4` và `ps5` vì
+  chúng có chữ số. Kết quả "không cái nào thiếu" là âm tính giả trên 2/27
+  giá trị. Sửa thành `[a-z0-9-]+` rồi đo lại đủ 27.
+
+**Còn nợ:**
+
+- Commit lượt 4 vẫn là message một dòng; phần thân giải thích *vì sao message
+  không liệt kê file*, tức một tầng meta, không phải vì sao thay đổi.
+- `game_hotness` 58 bản ghi, cron chạy mỗi giờ, `hotness_of` đã viết, **không
+  endpoint nào đọc**. Cần backend; chưa quyết định.
+- `games.series` vẫn không có nguồn.
+- `dangTheoDoi` đánh khoá bằng `target_id` trần thay vì cặp
+  `{target_type, target_id}` — chưa sai được với hai loại hiện có.
+- Danh sách `GENRES` phải cập nhật tay khi catalog đổi; không có endpoint
+  facet để dựng động.
+- Các mục còn nợ của lượt 8, 9, 11, 12, 13, 14, 15, 16 giữ nguyên.
