@@ -3,11 +3,6 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { API_BASE_URL } from '../api-base-url';
 
-export interface CommunityScore {
-  is_hidden: boolean;
-  average_score: number | null;
-  review_count: number;
-}
 
 export interface Review {
   id: string;

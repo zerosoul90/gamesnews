@@ -37,12 +37,12 @@ export class NewsComponent implements OnInit, OnDestroy {
   // Game filter
   idGameChon: string | null = null;
   tenGameChon: string | null = null;
-  searchQuery = '';
+  tuKhoaTimKiem = '';
   ketQuaTimKiem: SearchHit[] = [];
   dangTimKiem = false;
   hienDanhSach = false;
-  private searchSubject = new Subject<string>();
-  private searchSub?: Subscription;
+  private chuDeTimKiem = new Subject<string>();
+  private dangKyTimKiem?: Subscription;
 
   constructor(
     private titleService: Title,
@@ -61,7 +61,7 @@ export class NewsComponent implements OnInit, OnDestroy {
     this.metaService.updateTag({ property: 'og:title', content: pageTitle });
     this.metaService.updateTag({ property: 'og:description', content: description });
 
-    this.searchSub = this.searchSubject.pipe(
+    this.dangKyTimKiem = this.chuDeTimKiem.pipe(
       debounceTime(300),
       distinctUntilChanged()
     ).subscribe(query => {
@@ -72,14 +72,14 @@ export class NewsComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    if (this.searchSub) {
-      this.searchSub.unsubscribe();
+    if (this.dangKyTimKiem) {
+      this.dangKyTimKiem.unsubscribe();
     }
   }
 
-  onSearchChange(): void {
+  khiDoiTuKhoa(): void {
     this.hienDanhSach = true;
-    this.searchSubject.next(this.searchQuery);
+    this.chuDeTimKiem.next(this.tuKhoaTimKiem);
   }
 
   private thucHienTimKiem(query: string): void {
@@ -104,7 +104,7 @@ export class NewsComponent implements OnInit, OnDestroy {
   chonGame(hit: SearchHit): void {
     this.idGameChon = hit.id;
     this.tenGameChon = hit.titles.primary || hit.titles.vi || hit.slug;
-    this.searchQuery = '';
+    this.tuKhoaTimKiem = '';
     this.hienDanhSach = false;
     // Reset and fetch
     this.articles = [];
@@ -114,7 +114,7 @@ export class NewsComponent implements OnInit, OnDestroy {
   xoaLoc(): void {
     this.idGameChon = null;
     this.tenGameChon = null;
-    this.searchQuery = '';
+    this.tuKhoaTimKiem = '';
     this.articles = [];
     this.tai();
   }

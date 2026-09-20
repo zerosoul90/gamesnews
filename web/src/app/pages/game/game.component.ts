@@ -44,7 +44,7 @@ export class GameComponent implements OnInit {
 
   relatedNews: Article[] = [];
   reviews: Review[] = [];
-  reviewsTotal = 0;
+  tongSoDanhGia = 0;
 
   /** Cảnh báo của chính game này, giữ nguyên bản ghi thay vì vài cờ rời.
    *
@@ -59,8 +59,8 @@ export class GameComponent implements OnInit {
   // Form review
   diemDanhGia: number | null = null;
   binhLuan = '';
-  dangGuiReview = false;
-  loiReview: string | null = null;
+  dangGuiDanhGia = false;
+  loiDanhGia: string | null = null;
 
   /** Một game có thể có nhiều cảnh báo ở các điều kiện khác nhau — khoá upsert
    *  của backend là `{user_id, game_id, condition}`. Nên tra theo `condition`,
@@ -138,7 +138,7 @@ export class GameComponent implements OnInit {
         // Fetch community reviews
         this.communityService.getReviews(game.id).subscribe(res => {
           this.reviews = res.reviews;
-          this.reviewsTotal = res.total;
+          this.tongSoDanhGia = res.total;
         });
 
         // Đã đặt cảnh báo cho game này chưa (chỉ hỏi khi đã đăng nhập).
@@ -472,22 +472,22 @@ export class GameComponent implements OnInit {
   guiReview(): void {
     if (!this.game || this.diemDanhGia === null) return;
     if (this.diemDanhGia < 1 || this.diemDanhGia > 10 || !Number.isInteger(this.diemDanhGia)) {
-      this.loiReview = 'Điểm phải là số nguyên từ 1 đến 10.';
+      this.loiDanhGia = 'Điểm phải là số nguyên từ 1 đến 10.';
       return;
     }
-    this.loiReview = null;
-    this.dangGuiReview = true;
+    this.loiDanhGia = null;
+    this.dangGuiDanhGia = true;
     const gameId = this.game.id;
 
     this.communityService.postReview(gameId, this.diemDanhGia, this.binhLuan.trim() || null).subscribe({
       next: () => {
-        this.dangGuiReview = false;
+        this.dangGuiDanhGia = false;
         this.diemDanhGia = null;
         this.binhLuan = '';
         // Đọc lại danh sách sau khi lưu xong
         this.communityService.getReviews(gameId).subscribe(res => {
           this.reviews = res.reviews;
-          this.reviewsTotal = res.total;
+          this.tongSoDanhGia = res.total;
         });
         // Có thể điểm trung bình thay đổi
         this.gameService.getBySlug(this.game!.slug).subscribe(updatedGame => {
@@ -497,11 +497,11 @@ export class GameComponent implements OnInit {
         });
       },
       error: (err) => {
-        this.dangGuiReview = false;
+        this.dangGuiDanhGia = false;
         if (err.status === 422) {
-           this.loiReview = 'Dữ liệu không hợp lệ.';
+           this.loiDanhGia = 'Dữ liệu không hợp lệ.';
         } else {
-           this.loiReview = 'Không thể gửi đánh giá lúc này. Vui lòng thử lại sau.';
+           this.loiDanhGia = 'Không thể gửi đánh giá lúc này. Vui lòng thử lại sau.';
         }
       }
     });
