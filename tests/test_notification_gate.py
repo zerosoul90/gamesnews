@@ -36,7 +36,35 @@ def alert(user_id: ObjectId, **data: Any) -> NotificationPayload:
     )
 
 
-async def test_thieu_http_thi_vao_hang_doi_chu_khong_bien_mat(mongo_db: Db) -> None:
+def ngoai_gio_im_lang(monkeypatch: Any) -> None:
+    """Ghim "đang ngoài giờ im lặng" cho test đi qua `process_notification`.
+
+    **Vì sao cần.** Hàm ấy đọc `dt.datetime.now(dt.UTC)` rồi quy ra giờ VN, nên
+    ba test dưới đây phụ thuộc vào *lúc* chúng chạy. Hậu quả đo được:
+
+    - `test_gui_ngay_toi_noi_thi_khong_xep_hang` **đỏ từ 22:00 tới 07:00 giờ
+      VN**, tức 9 tiếng mỗi ngày. Trong khung đó `wants_immediate` là False nên
+      `send_push_notification` không hề được gọi, thông báo xuống hàng đợi
+      digest — đúng thiết kế — và assert `== 0` gãy.
+    - Hai test kia vẫn xanh nhưng **rỗng nghĩa** trong cùng khung giờ: cả nhánh
+      chúng muốn kiểm lẫn nhánh giờ im lặng đều kết thúc bằng một dòng trong
+      hàng đợi, nên con số 1 không phân biệt được hai đường.
+
+    Đỏ nửa ngày thì còn thấy; xanh rỗng nghĩa nửa ngày mới là phần đáng sợ.
+
+    Vá đúng chỗ này chứ không ghim đồng hồ toàn cục: bản thân
+    `is_in_quiet_hours` đã có test riêng ở cuối file với mốc giờ cố định, nên
+    chắn nó ở đây không mất độ phủ nào.
+    """
+    from app.services import notification as mod
+
+    monkeypatch.setattr(mod, "is_in_quiet_hours", lambda *a, **k: False)
+
+
+async def test_thieu_http_thi_vao_hang_doi_chu_khong_bien_mat(
+    mongo_db: Db, monkeypatch: Any
+) -> None:
+    ngoai_gio_im_lang(monkeypatch)
     user_id = await make_user(mongo_db)
 
     await process_notification(mongo_db, alert(user_id), http=None)
@@ -62,6 +90,7 @@ async def test_gui_ngay_khong_toi_thi_vao_hang_doi_chu_khong_bien_mat(
 
     from app.services import notification as mod
 
+    ngoai_gio_im_lang(monkeypatch)
     user_id = await make_user(mongo_db)
 
     async def khong_gui_duoc(*args: Any, **kwargs: Any) -> int:
@@ -85,6 +114,7 @@ async def test_gui_ngay_toi_noi_thi_khong_xep_hang(mongo_db: Db, monkeypatch: An
 
     from app.services import notification as mod
 
+    ngoai_gio_im_lang(monkeypatch)
     user_id = await make_user(mongo_db)
 
     async def gui_duoc(*args: Any, **kwargs: Any) -> int:
