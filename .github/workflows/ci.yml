@@ -148,6 +148,36 @@ jobs:
       - name: ng test
         run: npx ng test --watch=false --browsers=ChromeHeadlessNoSandbox
 
+  # `mobile/` chưa từng được kiểm bởi bất cứ thứ gì — không CI, không test, và
+  # trên máy dev thì `flutter pub get` còn **không chạy nổi**: pubspec đòi Dart
+  # ^3.12.0 trong khi Flutter cài sẵn ở đó là 3.35.7 (Dart 3.9.2). Nên đây là
+  # nơi duy nhất mã Dart được biên dịch thật.
+  #
+  # Hệ quả của việc không có nó: `MockFirebaseMessaging` đẩy token giả lên
+  # server và tự điều hướng người dùng sau 15 giây, nằm im trong repo mà không
+  # có tín hiệu nào.
+  mobile:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Cài phụ thuộc
+        run: flutter pub get
+
+      # `analyze` là cổng thật sự ở đây: nó biên dịch và áp `flutter_lints`.
+      # Chưa có `test/` nào nên không chạy `flutter test` — thêm vào khi có.
+      - name: flutter analyze
+        run: flutter analyze
+
   compose:
     runs-on: ubuntu-latest
     steps:
