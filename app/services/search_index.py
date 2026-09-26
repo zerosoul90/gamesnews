@@ -97,3 +97,54 @@ async def reindex(
         extra={"total": total, "mode": "full" if since is None else "delta"},
     )
     return total
+
+
+# --- Đồng bộ theo mốc bền ------------------------------------------------------
+#
+# Mỗi job catalog tự gọi `reindex(since=<giờ nó bắt đầu>)` ở dòng cuối. Mốc đó
+# chỉ sống trong một lượt chạy: job chết ở bất cứ đâu giữa bước ghi Mongo và
+# dòng cuối ấy thì phần vừa ghi **không bao giờ** sang Meilisearch, vì lượt delta
+# sau của bất kỳ job nào cũng chỉ nhìn cửa sổ của riêng nó.
+#
+# Đo được ngày 2026-09-26: 2.939/40.322 game (7,3%) có trong Mongo mà không có
+# trong index — 2.694 game App Store của lượt cron 2026-09-20 04:00, cộng 244
+# game Steam từ hai ngày khác. Không lỗi nào hiện ra; chúng chỉ không tìm thấy
+# được, và `genre=role-playing` trả 0 dù Mongo có 793 game.
+#
+# Mốc ở đây nằm trong Mongo và chỉ tiến lên sau khi đẩy **xong**, nên một lượt
+# hỏng thì lượt sau quét lại đúng cửa sổ đó.
+
+SYNC_STATE = "search_sync_state"
+_STATE_ID = "games"
+
+# Mốc mới lùi lại một khoảng so với giờ bắt đầu quét. `updated_at` được tính ở
+# phía ứng dụng *trước* khi lệnh ghi tới Mongo, nên một lệnh ghi đang bay đúng
+# lúc bắt đầu quét có thể mang `updated_at` sớm hơn mốc mà cursor lại không thấy.
+# Đẩy lại vài document là vô hại (`add_documents` ghi đè theo id); bỏ sót thì
+# lại là vĩnh viễn.
+WATERMARK_OVERLAP = dt.timedelta(minutes=5)
+
+
+async def reindex_pending(
+    db: AsyncIOMotorDatabase[dict[str, Any]],
+    index: MeiliIndex,
+    *,
+    now: dt.datetime | None = None,
+) -> int:
+    """Đẩy mọi entity đổi kể từ lần đồng bộ thành công gần nhất.
+
+    Chưa có mốc (deploy trắng, hoặc lần đầu chạy bản này) thì reindex toàn bộ —
+    cũng là cách vá luôn phần đã rơi rớt trước đó.
+    """
+    started = now or dt.datetime.now(dt.UTC)
+    state = await db[SYNC_STATE].find_one({"_id": _STATE_ID})
+    since: dt.datetime | None = state["watermark"] if state else None
+
+    count = await reindex(db, index, since=since)
+
+    await db[SYNC_STATE].update_one(
+        {"_id": _STATE_ID},
+        {"$set": {"watermark": started - WATERMARK_OVERLAP, "last_count": count}},
+        upsert=True,
+    )
+    return count

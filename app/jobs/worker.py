@@ -32,6 +32,7 @@ from app.jobs.metrics import job_compute_hotness, job_fetch_steam_ccu, job_rollu
 from app.jobs.mobile_catalog import sync_app_store, sync_google_play
 from app.jobs.news import crawl_all_sources
 from app.jobs.notification_digest import send_notification_digest
+from app.jobs.search_sync import sync_search_index
 from app.jobs.steam_catalog import sync_steam_app_list, sync_steam_details
 from app.jobs.steam_pricing import recompute_price_tiers, sync_steam_prices
 from app.jobs.steam_reviews import sync_steam_reviews
@@ -118,6 +119,10 @@ CRON_JOBS: list[CronJob] = [
     cron(sync_steam_app_list, weekday="sun", hour=2, minute=0),
     cron(sync_app_store, weekday="sun", hour=4, minute=0),
     cron(sync_google_play, weekday="sun", hour=5, minute=0),
+    # Lưới an toàn cho các job trên: job nào chết trước dòng reindex cuối thì
+    # phần nó đã ghi vẫn sang được Meilisearch ở lượt này. Lệch khỏi bốn mốc
+    # của `sync_steam_details` để không hai lượt cùng đẩy một lô.
+    cron(sync_search_index, minute={13, 28, 43, 58}),
     # --- Tin tức (Phase 6) ---
     # Checkpoint: "tin quốc tế lên feed tiếng Việt trong 2 giờ". 15 phút một
     # lượt cho biên rộng rãi kể cả khi vài lượt hỏng.
@@ -152,6 +157,7 @@ class WorkerSettings:
         sync_google_play,
         sync_steam_app_list,
         sync_steam_details,
+        sync_search_index,
         sync_steam_prices,
         recompute_price_tiers,
         sync_epic_free_games,

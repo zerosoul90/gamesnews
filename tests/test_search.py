@@ -186,3 +186,88 @@ async def test_reindex_delta_chi_day_entity_da_doi(
     await upsert_game(mongo_db, doi, key="igdb")
 
     assert await reindex(mongo_db, seeded, since=moc) == 1
+
+
+# --- reindex theo mốc bền --------------------------------------------------
+
+
+async def test_job_chet_truoc_dong_reindex_thi_luot_sau_van_vot_duoc(
+    mongo_db: Db, seeded: MeiliIndex
+) -> None:
+    """Đúng kịch bản 2026-09-20: `sync_app_store` ghi 2.694 game vào Mongo rồi
+    không bao giờ tới dòng `_reindex` cuối. Delta theo giờ bắt đầu của **job kế
+    tiếp** không nhìn thấy chúng; mốc bền thì có."""
+    import datetime as dt
+
+    from app.services.search_index import reindex_pending
+
+    # Mốc đầu tiên: lượt đồng bộ sau `seeded`.
+    await reindex_pending(mongo_db, seeded)
+
+    fixtures, _ = load_game_fixtures()
+    await upsert_game(
+        mongo_db, fixtures[0].model_copy(update={"genres": ["role-playing"]}), key="igdb"
+    )
+    # ...và job "chết" ở đây, không reindex gì cả.
+
+    # Job khác bắt đầu SAU lần ghi đó thì delta của nó bỏ qua lần ghi ấy.
+    assert await reindex(mongo_db, seeded, since=dt.datetime.now(dt.UTC)) == 0
+    assert (await seeded.search("", filters=['genres = "role-playing"'], limit=0))[
+        "estimatedTotalHits"
+    ] == 0
+
+    assert await reindex_pending(mongo_db, seeded) >= 1
+    assert (await seeded.search("", filters=['genres = "role-playing"'], limit=0))[
+        "estimatedTotalHits"
+    ] == 1
+
+
+async def test_chua_co_moc_thi_day_toan_bo(mongo_db: Db, seeded: MeiliIndex) -> None:
+    from app.services.search_index import reindex_pending
+
+    tong = await games(mongo_db).count_documents({})
+    assert await reindex_pending(mongo_db, seeded) == tong
+
+
+async def test_day_hong_thi_moc_khong_tien(
+    mongo_db: Db, seeded: MeiliIndex, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mốc chỉ được tiến sau khi đẩy xong. Tiến trước thì một lượt hỏng lại
+    nuốt mất cửa sổ của nó — đúng cái lỗi mốc bền sinh ra để chữa."""
+    from app.services.search_index import SYNC_STATE, reindex_pending
+
+    await reindex_pending(mongo_db, seeded)
+    truoc = await mongo_db[SYNC_STATE].find_one({})
+    assert truoc is not None
+
+    fixtures, _ = load_game_fixtures()
+    await upsert_game(
+        mongo_db, fixtures[0].model_copy(update={"genres": ["role-playing"]}), key="igdb"
+    )
+
+    async def hong(*_: Any, **__: Any) -> None:
+        raise RuntimeError("meilisearch sập giữa chừng")
+
+    monkeypatch.setattr(seeded, "add_documents", hong)
+    with pytest.raises(RuntimeError):
+        await reindex_pending(mongo_db, seeded)
+    sau = await mongo_db[SYNC_STATE].find_one({})
+    assert sau is not None
+    assert sau["watermark"] == truoc["watermark"]
+
+    monkeypatch.undo()
+    assert await reindex_pending(mongo_db, seeded) >= 1
+
+
+async def test_moc_moi_lui_lai_mot_khoang_de_khong_so_lenh_ghi_dang_bay(
+    mongo_db: Db, seeded: MeiliIndex
+) -> None:
+    import datetime as dt
+
+    from app.services.search_index import SYNC_STATE, WATERMARK_OVERLAP, reindex_pending
+
+    luc = dt.datetime(2026, 9, 26, 10, 0, tzinfo=dt.UTC)
+    await reindex_pending(mongo_db, seeded, now=luc)
+    state = await mongo_db[SYNC_STATE].find_one({})
+    assert state is not None
+    assert state["watermark"] == luc - WATERMARK_OVERLAP

@@ -32,6 +32,7 @@ PHAI_CO_LICH = {
     "sync_steam_details",
     "sync_app_store",
     "sync_google_play",
+    "sync_search_index",
     # Phase 2 — giá
     "sync_steam_prices",
     "recompute_price_tiers",
