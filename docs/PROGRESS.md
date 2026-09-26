@@ -3275,3 +3275,57 @@ Mutation, mỗi cái đỏ đúng chỗ:
   trước lượt này.
 - Các mục còn nợ của lượt 8, 9, 11–17 giữ nguyên, trừ mục "không có endpoint
   facet" — sai, đã gỡ.
+
+### 2026-09-26 (lượt 19) — Diễn đàn, chặng F1: backend
+
+Tính năng mới **ngoài `PLAN.md`**, người dùng yêu cầu. Thiết kế và bốn quyết
+định đã chốt nằm ở `docs/FORUM.md`: beta kín (lý do pháp lý — NĐ 147/2024),
+chuyên mục chung + theo game, biệt danh tự đặt, Claude làm trực tiếp.
+
+#### Đã có
+
+`app/services/forum.py` + `app/api/forum.py`, prefix `/api/v1/forum`:
+chuyên mục (JSON tĩnh), chủ đề, trả lời phẳng có trích dẫn, sửa/xoá mềm của
+chính mình, báo cáo (3 người khác nhau → tự ẩn), biệt danh, `GET /me` cho web
+biết đăng được chưa và vì sao. Admin cấp quyền beta qua
+`POST /admin/api/forum/access` theo `steam_id64`. `settings.forum_open` mặc
+định tắt.
+
+#### Ba chỗ đáng ghi
+
+- **`normalize.collapse_spaces` không gộp khoảng trắng** — nó chuẩn hoá rồi
+  viết liền ("Trần Văn" → "tranvan"). Tôi dùng nó theo tên, và test đầu tiên
+  bắt được: biệt danh lưu thành `tranvan`, tiêu đề thành `haikhoangtrang`. Đã
+  thay bằng `" ".join(s.split())` và ghi chú ngay tại chỗ.
+- **Chống giả danh chỉ dựa vào index unique**, không có bước kiểm trước — kiểm
+  trước rồi mới ghi là có khe hở giữa hai bước. Khoá là `normalize_vi` bỏ
+  khoảng trắng nên "Trần Văn", "tran.van", "TRANVAN" là một tên.
+- **Token chặn tần suất lấy SAU khi request hợp lệ.** Lấy trước thì gõ nhầm
+  chuyên mục năm lần là bị khoá một giờ.
+
+#### Nghiệm thu
+
+`ruff` + `mypy app tests` sạch, `pytest` **688 passed** (666 → 688), trong đó 22 test mới
+đi qua ASGI app thật với Mongo + Redis thật. Mutation, mỗi cái đỏ đúng chỗ:
+
+| gỡ ra | đỏ với |
+|---|---|
+| `unique=True` của index biệt danh | `test_them_dau_hay_dau_cham_khong_gia_danh_duoc` |
+| lấy token trước khi kiểm request | `test_request_sai_khong_dot_luot_cua_nguoi_dung` |
+
+Trên stack thật sau `docker compose build app worker`: bootstrap dựng 6 index
+diễn đàn; smoke test đầu-cuối (đặt biệt danh → 403 vì beta → cấp quyền → đăng
+chủ đề trong khu Stardew Valley → trả lời → danh sách → chi tiết) đều đúng mã,
+`<b>` lưu nguyên văn, response không chứa `steam_id64`. Dữ liệu smoke đã xoá.
+
+Endpoint admin trả **503** trên dev vì `ADMIN_TOKEN` trống — đúng thiết kế
+(`/admin` từ chối mọi thứ khi chưa đặt token), nên smoke cấp quyền thẳng trong
+DB; nhánh này đã có pytest phủ.
+
+**Còn nợ (F1):**
+
+- Chưa có web (F2) và công cụ kiểm duyệt (F3): bài bị ẩn vì báo cáo hiện
+  **không có đường nào gỡ ẩn** ngoài sửa DB tay.
+- Người viết không thấy bài của mình khi nó bị ẩn — trả 404 như với mọi người.
+- Chưa lọc từ ngữ trong nội dung; chỉ lọc tên cấm trong biệt danh.
+- Sửa bài không giới hạn thời gian và không lưu lịch sử sửa.

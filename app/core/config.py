@@ -52,6 +52,13 @@ class Settings(BaseSettings):
     # việc admin tạm thời không dùng được.
     admin_token: SecretStr = SecretStr("")
 
+    # --- Diễn đàn ---
+    #
+    # Tắt = beta kín: ai cũng đọc được, chỉ user có `forum_access` mới đăng.
+    # Mở công khai là quyết định pháp lý (NĐ 147/2024 về xác thực số điện
+    # thoại), không phải quyết định kỹ thuật — xem `docs/FORUM.md`.
+    forum_open: bool = False
+
     # --- Auth ---
     jwt_secret: SecretStr = SecretStr(DEFAULT_JWT_SECRET)
     # Origin của WEB, không phải của API: `openid.return_to` ghép từ đây nên

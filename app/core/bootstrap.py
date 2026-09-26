@@ -30,6 +30,7 @@ from app.services import (
     catalog,
     devices,
     entity_review,
+    forum,
     intl_prices,
     price_tier,
     reviews,
@@ -68,6 +69,9 @@ async def ensure_storage(db: Db, index: MeiliIndex | None = None) -> dict[str, i
         # `price_intl` tách khỏi `price_current` vì nó là USD — xem docstring của
         # `services/intl_prices.py`.
         ("price_intl", intl_prices.ensure_indexes),
+        # Gồm cả index unique biệt danh trên `users`: thiếu nó thì hai người
+        # đặt trùng tên cùng lúc đều qua được, và không ai biết ai là ai.
+        ("forum", forum.ensure_indexes),
     ]
 
     for name, ensure in steps:

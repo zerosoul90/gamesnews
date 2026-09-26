@@ -14,6 +14,9 @@ from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.api.community import router as community_router
 from app.api.dashboard import router as dashboard_router
+from app.api.forum import admin_router as forum_admin_router
+from app.api.forum import forum_error_handler
+from app.api.forum import router as forum_router
 from app.api.games import router as games_router
 from app.api.health import router as health_router
 from app.api.news import router as news_router
@@ -32,6 +35,7 @@ from app.core.deps import build_meili
 from app.core.logging import new_request_id, request_id_var, setup_logging
 from app.services.admin import AdminError
 from app.services.catalog import CatalogError
+from app.services.forum import ForumError
 
 logger = logging.getLogger(__name__)
 
@@ -112,9 +116,12 @@ app.include_router(webhooks_router, prefix="/webhooks", tags=["webhooks"])
 app.include_router(community_router)
 app.include_router(promotions_router)
 app.include_router(dashboard_router)
+app.include_router(forum_router)
+app.include_router(forum_admin_router)
 
 # Lỗi nghiệp vụ của admin là câu trả lời hợp lệ (không tìm thấy entity, hai
 # entity xung đột ID), không phải sự cố máy chủ. Không đăng ký chỗ này thì
 # chúng ra ngoài dưới dạng 500.
 app.add_exception_handler(AdminError, admin_error_handler)
 app.add_exception_handler(CatalogError, admin_error_handler)
+app.add_exception_handler(ForumError, forum_error_handler)

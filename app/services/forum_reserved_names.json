@@ -1,0 +1,5 @@
+{
+  "_ghi_chu": "So sau khi chuẩn hoá (normalize_vi, bỏ khoảng trắng). 'exact' chặn đúng tên; 'contains' chặn mọi tên chứa chuỗi đó — dùng cho thứ giả danh ban quản trị.",
+  "exact": ["admin", "root", "system", "hethong", "null", "undefined", "anonymous", "andanh", "support", "hotro"],
+  "contains": ["gamesnews", "moderator", "quantrivien", "banquantri", "kiemduyet"]
+}

@@ -1,0 +1,27 @@
+[
+  {
+    "slug": "thao-luan-chung",
+    "name": "Thảo luận chung",
+    "description": "Chuyện game nói chung, không thuộc riêng game nào."
+  },
+  {
+    "slug": "hoi-dap",
+    "name": "Hỏi đáp & hỗ trợ",
+    "description": "Lỗi, cấu hình máy, cách chơi, cài đặt."
+  },
+  {
+    "slug": "tim-dong-doi",
+    "name": "Tìm đồng đội",
+    "description": "Rủ bạn chơi cùng, lập nhóm, tìm guild."
+  },
+  {
+    "slug": "deal-khuyen-mai",
+    "name": "Deal & khuyến mãi",
+    "description": "Chia sẻ đợt giảm giá, game miễn phí, giftcode."
+  },
+  {
+    "slug": "gop-y",
+    "name": "Góp ý cho trang",
+    "description": "Báo lỗi, đề xuất tính năng cho gamesnews."
+  }
+]
