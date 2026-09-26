@@ -11,13 +11,14 @@ import datetime as dt
 from typing import Annotated, Any, Literal
 
 from bson import ObjectId
-from fastapi import APIRouter, Depends, Query, Request, Response, status
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, Form, Query, Request, Response, status
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.api.admin import AdminAuth
+from app.api.admin import TEMPLATES, AdminAuth, PageAuth
 from app.api.auth import get_current_user_id
 from app.core.deps import ClientsDep, MongoDep, SettingsDep
+from app.core.serialization import jsonify as jsonable
 from app.services import forum
 from app.services.forum import POSTS_PER_PAGE, THREADS_PER_PAGE, ForumError
 
@@ -329,3 +330,66 @@ async def grant_access(body: ForumAccess, db: MongoDep) -> dict[str, Any]:
             "chưa có user với steam_id64 này — người đó phải đăng nhập bằng Steam một lần trước"
         )
     return {"steam_id64": body.steam_id64, "forum_access": body.allow}
+
+
+class ModerateRequest(BaseModel):
+    target_type: Literal["thread", "post"]
+    target_id: str
+    action: Literal["restore", "remove", "lock", "unlock"]
+    note: str = Field(default="", max_length=REASON_MAX)
+
+
+@admin_router.get("/admin/api/forum/queue", dependencies=[AdminAuth])
+async def moderation_queue(db: MongoDep) -> dict[str, Any]:
+    queue: dict[str, Any] = jsonable(await forum.moderation_queue(db))
+    return queue
+
+
+@admin_router.post("/admin/api/forum/moderate", dependencies=[AdminAuth])
+async def moderate(body: ModerateRequest, db: MongoDep) -> dict[str, str]:
+    await forum.moderate(db, body.target_type, body.target_id, body.action, note=body.note)
+    return {"status": "ok"}
+
+
+# --- Trang admin (HTML) ------------------------------------------------------------
+
+_DA_LAM = {
+    "restore": "khôi phục",
+    "remove": "gỡ",
+    "lock": "khoá",
+    "unlock": "mở khoá",
+    "access": "cấp quyền",
+}
+
+
+@admin_router.get("/admin/forum", response_class=HTMLResponse, dependencies=[PageAuth])
+async def page_moderation(request: Request, db: MongoDep, done: str = "") -> Response:
+    return TEMPLATES.TemplateResponse(
+        request,
+        "admin/forum.html",
+        {
+            "queue": await forum.moderation_queue(db),
+            "threshold": forum.REPORT_HIDE_THRESHOLD,
+            "done": _DA_LAM.get(done, ""),
+        },
+    )
+
+
+@admin_router.post("/admin/forum/moderate", dependencies=[PageAuth])
+async def page_moderate(
+    db: MongoDep,
+    target_type: Annotated[str, Form()],
+    target_id: Annotated[str, Form()],
+    action: Annotated[str, Form()],
+) -> Response:
+    await forum.moderate(db, target_type, target_id, action)
+    return RedirectResponse(f"/admin/forum?done={action}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@admin_router.post("/admin/forum/access", dependencies=[PageAuth])
+async def page_grant_access(db: MongoDep, steam_id64: Annotated[str, Form()]) -> Response:
+    if not await forum.set_forum_access(db, steam_id64.strip(), allow=True):
+        raise forum.ForumNotFoundError(
+            "chưa có user với steam_id64 này — người đó phải đăng nhập bằng Steam một lần trước"
+        )
+    return RedirectResponse("/admin/forum?done=access", status_code=status.HTTP_303_SEE_OTHER)

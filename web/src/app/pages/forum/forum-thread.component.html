@@ -7,7 +7,7 @@
     </ng-container>
     <ng-container *ngIf="chuDe?.game as game">
       <span class="mx-2">/</span>
-      <a *ngIf="game.slug; else tenGame" [routerLink]="['/game', game.slug]" class="hover:text-white">{{ game.title }}</a>
+      <a *ngIf="game.slug; else tenGame" [routerLink]="['/forum/g', game.slug]" class="hover:text-white">{{ game.title }}</a>
       <ng-template #tenGame><span>{{ game.title }}</span></ng-template>
     </ng-container>
   </nav>

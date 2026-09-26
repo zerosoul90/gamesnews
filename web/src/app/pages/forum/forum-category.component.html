@@ -2,19 +2,20 @@
   <nav class="text-sm text-slate-400 mb-4" aria-label="Vị trí">
     <a routerLink="/forum" class="hover:text-white">Diễn đàn</a>
     <span class="mx-2">/</span>
-    <span class="text-slate-200">{{ chuyenMuc?.name || slug }}</span>
+    <a *ngIf="laGame && game?.slug; else tenThuong" [routerLink]="['/game', game!.slug]" class="hover:text-white">{{ tenTrang }}</a>
+    <ng-template #tenThuong><span class="text-slate-200">{{ tenTrang }}</span></ng-template>
   </nav>
 
   <div *ngIf="khongCo" class="text-center py-12">
-    <h1 class="text-2xl font-bold text-white mb-2">Không tìm thấy chuyên mục</h1>
+    <h1 class="text-2xl font-bold text-white mb-2">{{ laGame ? 'Không tìm thấy game' : 'Không tìm thấy chuyên mục' }}</h1>
     <a routerLink="/forum" class="text-blue-400 hover:text-blue-300">Về trang diễn đàn</a>
   </div>
 
   <ng-container *ngIf="!khongCo">
     <div class="flex items-start justify-between gap-4 mb-4">
       <div>
-        <h1 class="text-3xl font-bold text-white">{{ chuyenMuc?.name || slug }}</h1>
-        <p *ngIf="chuyenMuc" class="text-slate-400">{{ chuyenMuc.description }}</p>
+        <h1 class="text-3xl font-bold text-white">{{ laGame ? 'Thảo luận: ' + tenTrang : tenTrang }}</h1>
+        <p *ngIf="!laGame && chuyenMuc" class="text-slate-400">{{ chuyenMuc.description }}</p>
       </div>
       <button *ngIf="trangThai?.can_post && !moForm" (click)="moForm = true"
               class="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-2 rounded shrink-0">
@@ -44,7 +45,7 @@
     <p *ngIf="loi" class="text-center py-12 text-red-400">{{ loi }}</p>
 
     <p *ngIf="!dangTai && !loi && chuDe.length === 0" class="text-center py-12 text-slate-400">
-      Chưa có chủ đề nào trong chuyên mục này.
+      {{ laGame ? 'Chưa có ai mở chủ đề về game này.' : 'Chưa có chủ đề nào trong chuyên mục này.' }}
     </p>
 
     <ul *ngIf="!dangTai && chuDe.length > 0" class="divide-y divide-slate-800 border border-slate-800 rounded-lg overflow-hidden">
@@ -69,10 +70,10 @@
     <!-- Giờ hiển thị cố định +0700: SSR chạy UTC, trình duyệt chạy giờ máy —
          để mặc định thì hai lần render lệch nhau 7 tiếng. -->
     <div *ngIf="!dangTai && (page > 1 || conTrangSau)" class="mt-6 flex justify-center gap-2">
-      <a *ngIf="page > 1" [routerLink]="['/forum/c', slug]" [queryParams]="{ page: page - 1 }"
+      <a *ngIf="page > 1" [routerLink]="duongDanGoc" [queryParams]="{ page: page - 1 }"
          class="px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-300 hover:text-white">Trang trước</a>
       <span class="px-4 py-2 text-slate-400">Trang {{ page }}</span>
-      <a *ngIf="conTrangSau" [routerLink]="['/forum/c', slug]" [queryParams]="{ page: page + 1 }"
+      <a *ngIf="conTrangSau" [routerLink]="duongDanGoc" [queryParams]="{ page: page + 1 }"
          class="px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-300 hover:text-white">Trang sau</a>
     </div>
   </ng-container>

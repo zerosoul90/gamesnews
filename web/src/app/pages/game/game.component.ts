@@ -15,6 +15,10 @@ import { AlertService, PriceAlert } from '../../services/alert.service';
 import { kiemNguongGia, kiemPhanTram } from './nguong';
 import { AuthService } from '../../services/auth.service';
 import { UserService, Follow } from '../../services/user.service';
+import { ChuDeTomTat, ForumService } from '../../services/forum.service';
+
+/** Mục "Thảo luận" chỉ là lối vào; danh sách đầy đủ ở `/forum/g/:slug`. */
+const SO_CHU_DE_TREN_TRANG_GAME = 5;
 
 /** Một cột của biểu đồ người chơi, toạ độ đã tính sẵn trong viewBox 100x40. */
 interface PlayerBar {
@@ -43,6 +47,8 @@ export class GameComponent implements OnInit {
   recommendedRows: { key: string; value: string }[] = [];
 
   relatedNews: Article[] = [];
+  chuDeThaoLuan: ChuDeTomTat[] = [];
+  tongChuDe = 0;
   reviews: Review[] = [];
   tongSoDanhGia = 0;
 
@@ -108,6 +114,7 @@ export class GameComponent implements OnInit {
     public authService: AuthService,
     private userService: UserService,
     private structuredData: StructuredDataService,
+    private forumService: ForumService,
     @Inject(SITE_ORIGIN) private siteOrigin: string,
     @Optional() @Inject(RENDER_STATUS) private renderStatus: RenderStatus | null,
   ) {}
@@ -133,6 +140,16 @@ export class GameComponent implements OnInit {
         // Fetch related news (if any)
         this.newsService.getNews(5, 0, game.id).subscribe(res => {
           this.relatedNews = res.articles;
+        });
+
+        // Mục "Thảo luận": vài chủ đề mới nhất, đọc công khai như mọi bài diễn
+        // đàn. Hỏng thì im lặng — trang game không được chết vì diễn đàn.
+        this.forumService.danhSach({ game_id: game.id }).subscribe({
+          next: (res) => {
+            this.chuDeThaoLuan = res.items.slice(0, SO_CHU_DE_TREN_TRANG_GAME);
+            this.tongChuDe = res.total;
+          },
+          error: () => undefined,
         });
 
         // Fetch community reviews

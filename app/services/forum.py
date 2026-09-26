@@ -26,10 +26,14 @@ Db = AsyncIOMotorDatabase[dict[str, Any]]
 THREADS = "forum_threads"
 POSTS = "forum_posts"
 REPORTS = "forum_reports"
+MOD_LOG = "forum_mod_log"
 
 VISIBLE = "visible"
 HIDDEN = "hidden"
 DELETED = "deleted"
+# Ban quản trị gỡ — tách khỏi `deleted` (người viết tự xoá) để nhật ký và
+# thống kê kiểm duyệt không lẫn hai việc khác hẳn nhau.
+REMOVED = "removed"
 
 THREADS_PER_PAGE = 20
 POSTS_PER_PAGE = 30
@@ -593,8 +597,11 @@ async def report(
 
     # Đếm lại từ `forum_reports` chứ không `$inc` rồi tin con số đó: đếm từ
     # nguồn thì hai lượt báo cáo đồng thời không làm lệch ngưỡng.
+    #
+    # Chỉ đếm báo cáo chưa xử lý: admin đã khôi phục bài thì những báo cáo cũ
+    # không được cộng dồn để ẩn lại nó ngay ở lượt báo cáo kế tiếp.
     count = await db[REPORTS].count_documents(
-        {"target_type": target_type, "target_id": target["_id"]}
+        {"target_type": target_type, "target_id": target["_id"], "resolved": {"$ne": True}}
     )
     update: dict[str, Any] = {"report_count": count}
     hide = count >= REPORT_HIDE_THRESHOLD
@@ -619,3 +626,120 @@ async def set_forum_access(db: Db, steam_id64: str, *, allow: bool) -> bool:
         {"steam_id64": steam_id64}, {"$set": {"forum_access": allow}}
     )
     return result.matched_count > 0
+
+
+# --- Kiểm duyệt ------------------------------------------------------------------
+#
+# Chỉ admin (token tĩnh) gọi tới. Mọi thao tác ghi một dòng `forum_mod_log`:
+# gỡ nhầm bài của người khác phải truy được ai gỡ, lúc nào, bài nào.
+
+MOD_ACTIONS = ("restore", "remove", "lock", "unlock")
+
+
+async def moderation_queue(db: Db, *, limit: int = 100) -> dict[str, list[dict[str, Any]]]:
+    """Hai nhóm: bài đang bị ẩn vì báo cáo, và bài có báo cáo nhưng chưa tới
+    ngưỡng. Nhóm sau là nơi admin gỡ sớm thứ rõ ràng vi phạm."""
+    pipeline: list[dict[str, Any]] = [
+        {"$match": {"resolved": {"$ne": True}}},
+        {
+            "$group": {
+                "_id": {"type": "$target_type", "id": "$target_id"},
+                "reasons": {"$push": "$reason"},
+                "count": {"$sum": 1},
+                "last_at": {"$max": "$created_at"},
+            }
+        },
+        {"$sort": {"last_at": -1}},
+        {"$limit": limit},
+    ]
+    groups = [g async for g in db[REPORTS].aggregate(pipeline)]
+
+    by_type: dict[str, list[ObjectId]] = {"thread": [], "post": []}
+    for g in groups:
+        by_type[g["_id"]["type"]].append(g["_id"]["id"])
+    docs: dict[ObjectId, dict[str, Any]] = {}
+    for kind, ids in by_type.items():
+        if ids:
+            async for doc in db[_REPORT_TARGETS[kind]].find({"_id": {"$in": ids}}):
+                docs[doc["_id"]] = doc
+    authors = await _authors(db, {d["author_id"] for d in docs.values()})
+
+    hidden: list[dict[str, Any]] = []
+    reported: list[dict[str, Any]] = []
+    for g in groups:
+        doc = docs.get(g["_id"]["id"])
+        # Bài đã bị gỡ/xoá mà báo cáo còn treo: không còn gì để quyết.
+        if doc is None or doc["status"] not in (VISIBLE, HIDDEN):
+            continue
+        item = {
+            "target_type": g["_id"]["type"],
+            "target_id": str(doc["_id"]),
+            "thread_id": str(doc.get("thread_id") or doc["_id"]),
+            "title": doc.get("title"),
+            "body": doc["body"][:500],
+            "author": _author(authors, doc["author_id"]),
+            "status": doc["status"],
+            "report_count": g["count"],
+            "reasons": sorted(set(g["reasons"])),
+            "last_report_at": g["last_at"],
+        }
+        (hidden if doc["status"] == HIDDEN else reported).append(item)
+    return {"hidden": hidden, "reported": reported}
+
+
+async def moderate(
+    db: Db,
+    target_type: str,
+    target_id: str,
+    action: str,
+    *,
+    note: str = "",
+    now: dt.datetime | None = None,
+) -> None:
+    now = now or dt.datetime.now(dt.UTC)
+    if target_type not in _REPORT_TARGETS or action not in MOD_ACTIONS:
+        raise ForumValidationError("thao tác kiểm duyệt không hợp lệ")
+    if action in ("lock", "unlock") and target_type != "thread":
+        raise ForumValidationError("chỉ khoá được chủ đề")
+
+    collection = _REPORT_TARGETS[target_type]
+    doc = await db[collection].find_one({"_id": _oid(target_id, "bài")})
+    if doc is None or doc["status"] in (DELETED, REMOVED):
+        raise ForumNotFoundError("không tìm thấy bài, hoặc bài đã bị xoá")
+
+    was_visible = doc["status"] == VISIBLE
+    update: dict[str, Any]
+    if action == "restore":
+        update = {"status": VISIBLE, "report_count": 0}
+    elif action == "remove":
+        update = {"status": REMOVED, "removed_at": now}
+    else:
+        update = {"locked": action == "lock"}
+    await db[collection].update_one({"_id": doc["_id"]}, {"$set": update})
+
+    if action in ("restore", "remove"):
+        # Đã quyết rồi thì đóng các báo cáo đang treo — không thì chúng cộng dồn
+        # với báo cáo mới và ẩn lại bài ngay lượt sau.
+        await db[REPORTS].update_many(
+            {"target_type": target_type, "target_id": doc["_id"], "resolved": {"$ne": True}},
+            {"$set": {"resolved": True, "resolved_at": now, "resolution": action}},
+        )
+        # `reply_count` chỉ đếm bài đang hiện; đổi trạng thái hiện/không hiện
+        # của một bài trả lời thì phải chỉnh theo.
+        if target_type == "post":
+            now_visible = action == "restore"
+            if now_visible != was_visible:
+                await db[THREADS].update_one(
+                    {"_id": doc["thread_id"]}, {"$inc": {"reply_count": 1 if now_visible else -1}}
+                )
+
+    await db[MOD_LOG].insert_one(
+        {
+            "target_type": target_type,
+            "target_id": doc["_id"],
+            "action": action,
+            "from_status": doc["status"],
+            "note": note,
+            "at": now,
+        }
+    )

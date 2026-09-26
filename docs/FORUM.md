@@ -14,12 +14,13 @@ với Phase 8 (cộng đồng), nhưng không thay thế mục nào của Phase 
 
 ## Chặng
 
-- **F1 — backend + test.** Biệt danh, chuyên mục, chủ đề, trả lời, báo cáo,
-  chặn tần suất, cổng beta. *Dừng review.*
-- **F2 — web.** `/forum`, `/forum/c/:slug`, `/forum/t/:id`, form đặt biệt danh.
-  SSR. *Dừng review.*
-- **F3 — kiểm duyệt + trang game.** Hàng đợi bài bị báo cáo ở trang admin, tab
-  "Thảo luận" trên trang game.
+- **F1 — backend + test.** ✅ `94979c6`. Biệt danh, chuyên mục, chủ đề, trả
+  lời, báo cáo, chặn tần suất, cổng beta.
+- **F2 — web.** ✅ `de14723`. `/forum`, `/forum/c/:slug`, `/forum/t/:id`,
+  form đặt biệt danh. SSR, lazy-load.
+- **F3 — kiểm duyệt + trang game.** ✅ `/admin/forum` (hàng đợi, khôi phục /
+  gỡ / khoá, cấp quyền beta, nhật ký `forum_mod_log`); `/forum/g/:gameSlug`
+  và mục "Thảo luận" trên trang game.
 
 Ngoài MVP: mobile, thông báo có người trả lời, tìm kiếm chủ đề, reaction.
 
@@ -35,7 +36,19 @@ Ngoài MVP: mobile, thông báo có người trả lời, tìm kiếm chủ đ�
 - **Không lộ `steam_id64`** ra API diễn đàn — chỉ `user_id` và biệt danh.
 - **Xoá là xoá mềm** (`status = "deleted"`), để kiểm duyệt còn tra được.
 - **Báo cáo**: mỗi người một lần cho mỗi bài. Đủ `REPORT_HIDE_THRESHOLD` (3)
-  người khác nhau thì bài tự ẩn chờ admin.
+  người khác nhau thì bài tự ẩn chờ admin. Admin khôi phục hoặc gỡ thì báo
+  cáo đang treo được đóng (`resolved`) — không đóng thì một báo cáo mới là
+  đủ ẩn lại bài vừa khôi phục.
+- **Trạng thái bài**: `visible` · `hidden` (tự ẩn vì báo cáo) · `deleted`
+  (người viết tự xoá) · `removed` (admin gỡ). `reply_count` chỉ đếm `visible`.
+
+## Vận hành beta
+
+Cấp quyền đăng bài: người đó đăng nhập bằng Steam một lần, rồi admin nhập
+`steam_id64` ở `/admin/forum`. Cần `ADMIN_TOKEN` trong `.env` — để trống thì
+toàn bộ `/admin` trả 503.
+
+Mở công khai: đặt `FORUM_OPEN=true`. **Chỉ sau khi đã chốt pháp lý.**
 
 ## Cổng đăng bài
 

@@ -473,3 +473,153 @@ async def test_moc_thoi_gian_co_mui_gio(moi: Moi) -> None:
     ]
     # Không có múi giờ thì trình duyệt hiểu là giờ địa phương — lệch 7 tiếng.
     assert dt.datetime.fromisoformat(created).tzinfo is not None
+
+
+# --- Kiểm duyệt (F3) -------------------------------------------------------------
+
+ADMIN = {"X-Admin-Token": ADMIN_TOKEN}
+
+
+async def an_bang_bao_cao(m: Moi, loai: str, target_id: str, so_nguoi: int = 3) -> None:
+    for _ in range(so_nguoi):
+        h = await tao_user(m.db)
+        res = await m.http.post(
+            "/api/v1/forum/reports",
+            json={"target_type": loai, "target_id": target_id, "reason": "spam"},
+            headers=h,
+        )
+        assert res.status_code == 201, res.text
+
+
+async def test_khoi_phuc_thi_bao_cao_cu_khong_cong_don(moi: Moi) -> None:
+    """Không đóng báo cáo cũ khi khôi phục thì chỉ MỘT báo cáo mới là đủ ẩn
+    lại bài — admin khôi phục bao nhiêu lần cũng vô ích."""
+    chu = await tao_user(moi.db)
+    thread_id = await tao_chu_de(moi, chu)
+    await an_bang_bao_cao(moi, "thread", thread_id)
+
+    queue = (await moi.http.get("/admin/api/forum/queue", headers=ADMIN)).json()
+    assert [i["target_id"] for i in queue["hidden"]] == [thread_id]
+
+    res = await moi.http.post(
+        "/admin/api/forum/moderate",
+        json={"target_type": "thread", "target_id": thread_id, "action": "restore"},
+        headers=ADMIN,
+    )
+    assert res.status_code == 200, res.text
+    assert (await moi.http.get(f"/api/v1/forum/threads/{thread_id}")).status_code == 200
+
+    await an_bang_bao_cao(moi, "thread", thread_id, so_nguoi=1)
+    assert (await moi.http.get(f"/api/v1/forum/threads/{thread_id}")).status_code == 200
+    queue = (await moi.http.get("/admin/api/forum/queue", headers=ADMIN)).json()
+    assert queue["hidden"] == []
+    assert queue["reported"][0]["report_count"] == 1
+
+
+async def test_go_va_khoi_phuc_tra_loi_giu_dung_dem(moi: Moi) -> None:
+    headers = await tao_user(moi.db)
+    thread_id = await tao_chu_de(moi, headers)
+    url = f"/api/v1/forum/threads/{thread_id}/posts"
+    p1 = (await moi.http.post(url, json={"body": "a"}, headers=headers)).json()["id"]
+    p2 = (await moi.http.post(url, json={"body": "b"}, headers=headers)).json()["id"]
+
+    async def dem() -> int:
+        res = await moi.http.get(f"/api/v1/forum/threads/{thread_id}")
+        return int(res.json()["thread"]["reply_count"])
+
+    async def lam(post_id: str, action: str) -> None:
+        res = await moi.http.post(
+            "/admin/api/forum/moderate",
+            json={"target_type": "post", "target_id": post_id, "action": action},
+            headers=ADMIN,
+        )
+        assert res.status_code == 200, res.text
+
+    # Ẩn vì báo cáo: 2 -> 1. Khôi phục: 1 -> 2.
+    await an_bang_bao_cao(moi, "post", p1)
+    assert await dem() == 1
+    await lam(p1, "restore")
+    assert await dem() == 2
+
+    # Gỡ bài đang hiện: 2 -> 1.
+    await lam(p2, "remove")
+    assert await dem() == 1
+
+    # Gỡ bài ĐANG ẨN: đã trừ lúc ẩn rồi, không được trừ lần nữa.
+    await an_bang_bao_cao(moi, "post", p1)
+    assert await dem() == 0
+    await lam(p1, "remove")
+    assert await dem() == 0
+
+    # Bài đã gỡ thì không thao tác tiếp được.
+    res = await moi.http.post(
+        "/admin/api/forum/moderate",
+        json={"target_type": "post", "target_id": p1, "action": "restore"},
+        headers=ADMIN,
+    )
+    assert res.status_code == 404
+
+
+async def test_khoa_chu_de_va_nhat_ky(moi: Moi) -> None:
+    headers = await tao_user(moi.db)
+    thread_id = await tao_chu_de(moi, headers)
+
+    res = await moi.http.post(
+        "/admin/api/forum/moderate",
+        json={
+            "target_type": "thread",
+            "target_id": thread_id,
+            "action": "lock",
+            "note": "cãi nhau",
+        },
+        headers=ADMIN,
+    )
+    assert res.status_code == 200
+    res = await moi.http.post(
+        f"/api/v1/forum/threads/{thread_id}/posts", json={"body": "x"}, headers=headers
+    )
+    assert res.status_code == 409
+
+    log = await moi.db[forum.MOD_LOG].find_one({"target_id": ObjectId(thread_id)})
+    assert log is not None
+    assert (log["action"], log["from_status"], log["note"]) == ("lock", "visible", "cãi nhau")
+
+
+async def test_kiem_duyet_can_token_admin(moi: Moi) -> None:
+    res = await moi.http.get("/admin/api/forum/queue")
+    assert res.status_code == 401
+    res = await moi.http.get("/admin/forum", follow_redirects=False)
+    assert res.status_code == 303
+    assert res.headers["location"] == "/admin/login"
+
+
+async def test_trang_admin_escape_noi_dung_bai(moi: Moi) -> None:
+    """Bài bị báo cáo đúng là loại hay chứa HTML độc, và trang này chạy với
+    cookie phiên của admin. Jinja autoescape phải còn bật cho template này."""
+    headers = await tao_user(moi.db)
+    doc = '<script>fetch("/admin/api/games")</script>'
+    thread_id = await tao_chu_de(moi, headers, title="Bài có mã độc", body=doc)
+    await an_bang_bao_cao(moi, "thread", thread_id, so_nguoi=1)
+
+    res = await moi.http.get("/admin/forum", headers=ADMIN)
+
+    assert res.status_code == 200
+    assert "<script>fetch" not in res.text
+    assert "&lt;script&gt;fetch" in res.text
+
+
+async def test_form_admin_go_bai_roi_quay_ve_trang(moi: Moi) -> None:
+    headers = await tao_user(moi.db)
+    thread_id = await tao_chu_de(moi, headers)
+
+    res = await moi.http.post(
+        "/admin/forum/moderate",
+        data={"target_type": "thread", "target_id": thread_id, "action": "remove"},
+        headers=ADMIN,
+        follow_redirects=False,
+    )
+
+    assert res.status_code == 303
+    assert res.headers["location"] == "/admin/forum?done=remove"
+    doc = await moi.db[forum.THREADS].find_one({"_id": ObjectId(thread_id)})
+    assert doc is not None and doc["status"] == forum.REMOVED

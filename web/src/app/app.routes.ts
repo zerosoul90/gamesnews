@@ -51,6 +51,11 @@ export const routes: Routes = [
         import('./pages/forum/forum-category.component').then((m) => m.ForumCategoryComponent),
     },
     {
+      path: 'forum/g/:gameSlug',
+      loadComponent: () =>
+        import('./pages/forum/forum-category.component').then((m) => m.ForumCategoryComponent),
+    },
+    {
       path: 'forum/t/:id',
       loadComponent: () =>
         import('./pages/forum/forum-thread.component').then((m) => m.ForumThreadComponent),

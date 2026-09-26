@@ -1,0 +1,58 @@
+{% extends "admin/base.html" %}
+{% block title %}Kiểm duyệt diễn đàn{% endblock %}
+{% block content %}
+<h2>Kiểm duyệt diễn đàn</h2>
+{% if done %}<p class="muted">Đã {{ done }}.</p>{% endif %}
+
+{# Nội dung bài hiện qua autoescape của Jinja — bài bị báo cáo là đúng loại
+   bài hay chứa HTML độc, và trang admin có cookie phiên của admin. #}
+{% macro bang(items, empty) %}
+<table>
+  <tr><th>Bài</th><th>Tác giả</th><th>Báo cáo</th><th>Thao tác</th></tr>
+  {% for it in items %}
+  <tr>
+    <td>
+      {% if it.title %}<strong>{{ it.title }}</strong><br>{% endif %}
+      <span style="white-space:pre-line">{{ it.body }}</span><br>
+      <a class="muted" href="/forum/t/{{ it.thread_id }}" target="_blank" rel="noopener">{{ it.target_type }} · mở chủ đề</a>
+    </td>
+    <td>{{ it.author.nickname or it.author.id }}</td>
+    <td>{{ it.report_count }}<br><span class="muted">{{ it.reasons | join(", ") }}</span></td>
+    <td>
+      {% for action, label in [("restore", "Khôi phục"), ("remove", "Gỡ")] %}
+      <form method="post" action="/admin/forum/moderate" class="inline">
+        <input type="hidden" name="target_type" value="{{ it.target_type }}">
+        <input type="hidden" name="target_id" value="{{ it.target_id }}">
+        <input type="hidden" name="action" value="{{ action }}">
+        <button>{{ label }}</button>
+      </form>
+      {% endfor %}
+      {% if it.target_type == "thread" %}
+      <form method="post" action="/admin/forum/moderate" class="inline">
+        <input type="hidden" name="target_type" value="thread">
+        <input type="hidden" name="target_id" value="{{ it.target_id }}">
+        <input type="hidden" name="action" value="lock">
+        <button>Khoá</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="4" class="muted">{{ empty }}</td></tr>
+  {% endfor %}
+</table>
+{% endmacro %}
+
+<h3>Đang bị ẩn ({{ queue.hidden | length }})</h3>
+<p class="muted">Tự ẩn khi đủ {{ threshold }} người khác nhau báo cáo. Khôi phục sẽ đóng các báo cáo cũ.</p>
+{{ bang(queue.hidden, "Không có bài nào đang bị ẩn.") }}
+
+<h3>Có báo cáo, chưa tới ngưỡng ({{ queue.reported | length }})</h3>
+{{ bang(queue.reported, "Không có báo cáo nào đang treo.") }}
+
+<h3>Cấp quyền beta</h3>
+<form method="post" action="/admin/forum/access" class="inline">
+  <input type="text" name="steam_id64" placeholder="steam_id64" required>
+  <button>Cấp quyền đăng bài</button>
+</form>
+{% endblock %}

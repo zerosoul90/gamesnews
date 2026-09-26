@@ -13,6 +13,7 @@ import { AuthService } from '../../services/auth.service';
 import { Follow, UserService } from '../../services/user.service';
 import { StructuredDataService } from '../../services/structured-data.service';
 import { SITE_ORIGIN } from '../../site-origin';
+import { DanhSachChuDe, ForumService } from '../../services/forum.service';
 import { duongDanCoThat } from '../../routes.spec-util';
 
 const GAME_MAU: GameDetail = {
@@ -62,8 +63,11 @@ function follow(targetType: string, targetId: string): Follow {
  * ở đây giữ `series: null` đúng như dữ liệu thật — đừng đặt nó thành một chuỗi
  * để "test cho đủ", làm vậy là kiểm một trạng thái không tồn tại.
  */
+const KHONG_CO_CHU_DE: DanhSachChuDe = { items: [], total: 0, page: 1, per_page: 20 };
+
 describe('GameComponent', () => {
   let fixture: ComponentFixture<GameComponent>;
+  let chuDeGame: DanhSachChuDe = KHONG_CO_CHU_DE;
   let userService: {
     getFollows: jasmine.Spy;
     follow: jasmine.Spy;
@@ -99,6 +103,7 @@ describe('GameComponent', () => {
         },
         { provide: NewsService, useValue: { getNews: () => of({ articles: [], total: 0 }) } },
         { provide: AlertService, useValue: { getAlerts: () => of({ alerts: [] }) } },
+        { provide: ForumService, useValue: { danhSach: () => of(chuDeGame) } },
         {
           provide: AuthService,
           useValue: { isLoggedIn: () => opts.dangNhap, currentUser$: of(null) },
@@ -208,5 +213,45 @@ describe('GameComponent', () => {
     for (const href of trong) {
       expect(duongDanCoThat(href)).withContext(href).toBeTrue();
     }
+  });
+
+  describe('mục thảo luận', () => {
+    afterEach(() => (chuDeGame = KHONG_CO_CHU_DE));
+
+    function muc(): HTMLElement {
+      return (fixture.nativeElement as HTMLElement).querySelector('section[aria-labelledby="thao-luan"]')!;
+    }
+
+    it('chưa có chủ đề: vẫn hiện, kèm lời mời mở chủ đề đầu tiên tới đúng khu của game', () => {
+      dung({ dangNhap: false, developers: [] });
+
+      const moi = muc().querySelector('a')!;
+      expect(moi.textContent).toContain('Mở chủ đề đầu tiên');
+      expect(moi.getAttribute('href')).toBe('/forum/g/test-game');
+    });
+
+    it('chỉ hiện tối đa năm chủ đề, còn lại ở trang đầy đủ', () => {
+      chuDeGame = {
+        items: Array.from({ length: 8 }, (_, i) => ({
+          id: `65f1a2b3c4d5e6f7081900${String(i).padStart(2, '0')}`,
+          title: `Chủ đề ${i}`,
+          category: null,
+          game: null,
+          author: { id: 'u', nickname: 'A' },
+          reply_count: i,
+          locked: false,
+          created_at: '2026-09-26T09:00:00+00:00',
+          last_post_at: '2026-09-26T09:00:00+00:00',
+        })),
+        total: 8,
+        page: 1,
+        per_page: 20,
+      };
+      dung({ dangNhap: false, developers: [] });
+
+      expect(muc().querySelectorAll('li').length).toBe(5);
+      expect(muc().textContent).toContain('Thảo luận (8)');
+      expect(muc().textContent).toContain('Xem tất cả');
+    });
   });
 });

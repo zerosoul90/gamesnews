@@ -3352,3 +3352,45 @@ description, `<title>` đúng, breadcrumb hiện tên chuyên mục. Dữ liệu
 **Còn nợ (F2):** UI chưa có nút sửa bài (API có); chưa có trang chủ đề theo
 game (F3); ô trạng thái được dựng trước khi biết chuyên mục tồn tại nên trang
 404 vẫn gọi `/me` một lần.
+
+### 2026-09-26 (lượt 21) — Diễn đàn, chặng F3: kiểm duyệt + khu thảo luận theo game
+
+**Kiểm duyệt.** `/admin/forum` (Jinja, cùng cookie `samesite=strict` với
+admin cũ): hai hàng — bài đang bị ẩn, và bài có báo cáo chưa tới ngưỡng — với
+Khôi phục / Gỡ / Khoá; ô cấp quyền beta theo `steam_id64`. JSON tương đương ở
+`/admin/api/forum/queue` và `/moderate`. Mọi thao tác ghi `forum_mod_log`.
+
+Hai chỗ dễ sai, cả hai có test và mutation:
+
+- **Khôi phục phải đóng báo cáo cũ.** Không đóng thì một báo cáo mới cộng với
+  ba cái cũ là ẩn lại bài ngay — admin khôi phục bao nhiêu lần cũng vô ích.
+  Báo cáo giờ có `resolved`, và ngưỡng chỉ đếm báo cáo chưa xử lý. Mutation bỏ
+  bước đóng → hai test đỏ.
+- **`reply_count` chỉ đếm bài đang hiện**, nên gỡ một bài *đang ẩn* không được
+  trừ lần hai (đã trừ lúc ẩn). Test đi hết chuỗi 2 → 1 → 2 → 1 → 0 → 0.
+
+Trang admin cũng là chỗ XSS nguy hiểm nhất — bài bị báo cáo hay chứa HTML độc,
+và trang chạy với cookie phiên admin. Có test khẳng định `<script>` ra thành
+`&lt;script&gt;`.
+
+**Theo game.** `/forum/g/:gameSlug` dùng lại component danh sách (hai chế độ,
+một bản code): URL mang slug, `/threads` lọc theo `game_id`. Trang game có mục
+"Thảo luận" luôn hiện — khi chưa có chủ đề thì đó chính là lời mời mở chủ đề
+đầu tiên. Breadcrumb của chủ đề theo game trỏ về khu thảo luận của game đó.
+
+Nghiệm thu: `ruff` + `mypy` sạch, `pytest` **694 passed** (688 → 694), web
+**95/95** (90 → 95), `ng build` xanh, bundle 538 kB. Trên stack thật sau
+`docker compose build app worker web`: trang Stardew Valley hiện "Thảo luận
+(0) · Mở chủ đề đầu tiên", bấm vào tới đúng `/forum/g/stardew-valley`.
+
+Trang `/admin/forum` **chưa xem được trên dev** vì `ADMIN_TOKEN` trống (503
+theo thiết kế); nhánh này chỉ được kiểm qua pytest, kể cả phần render HTML.
+
+**Còn nợ (diễn đàn):**
+
+- Người viết không thấy bài mình khi bị ẩn; không có thông báo cho họ.
+- UI chưa có nút sửa bài (API có); không lưu lịch sử sửa.
+- Chưa lọc từ ngữ trong nội dung.
+- Chưa có mobile, thông báo trả lời, tìm kiếm chủ đề.
+- Chủ đề diễn đàn chưa vào sitemap.
+- `getBySlug` ở `/forum/g/:slug` kéo cả giá + lịch sử giá chỉ để lấy id và tên.

@@ -132,3 +132,86 @@ describe('ForumCategoryComponent', () => {
     http.match(`${F}/me`).forEach((r) => r.flush({ nickname: null, can_post: false, reason: 'x' }));
   });
 });
+
+describe('ForumCategoryComponent — chế độ game (/forum/g/:gameSlug)', () => {
+  let http: HttpTestingController;
+  let fixture: ComponentFixture<ForumCategoryComponent>;
+  let dieuHuong: jasmine.Spy;
+  const GAME_ID = '65f1a2b3c4d5e6f7081900ff';
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [ForumCategoryComponent],
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: API_BASE_URL, useValue: GOC },
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            paramMap: new BehaviorSubject(convertToParamMap({ gameSlug: 'elden-ring' })),
+            queryParamMap: new BehaviorSubject(convertToParamMap({ page: '2' })),
+          },
+        },
+        { provide: AuthService, useValue: { isLoggedIn: () => true, currentUserValue: null } },
+      ],
+    });
+    http = TestBed.inject(HttpTestingController);
+    dieuHuong = spyOn(TestBed.inject(Router), 'navigate').and.returnValue(Promise.resolve(true));
+    fixture = TestBed.createComponent(ForumCategoryComponent);
+  });
+
+  afterEach(() => http.verify());
+
+  function mo(): void {
+    fixture.detectChanges();
+    http
+      .expectOne((r) => r.url === `${GOC}/games/by-slug/elden-ring`)
+      .flush({ id: GAME_ID, slug: 'elden-ring', title: 'Elden Ring' });
+    const req = http.expectOne((r) => r.url === `${F}/threads`);
+    // URL mang slug cho dễ đọc, nhưng `/threads` lọc theo id — phải đổi đúng.
+    expect(req.request.params.get('game_id')).toBe(GAME_ID);
+    expect(req.request.params.has('category')).toBeFalse();
+    req.flush({ items: Array.from({ length: 20 }, (_, i) => chuDe(i)), total: 45, page: 2, per_page: 20 });
+    fixture.detectChanges();
+    http.expectOne(`${F}/me`).flush({ nickname: 'Tôi', can_post: true, reason: null });
+    fixture.detectChanges();
+  }
+
+  it('lọc theo id của game, tiêu đề là tên game, phân trang giữ khu của game', () => {
+    mo();
+    const el = fixture.nativeElement as HTMLElement;
+
+    expect(el.querySelector('h1')?.textContent).toContain('Thảo luận: Elden Ring');
+    const phanTrang = Array.from(el.querySelectorAll('a[href*="page="]')).map((a) => a.getAttribute('href'));
+    expect(phanTrang).toEqual(['/forum/g/elden-ring?page=1', '/forum/g/elden-ring?page=3']);
+    for (const a of Array.from(el.querySelectorAll('a[href]'))) {
+      expect(duongDanCoThat(a.getAttribute('href') ?? '')).withContext(a.getAttribute('href') ?? '').toBeTrue();
+    }
+  });
+
+  it('chủ đề mới gắn vào game, không vào chuyên mục', () => {
+    mo();
+    const c = fixture.componentInstance;
+    c.tieuDe = 'Build nào mạnh nhất';
+    c.noiDung = 'Hỏi thật';
+    c.guiChuDe();
+
+    const req = http.expectOne((r) => r.method === 'POST' && r.url === `${F}/threads`);
+    expect(req.request.body).toEqual({ game_id: GAME_ID, title: 'Build nào mạnh nhất', body: 'Hỏi thật' });
+    req.flush({ id: 'moi' });
+    expect(dieuHuong).toHaveBeenCalledWith(['/forum/t', 'moi']);
+  });
+
+  it('slug game không tồn tại thì báo không tìm thấy game', () => {
+    fixture.detectChanges();
+    http
+      .expectOne((r) => r.url === `${GOC}/games/by-slug/elden-ring`)
+      .flush({ detail: 'x' }, { status: 404, statusText: 'x' });
+    http.match(`${F}/me`).forEach((r) => r.flush({ nickname: null, can_post: false, reason: 'x' }));
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Không tìm thấy game');
+  });
+});
