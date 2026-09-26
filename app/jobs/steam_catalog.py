@@ -22,10 +22,11 @@ from typing import Any
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo.errors import DuplicateKeyError
 
-from app.adapters.base import AdapterConfig, AdapterError, RedisTokenBucket
+from app.adapters.base import AdapterConfig, AdapterError, RateLimitedError, RedisTokenBucket
 from app.adapters.steam.adapter import (
     APP_LIST_RATE_LIMIT,
     DETAILS_RATE_LIMIT,
+    EmptyDetailsError,
     SteamCatalogAdapter,
     parent_appid,
     to_game,
@@ -41,9 +42,19 @@ logger = logging.getLogger(__name__)
 
 Db = AsyncIOMotorDatabase[dict[str, Any]]
 
-# Một lô bồi chi tiết. 200 là đúng trần 5 phút của Steam, nên một lượt job tiêu
-# hết bucket rồi nhường chỗ, thay vì ngồi chờ trong khi giữ kết nối.
+# Một lô bồi chi tiết. 200 là đúng trần 5 phút của Steam. Bucket chỉ cho xả 40
+# một lúc (`DETAILS_RATE_LIMIT`) nên một lượt chạy ~5 phút, giãn đều — cron của
+# job này đặt trần thời gian 600 giây vì vậy.
 DETAILS_BATCH = 200
+
+# Số phản hồi rỗng liên tiếp coi là "cả IP đang bị bóp" và dừng lượt.
+#
+# Đo 2026-09-26, lượt 17:20: ~30 request đầu thành công, sau đó 169/200 rỗng —
+# rải khắp mọi nhóm app, trong khi job vẫn gọi đều 0,67 request/giây suốt bốn
+# phút. Gọi tiếp lúc đó không ghi được gì. Không dừng ngay ở lần rỗng đầu tiên:
+# vài app luôn rỗng kể cả khi không bị bóp (Rocket League, Wallpaper Engine),
+# và chúng có ưu tiên cao nên thường đứng đầu lượt.
+THROTTLE_STREAK = 5
 
 # Số token job này tự chừa lại trong bucket `steam_appdetails` dùng chung.
 #
@@ -114,11 +125,37 @@ async def sync_steam_details(ctx: dict[str, Any], batch: int = DETAILS_BATCH) ->
     adapter = _adapter(ctx, keyed=False)
 
     appids = await steam_queue.take_pending(db, batch)
-    tally = {"done": 0, "skipped": 0, "missing": 0, "failed": 0, "conflict": 0}
+    tally = {"done": 0, "skipped": 0, "missing": 0, "failed": 0, "conflict": 0, "deferred": 0}
 
-    for appid in appids:
+    streak = 0
+    for index, appid in enumerate(appids):
         try:
             data = await adapter.details(appid)
+        except EmptyDetailsError as exc:
+            await steam_queue.release(db, appid)
+            tally["failed"] += 1
+            streak += 1
+            if streak < THROTTLE_STREAK:
+                logger.warning(
+                    "steam: lấy chi tiết hỏng", extra={"appid": appid, "error": repr(exc)}
+                )
+                continue
+            for rest in appids[index + 1 :]:
+                await steam_queue.release(db, rest)
+            tally["deferred"] = len(appids) - index - 1
+            logger.warning("steam: phản hồi rỗng liên tiếp, đang bị bóp — dừng lượt", extra=tally)
+            break
+        except RateLimitedError as exc:
+            # Bucket cạn (job khác dùng chung đang chạy) hoặc Steam trả 429: mọi
+            # app còn lại cũng sẽ gặp đúng lỗi này. Đo 2026-09-26: lượt 17:05
+            # gặp bucket cạn ở app thứ 135 và đi tiếp, 66 app lỗi liên tiếp trong
+            # một giây. Dừng lượt, trả cả phần chưa làm về hàng đợi — để `taken`
+            # thì chúng treo tới hết lease.
+            for rest in appids[index:]:
+                await steam_queue.release(db, rest)
+            tally["deferred"] = len(appids) - index
+            logger.info("steam: hết hạn mức, dừng lượt", extra={"error": repr(exc), **tally})
+            break
         except AdapterError as exc:
             # Trả về `pending` để lần sau thử lại. Lỗi mạng không phải bằng chứng
             # app này có vấn đề — nhưng từ khi hàng đợi giành việc thì không trả
@@ -128,6 +165,7 @@ async def sync_steam_details(ctx: dict[str, Any], batch: int = DETAILS_BATCH) ->
             logger.warning("steam: lấy chi tiết hỏng", extra={"appid": appid, "error": repr(exc)})
             continue
 
+        streak = 0
         if data is None:
             # success=false — app đã gỡ, hoặc không bán ở VN. Không phải lỗi.
             await steam_queue.mark(db, appid, "missing")

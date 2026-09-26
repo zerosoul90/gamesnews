@@ -3811,3 +3811,55 @@ một tuần. "Phổ biến nhất" mở rộng ngay từ lượt tính 17:20.
   có vẻ vượt trần thật của Steam, hoặc job giá đang ăn chung hạn mức IP. Cần đo.
 - Sitemap thiếu `/`: test ghi "`/` 302 sang `/deals`", nhưng `/` giờ trả 200
   với trang chủ riêng. Chú thích ở `app.routes.ts` cũng cũ theo.
+
+### 2026-09-26 (lượt 31) — Ba việc nợ của lượt 30
+
+**1. Đưa 1.204 app `missing` về hàng đợi**, mỗi app gắn `requeued_from:
+"missing"` để đếm được về sau. Lượt 17:05 xử lý 132 app đầu (appid nhỏ nên
+tới trước): cả 132 trả `success: false` rõ ràng — tức missing thật (gỡ khỏi
+store hoặc khoá vùng), không phải do lỗi. Tới 17:24: 162 `missing` thật, 1.042
+còn chờ. Kết luận về tỉ lệ
+bị đánh nhầm phải chờ đếm hết nhóm này.
+
+**2. Bị Steam bóp tốc độ — đo, sửa sai một lần, rồi chặn thiệt hại.**
+
+Giả thuyết đầu: job catalog xả 200 request trong 55 giây, Steam không chịu nhịp
+đó. Đổi `DETAILS_RATE_LIMIT` sang đợt xả 40 cùng tốc độ trung bình
+(`RateLimit(40, 60)` thay `RateLimit(200, 300)`), job catalog trần 600 giây.
+Lượt đầu sau khi đổi trông như xác nhận — rồi lượt sau bác bỏ:
+
+| lượt | đợt xả | phản hồi không có mục của app |
+|---|---|---|
+| 16:35 | 200 | 61/200 |
+| 16:50 | 200 | 87/200 |
+| 17:05 | 40 | 2/134 |
+| 17:20 | 40 | **169/200** — ~30 request đầu được, sau đó gần như tất cả rỗng |
+
+Lượt 17:20 phân theo nhóm: app ưu tiên 32/33 rỗng, app đưa về từ `missing`
+136/161 — không phải lỗi của nhóm app nào, cả IP đang bị bóp, và job vẫn gọi
+đều suốt bốn phút. Giữ đợt xả 40 (không hại gì, nhưng **chưa chứng minh là có
+tác dụng** — chú thích ở code đã ghi đúng như vậy). Thứ chặn được thiệt hại:
+`THROTTLE_STREAK = 5` phản hồi rỗng liên tiếp thì dừng lượt, trả phần chưa làm
+về hàng đợi. Rỗng lẻ tẻ không dừng: Rocket League và Wallpaper Engine luôn
+rỗng kể cả khi app khác được, và chúng có ưu tiên cao nên đứng đầu lượt.
+
+Lượt 17:05 còn lộ lỗi thứ hai: tới app thứ 135, job review (dùng chung
+bucket) chạy, job catalog chờ quá 30 giây và nhận `RateLimitedError` — rồi đi
+tiếp, 66 app lỗi liên tiếp trong một giây. Sửa: `RateLimitedError` thì dừng
+lượt và trả phần chưa làm về `pending`. Lượt 17:20 xác nhận `taken` về 0.
+
+**3. Sitemap có `/`.** Redirect `/` → `/deals` đã gỡ từ lâu, nhưng sitemap, test
+của nó và chú thích ở `app.routes.ts` vẫn giả định còn.
+
+Nghiệm thu: `ruff` + `mypy` sạch, `pytest` **750 passed** (747 → 750), web
+**123/123**. Mutation: bỏ nhánh dừng khi bucket cạn; không bao giờ dừng khi
+rỗng liên tiếp; không đặt lại chuỗi khi có phản hồi tốt — mỗi cái đỏ đúng test.
+
+**Còn nợ:**
+
+- Trần thật của appdetails vẫn chưa biết. Cần đếm tỉ lệ lượt bị dừng vì
+  `THROTTLE_STREAK` qua một ngày, trước khi đụng tới tốc độ trung bình.
+- Rocket League / Wallpaper Engine trả "không có mục" cả khi không bị bóp. Có
+  ưu tiên cao (CCU) nên bị giành lại mỗi lượt — cần trần số lần thử.
+- Đếm kết quả 1.204 app đưa về hàng đợi khi xử lý xong.
+- Checkpoint A1 ("Đang lên" ≥ 20 game): xem lại sau ~7 ngày dữ liệu CCU từng game.

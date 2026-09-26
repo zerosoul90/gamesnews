@@ -10,14 +10,27 @@ import asyncio
 import datetime as dt
 import json
 import pathlib
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
 import pytest
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.adapters.base import AdapterConfig, PermanentError, RetryPolicy, TransientError
-from app.adapters.steam.adapter import SteamCatalogAdapter, parent_appid, to_game
+from app.adapters.base import (
+    AdapterConfig,
+    PermanentError,
+    RateLimitedError,
+    RetryPolicy,
+    TransientError,
+)
+from app.adapters.steam.adapter import (
+    EmptyDetailsError,
+    SteamCatalogAdapter,
+    parent_appid,
+    to_game,
+)
+from app.jobs import steam_catalog
 from app.models.game import Game
 from app.services import steam_queue
 from app.services.catalog import ensure_indexes, games
@@ -401,3 +414,79 @@ async def test_uu_tien_app_chua_co_trong_so_thi_them_moi(mongo_db: Db) -> None:
     assert doc is not None
     assert (doc["name"], doc["status"], doc["priority"]) == ("Game mới", "pending", 7)
     assert await steam_queue.take_pending(mongo_db, 1) == [999]
+
+
+async def test_bucket_can_thi_dung_luot_va_tra_phan_chua_lam(
+    mongo_db: Db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Đo 2026-09-26: lượt 17:05 gặp bucket cạn ở app thứ 135 và đi tiếp — 66 app
+    lỗi liên tiếp trong một giây. Dừng, và trả phần chưa làm về `pending`."""
+    await steam_queue.ensure_indexes(mongo_db)
+    await steam_queue.enqueue(mongo_db, [(10, "a"), (20, "b"), (30, "c"), (40, "d")])
+    called: list[int] = []
+
+    class Adapter:
+        async def details(self, appid: int) -> dict[str, Any] | None:
+            called.append(appid)
+            if appid == 20:
+                raise RateLimitedError("bucket cạn", retry_after_seconds=37.5)
+            return None
+
+    monkeypatch.setattr(steam_catalog, "_adapter", lambda ctx, keyed: Adapter())
+    tally = await steam_catalog.sync_steam_details(
+        {"clients": SimpleNamespace(db=mongo_db)}, batch=4
+    )
+
+    assert called == [10, 20]
+    assert (tally["missing"], tally["deferred"]) == (1, 3)
+    assert await steam_queue.counts(mongo_db) == {"missing": 1, "pending": 3}
+
+
+def _adapter_rong(called: list[int], rong: set[int]) -> Any:
+    class Adapter:
+        async def details(self, appid: int) -> dict[str, Any] | None:
+            called.append(appid)
+            if appid in rong:
+                raise EmptyDetailsError(f"appdetails {appid}: rỗng")
+            return None
+
+    return Adapter()
+
+
+async def test_chuoi_phan_hoi_rong_thi_dung_luot(
+    mongo_db: Db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Đo 2026-09-26, lượt 17:20: ~30 request đầu được, sau đó 169/200 rỗng mà
+    job vẫn gọi đều suốt bốn phút."""
+    await steam_queue.ensure_indexes(mongo_db)
+    apps = list(range(10, 110, 10))
+    await steam_queue.enqueue(mongo_db, [(a, str(a)) for a in apps])
+    called: list[int] = []
+    rong = set(apps[1:])
+    monkeypatch.setattr(steam_catalog, "_adapter", lambda ctx, keyed: _adapter_rong(called, rong))
+
+    tally = await steam_catalog.sync_steam_details(
+        {"clients": SimpleNamespace(db=mongo_db)}, batch=len(apps)
+    )
+
+    assert called == apps[: 1 + steam_catalog.THROTTLE_STREAK]
+    assert tally["deferred"] == len(apps) - 1 - steam_catalog.THROTTLE_STREAK
+    assert await steam_queue.counts(mongo_db) == {"missing": 1, "pending": len(apps) - 1}
+
+
+async def test_rong_le_te_khong_dung_luot(mongo_db: Db, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Vài app luôn rỗng kể cả khi không bị bóp (Rocket League, Wallpaper
+    Engine). Chúng không được làm dừng cả lượt."""
+    await steam_queue.ensure_indexes(mongo_db)
+    apps = list(range(10, 110, 10))
+    await steam_queue.enqueue(mongo_db, [(a, str(a)) for a in apps])
+    called: list[int] = []
+    rong = {a for i, a in enumerate(apps) if i % 2 == 0}
+    monkeypatch.setattr(steam_catalog, "_adapter", lambda ctx, keyed: _adapter_rong(called, rong))
+
+    tally = await steam_catalog.sync_steam_details(
+        {"clients": SimpleNamespace(db=mongo_db)}, batch=len(apps)
+    )
+
+    assert called == apps
+    assert (tally["failed"], tally["missing"], tally["deferred"]) == (5, 5, 0)

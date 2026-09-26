@@ -43,9 +43,11 @@ PAGE_SIZE = 10_000
 # tên miền. Người dùng vẫn tới được DLC từ trang game cha.
 GAME_FILTER: dict[str, Any] = {"slug": {"$exists": True, "$ne": None}, "type": {"$ne": "dlc"}}
 
-# Trang không sinh từ catalog. Khớp `web/src/app/app.routes.ts`; `/` đã 302 sang
-# `/deals` ở `server.ts` nên chỉ liệt kê đích, không liệt kê cả hai.
-STATIC_PATHS = [("/deals", "hourly"), ("/hot", "hourly"), ("/free", "daily")]
+# Trang không sinh từ catalog. Khớp `web/src/app/app.routes.ts`. `/` từng 302
+# sang `/deals` nên bị bỏ khỏi đây; redirect đó đã gỡ và `/` giờ là trang chủ
+# riêng (tìm kiếm, game miễn phí, bảng hot, deal đáy, tin) — nhưng sitemap vẫn
+# thiếu nó tới lượt 31.
+STATIC_PATHS = [("/", "hourly"), ("/deals", "hourly"), ("/hot", "hourly"), ("/free", "daily")]
 
 XML_HEADERS = {"Cache-Control": "public, max-age=3600"}
 

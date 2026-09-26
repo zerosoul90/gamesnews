@@ -4,7 +4,7 @@ import { NotFoundComponent } from './pages/not-found/not-found.component';
 import { HomeComponent } from './pages/home/home.component';
 
 /**
- * Chỉ ba trang nạp ngay: `/` (chuyển sang `/deals` ở `server.ts`), `/deals`
+ * Chỉ ba trang nạp ngay: `/` (trang chủ), `/deals`
  * (trang đích thật của người mới vào) và 404. Mọi trang khác lazy.
  *
  * Trước đây cả 14 trang nằm trong bundle ban đầu: 541 kB, vượt ngưỡng cảnh báo

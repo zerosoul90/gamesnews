@@ -116,7 +116,8 @@ CRON_JOBS: list[CronJob] = [
     cron(sync_cheapshark_prices, minute={12, 42}),
     # --- Catalog (Phase 1) ---
     # Bồi chi tiết 185k app mất vài ngày, nên phải chạy đều đặn và liên tục.
-    cron(sync_steam_details, minute={5, 20, 35, 50}),
+    # 200 request ở 0,67 request/giây là ~5 phút — vượt trần 300 giây mặc định.
+    cron(sync_steam_details, minute={5, 20, 35, 50}, timeout=600),
     # Điểm review đổi chậm hơn giá nhiều, và job tự dừng khi bucket Steam cạn —
     # đặt lệch khỏi các mốc của job giá để không hai job cùng xông vào bucket.
     cron(sync_steam_reviews, minute={8, 38}),

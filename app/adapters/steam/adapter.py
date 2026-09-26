@@ -51,12 +51,28 @@ from app.services.normalize import slugify
 
 logger = logging.getLogger(__name__)
 
+class EmptyDetailsError(TransientError):
+    """appdetails trả 200 mà không có mục của app — dấu hiệu đang bị bóp tốc độ.
+
+    Tách thành lớp riêng để job phân biệt được với lỗi mạng: một lần rỗng lẻ
+    không nói gì (vài app luôn rỗng), nhưng một chuỗi liên tiếp là cả IP đang
+    bị bóp — xem `jobs/steam_catalog.THROTTLE_STREAK`.
+    """
+
+
 APP_LIST_URL = "https://api.steampowered.com/IStoreService/GetAppList/v1/"
 APP_DETAILS_URL = "https://store.steampowered.com/api/appdetails"
 
 # `CLAUDE.md`: ~200 request/5 phút mỗi IP cho appdetails. Đây là ràng buộc chặt
 # nhất của cả hệ thống, và Phase 2 sẽ dùng chung đúng bucket này.
-DETAILS_RATE_LIMIT = RateLimit(capacity=200, per_seconds=300.0)
+#
+# Cùng tốc độ trung bình (0,67 request/giây) nhưng đợt xả 40 chứ không 200: bản
+# cũ cho job catalog bắn 200 request trong 55 giây. **Chưa chứng minh được là có
+# tác dụng.** Đo 2026-09-26, phản hồi rỗng (dấu hiệu bị bóp): 61/200, 87/200 với
+# đợt xả 200; rồi 2/134 và 169/200 ở hai lượt liền nhau với đợt xả 40. Việc bị bóp
+# có vẻ phụ thuộc trạng thái phía Steam hơn là nhịp của một lượt — thứ chặn được
+# thiệt hại là dừng lượt khi bị bóp (`jobs/steam_catalog.THROTTLE_STREAK`).
+DETAILS_RATE_LIMIT = RateLimit(capacity=40, per_seconds=60.0)
 
 # GetAppList tính theo key (100.000 lượt/ngày), rộng hơn nhiều — nhưng vẫn tách
 # bucket riêng để job catalog không ăn mất quota appdetails của job giá.
@@ -395,7 +411,7 @@ class SteamCatalogAdapter(BaseAdapter[dict[str, Any], dict[str, Any]]):
             # app này. Gặp khi đang bị bóp tốc độ — HTTP vẫn 200. Coi là "không
             # bán ở VN" thì app bị gạch khỏi hàng đợi vĩnh viễn: đo 2026-09-26,
             # Palworld, Overwatch, Marvel Rivals đều nằm `missing`.
-            raise TransientError(f"appdetails {appid}: không có mục của app trong phản hồi")
+            raise EmptyDetailsError(f"appdetails {appid}: không có mục của app trong phản hồi")
         if not entry.get("success"):
             return None
         data: dict[str, Any] = entry.get("data") or {}
