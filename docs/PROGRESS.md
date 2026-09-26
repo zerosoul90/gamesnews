@@ -3696,10 +3696,22 @@ tay; bỏ miễn trừ phiên bản; bỏ kiểm số ở tầng 4; ngưỡng v�
 đúng test của nó. Build lại `app` + `worker` + `web`; chạy thử trong container
 `worker`: ngưỡng 0.85, ba tiêu đề thật từng gắn sai giờ trả duyệt tay.
 
+**Dọn bài đã gắn sai trong DB — 33 bài, không phải 15.** Tôi đã báo "~15",
+nhưng con số đó chỉ đếm những bài mà phần sửa lần này làm đổi kết quả. Chạy lại tầng alias trên mọi bài đang gắn
+ở tầng `alias` thì lòi thêm 18 bài gắn bằng alias rác lúc crawl — "contract"
+cho tin công đoàn Blizzard, "legendary" cho Magic: The Gathering, "the way",
+"in space", "head shot", "zombie apocalypse" — mà với catalog hiện tại chính
+code cũ cũng không còn gắn như thế. Đọc từng tiêu đề: cả 33 đều sai.
+Không gắn lại tự động, vì kết quả mới cũng có ca sai ("Final Fantasy Resonance"
+đang ở một game indie tên Resonance, code mới lại ra `final-fantasy`). Cả 33:
+gỡ `game_id`, `matching_tier: "none"`, vào hàng đợi `pending` (6 dòng từng
+`resolved_by: auto` được mở lại); game cũ giữ ở trường `unmatched` để đảo được.
+Kiểm lại: 0 bài còn gắn, 33 pending, chạy lại không còn bài nào khớp.
+
 **Còn nợ:**
 
-- ~15 bài đang gắn sai trong DB (12 ở tầng alias, 3 ở tầng embedding) — code
-  mới chỉ áp cho bài mới.
+- Alias rác một-hai từ phổ thông ("contract", "the way", "in space") vẫn nằm
+  trong catalog và sẽ còn gắn sai. Chỗ sửa là danh sách alias, không phải ngưỡng.
 - Nên lưu `suggested_alias` vào bài: không có nó thì lần hiệu chỉnh sau lại
   phải đo tay bằng quota.
 - Mẫu nhỏ (42 tên + 3 bài thật). Ngưỡng 0.85 là "đủ chặt với cái đã thấy",
