@@ -10,6 +10,7 @@ import { DashboardService } from './dashboard.service';
 import { SearchService } from './search.service';
 import { ForumService } from './forum.service';
 import { UserService } from './user.service';
+import { HotService } from './hot.service';
 
 /**
  * Mỗi service phải gọi đúng một đường dẫn backend **có thật**.
@@ -45,6 +46,7 @@ const DUONG_DAN_THAT = [
   '/dashboard/stats',
   '/deals',
   '/free-games',
+  '/hot',
   '/games/by-slug/{}',
   '/games/{}/prices',
   '/games/{}/price-history',
@@ -184,6 +186,17 @@ describe('service gọi đúng đường dẫn backend có thật', () => {
     expect(req.request.body.game_id).toBe('65f1a2b3c4d5e6f708192a3b');
     expect(req.request.body.score).toBe(8);
     expect(Object.keys(req.request.body)).not.toContain('user_id');
+    req.flush({});
+  });
+
+  it('HotService.getHot -> /hot, bảng nằm trong query', () => {
+    const s = TestBed.inject(HotService);
+    s.getHot('rising', 5).subscribe();
+    const req = http.expectOne(() => true);
+
+    expect(DUONG_DAN_THAT).toContain(chuanHoa(req.request.url));
+    expect(req.request.params.get('board')).toBe('rising');
+    expect(req.request.params.get('limit')).toBe('5');
     req.flush({});
   });
 

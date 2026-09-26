@@ -35,7 +35,7 @@ Các con số này quyết định cái gì làm được ngay và cái gì ph�
 
 ## Đợt A — Lấp khoảng trống rẻ
 
-### A1. Bảng "Phổ biến nhất" / "Đang tăng mạnh"
+### A1. Bảng "Phổ biến nhất" / "Đang tăng mạnh" — đã làm (lượt 30), chờ dữ liệu cho checkpoint
 
 Job tính `game_hotness` đã chạy từ Phase 7 mà không có API, không có trang.
 

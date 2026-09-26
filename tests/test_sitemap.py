@@ -172,7 +172,7 @@ async def test_trang_tinh_khop_voi_route_cua_web(co_base_url: None) -> None:
     """`/` đã 302 sang `/deals` ở server.ts — liệt kê cả hai là hai URL cùng nội dung."""
     urls = locs(await sitemap.sitemap_pages())
 
-    assert urls == [f"{BASE}/deals", f"{BASE}/free"]
+    assert urls == [f"{BASE}/deals", f"{BASE}/hot", f"{BASE}/free"]
 
 
 async def test_sitemap_dien_dan_chi_co_chu_de_dang_hien(mongo_db: Db, co_base_url: None) -> None:

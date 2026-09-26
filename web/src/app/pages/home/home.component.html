@@ -61,6 +61,30 @@
     </div>
   </section>
 
+  <!-- Section: Đang hot -->
+  <section *ngIf="!isLoadingHot && hotGames.length > 0">
+    <div class="flex items-center justify-between mb-6">
+      <h2 class="text-2xl font-bold text-white">Đang hot trên Steam</h2>
+      <a routerLink="/hot" class="text-slate-400 hover:text-white transition-colors">Xem bảng xếp hạng →</a>
+    </div>
+
+    <ol class="grid grid-cols-1 md:grid-cols-5 gap-4">
+      <li *ngFor="let g of hotGames">
+        <a [routerLink]="['/game', g.game_details.slug || g.game_id]" class="bg-slate-800 rounded-lg overflow-hidden border border-slate-700 hover:border-blue-500 transition-colors group block">
+          <div class="aspect-video bg-slate-700 relative overflow-hidden">
+            <span class="absolute top-0 left-0 bg-slate-900/80 text-white font-bold px-2 py-1 text-sm rounded-br-lg z-10">#{{ g.rank }}</span>
+            <img *ngIf="g.game_details.cover_image_url" [src]="g.game_details.cover_image_url"
+                 [alt]="g.game_details.title || 'Game chưa có tên'" loading="lazy" class="w-full h-full object-cover">
+          </div>
+          <div class="p-3">
+            <h3 class="font-bold text-white truncate group-hover:text-blue-400">{{ g.game_details.title || 'Game chưa có tên' }}</h3>
+            <p *ngIf="g.ccu_now > 0" class="text-xs text-slate-400">{{ g.ccu_now.toLocaleString('vi-VN') }} người đang chơi</p>
+          </div>
+        </a>
+      </li>
+    </ol>
+  </section>
+
   <!-- Section 3: Deal đáy lịch sử -->
   <section *ngIf="!isLoadingDeals && historicalDeals.length > 0">
     <div class="flex items-center justify-between mb-6">

@@ -44,6 +44,7 @@ export class NavComponent implements OnInit, OnDestroy {
    *  cả bản desktop lẫn bản mobile của cùng một danh sách. */
   readonly muc = [
     { duongDan: '/deals', nhan: 'Deal' },
+    { duongDan: '/hot', nhan: 'Hot' },
     { duongDan: '/free', nhan: 'Miễn phí' },
     { duongDan: '/news', nhan: 'Tin tức' },
     { duongDan: '/forum', nhan: 'Diễn đàn' },

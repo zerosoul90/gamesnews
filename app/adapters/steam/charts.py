@@ -91,3 +91,28 @@ class SteamChartsAdapter:
         # ]}}
         ranks: list[dict[str, Any]] = data.get("response", {}).get("ranks", [])
         return ranks
+
+    async def current_players(self, appid: int) -> int | None:
+        """Số người đang chơi một game, qua `ISteamUserStats/GetNumberOfCurrentPlayers`.
+
+        Không cần key. Kiểm tay 2026-09-26: `{"response": {"player_count":
+        40176, "result": 1}}`; appid không tồn tại thì **404** kèm `result: 42`
+        — trả None, không ném lỗi, vì đó là câu trả lời chứ không phải sự cố.
+        """
+        url = f"{WEB_API_URL}/ISteamUserStats/GetNumberOfCurrentPlayers/v1/"
+        try:
+            response = await self._http.get(url, params={"appid": str(appid)})
+        except httpx.HTTPError as exc:
+            raise TransientError(f"Không gọi được {url}: {exc!r}") from exc
+        if response.status_code == 404:
+            return None
+        error = classify_http_status(response.status_code)
+        if error is not None:
+            raise error(f"{url} -> {response.status_code}: {response.text[:200]}")
+        try:
+            data = response.json().get("response") or {}
+        except ValueError as exc:
+            raise PermanentError(f"{url} trả về không phải JSON: {exc}") from exc
+        if data.get("result") != 1 or not isinstance(data.get("player_count"), int):
+            return None
+        return int(data["player_count"])

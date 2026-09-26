@@ -384,11 +384,18 @@ class SteamCatalogAdapter(BaseAdapter[dict[str, Any], dict[str, Any]]):
     async def details(self, appid: int) -> dict[str, Any] | None:
         """Payload chi tiết, hoặc None nếu Steam trả `success: false`.
 
-        `success: false` đến từ app đã gỡ khỏi cửa hàng, app không bán ở VN,
-        hoặc chính ta đang bị bóp tốc độ — mã HTTP vẫn 200. Người gọi phải phân
-        biệt được "không có dữ liệu" với "hỏng", nên trả None thay vì ném lỗi.
+        `success: false` đến từ app đã gỡ khỏi cửa hàng, hoặc app không bán ở
+        VN. Người gọi phải phân biệt được "không có dữ liệu" với "hỏng", nên trả
+        None thay vì ném lỗi. Phản hồi không có mục của app thì là "hỏng" —
+        `TransientError`, để người gọi trả việc về hàng đợi.
         """
         entry = await self.fetch(endpoint="appdetails", op="details", appid=appid)
+        if "success" not in entry:
+            # Body `null` hoặc không có mục của app: không phải câu trả lời về
+            # app này. Gặp khi đang bị bóp tốc độ — HTTP vẫn 200. Coi là "không
+            # bán ở VN" thì app bị gạch khỏi hàng đợi vĩnh viễn: đo 2026-09-26,
+            # Palworld, Overwatch, Marvel Rivals đều nằm `missing`.
+            raise TransientError(f"appdetails {appid}: không có mục của app trong phản hồi")
         if not entry.get("success"):
             return None
         data: dict[str, Any] = entry.get("data") or {}

@@ -28,7 +28,12 @@ from app.core.logging import new_request_id, request_id_var, setup_logging
 from app.jobs.cheapshark_pricing import sync_cheapshark_prices
 from app.jobs.embeddings import sync_game_embeddings
 from app.jobs.epic_pricing import sync_epic_free_games
-from app.jobs.metrics import job_compute_hotness, job_fetch_steam_ccu, job_rollup_metrics
+from app.jobs.metrics import (
+    job_compute_hotness,
+    job_fetch_steam_ccu,
+    job_fetch_tracked_ccu,
+    job_rollup_metrics,
+)
 from app.jobs.mobile_catalog import PLAY_RUN_BUDGET, sync_app_store, sync_google_play
 from app.jobs.news import crawl_all_sources
 from app.jobs.notification_digest import send_notification_digest
@@ -151,6 +156,9 @@ CRON_JOBS: list[CronJob] = [
     cron(backfill_summaries, minute=52),
     # --- Chỉ số & streamer (Phase 7) ---
     cron(job_fetch_steam_ccu, minute=EVERY_15_MIN),
+    # :50 để điểm đo vào kịp lượt rollup :05 kế tiếp. 500 request tuần tự, nên
+    # nới trần thời gian như `sync_app_store`.
+    cron(job_fetch_tracked_ccu, minute=50, timeout=900),
     cron(job_rollup_metrics, minute=5),
     # SAU rollup: chỉ số hot đọc mức ngày mà rollup vừa dựng.
     cron(job_compute_hotness, minute=20),
@@ -181,6 +189,7 @@ class WorkerSettings:
         send_notification_digest,
         job_rollup_metrics,
         job_fetch_steam_ccu,
+        job_fetch_tracked_ccu,
         job_compute_hotness,
         job_sync_streamers,
         job_renew_youtube_websub,

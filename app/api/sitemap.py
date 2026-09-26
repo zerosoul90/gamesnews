@@ -45,7 +45,7 @@ GAME_FILTER: dict[str, Any] = {"slug": {"$exists": True, "$ne": None}, "type": {
 
 # Trang không sinh từ catalog. Khớp `web/src/app/app.routes.ts`; `/` đã 302 sang
 # `/deals` ở `server.ts` nên chỉ liệt kê đích, không liệt kê cả hai.
-STATIC_PATHS = [("/deals", "hourly"), ("/free", "daily")]
+STATIC_PATHS = [("/deals", "hourly"), ("/hot", "hourly"), ("/free", "daily")]
 
 XML_HEADERS = {"Cache-Control": "public, max-age=3600"}
 

@@ -19,6 +19,7 @@ from app.api.forum import forum_error_handler
 from app.api.forum import router as forum_router
 from app.api.games import router as games_router
 from app.api.health import router as health_router
+from app.api.hot import router as hot_router
 from app.api.news import router as news_router
 from app.api.prices import router as prices_router
 from app.api.promotions import router as promotions_router
@@ -115,6 +116,7 @@ app.include_router(sources_router)
 app.include_router(webhooks_router, prefix="/webhooks", tags=["webhooks"])
 app.include_router(community_router)
 app.include_router(promotions_router)
+app.include_router(hot_router)
 app.include_router(dashboard_router)
 app.include_router(forum_router)
 app.include_router(forum_admin_router)

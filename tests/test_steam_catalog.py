@@ -16,7 +16,7 @@ import httpx
 import pytest
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.adapters.base import AdapterConfig, PermanentError, RetryPolicy
+from app.adapters.base import AdapterConfig, PermanentError, RetryPolicy, TransientError
 from app.adapters.steam.adapter import SteamCatalogAdapter, parent_appid, to_game
 from app.models.game import Game
 from app.services import steam_queue
@@ -126,6 +126,19 @@ async def test_success_false_tra_none_chu_khong_phai_loi() -> None:
         return httpx.Response(200, json={"1245621": {"success": False}})
 
     assert await adapter(handler).details(1245621) is None
+
+
+@pytest.mark.parametrize("body", [b"null", b"{}", b'{"999": {"success": true, "data": {}}}'])
+async def test_phan_hoi_khong_co_muc_cua_app_la_loi_tam_thoi(body: bytes) -> None:
+    """Đang bị bóp tốc độ thì appdetails có thể trả 200 với body `null`. Coi
+    đó là `success: false` thì app bị gạch vĩnh viễn — đo 2026-09-26, Palworld,
+    Overwatch, Marvel Rivals đều nằm `missing`."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body, headers={"content-type": "application/json"})
+
+    with pytest.raises(TransientError):
+        await adapter(handler).details(1245621)
 
 
 async def test_lay_chi_tiet_goi_dung_gian_hang_vn_va_tieng_anh() -> None:
@@ -350,3 +363,41 @@ async def test_game_cha_chua_co_thi_de_trong_chu_khong_do(mongo_db: Db) -> None:
     linked: Game = await _with_parent(mongo_db, dlc, SHADOW_DLC)
 
     assert linked.parent_game is None
+
+
+async def test_app_duoc_uu_tien_len_truoc_appid_nho_hon(mongo_db: Db) -> None:
+    """Đo 2026-09-26: Battlefield 6, Forza Horizon 6... nằm `pending` sau hơn
+    trăm nghìn appid nhỏ hơn, vì hàng đợi chỉ lấy theo appid."""
+    await steam_queue.ensure_indexes(mongo_db)
+    await steam_queue.enqueue(mongo_db, [(100, "a"), (200, "b"), (3_000_000, "Battlefield 6")])
+
+    assert await steam_queue.prioritize(mongo_db, [3_000_000], priority=39_071) == 1
+
+    assert await steam_queue.take_pending(mongo_db, 1) == [3_000_000]
+    assert await steam_queue.take_pending(mongo_db, 1) == [100]
+
+
+async def test_uu_tien_khong_mo_lai_viec_da_xong(mongo_db: Db) -> None:
+    await steam_queue.ensure_indexes(mongo_db)
+    await steam_queue.enqueue(mongo_db, [(10, "a"), (20, "b")])
+    await steam_queue.mark(mongo_db, 10, "done")
+
+    assert await steam_queue.prioritize(mongo_db, [10], priority=500) == 0
+
+    assert await steam_queue.take_pending(mongo_db, 5) == [20]
+    assert await steam_queue.counts(mongo_db) == {"done": 1, "taken": 1}
+
+
+async def test_uu_tien_app_chua_co_trong_so_thi_them_moi(mongo_db: Db) -> None:
+    """Bảng CCU có app mà `GetAppList` chưa trả về. Thêm với tên rỗng; lượt
+    đồng bộ danh sách sau điền tên mà không đặt lại trạng thái hay ưu tiên."""
+    await steam_queue.ensure_indexes(mongo_db)
+    await steam_queue.enqueue(mongo_db, [(10, "a")])
+
+    assert await steam_queue.prioritize(mongo_db, [999], priority=7) == 1
+    await steam_queue.enqueue(mongo_db, [(999, "Game mới")])
+
+    doc = await mongo_db.steam_apps.find_one({"_id": 999})
+    assert doc is not None
+    assert (doc["name"], doc["status"], doc["priority"]) == ("Game mới", "pending", 7)
+    assert await steam_queue.take_pending(mongo_db, 1) == [999]

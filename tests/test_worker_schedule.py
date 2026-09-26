@@ -43,6 +43,7 @@ PHAI_CO_LICH = {
     "sync_game_embeddings",
     # Phase 7 — chỉ số và streamer
     "job_fetch_steam_ccu",
+    "job_fetch_tracked_ccu",
     "job_rollup_metrics",
     "job_compute_hotness",
     "job_sync_streamers",

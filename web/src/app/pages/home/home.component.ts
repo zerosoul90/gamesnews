@@ -5,6 +5,7 @@ import { FormsModule } from '@angular/forms';
 
 import { DealService, Deal, FreeGame } from '../../services/deal.service';
 import { NewsService, Article } from '../../services/news.service';
+import { HotGame, HotService } from '../../services/hot.service';
 
 @Component({
   selector: 'app-home',
@@ -18,15 +19,18 @@ export class HomeComponent implements OnInit {
   historicalDeals: Deal[] = [];
   freeGames: FreeGame[] = [];
   latestNews: Article[] = [];
+  hotGames: HotGame[] = [];
 
   isLoadingDeals = true;
   isLoadingFreeGames = true;
   isLoadingNews = true;
+  isLoadingHot = true;
 
   constructor(
     private router: Router,
     private dealService: DealService,
-    private newsService: NewsService
+    private newsService: NewsService,
+    private hotService: HotService,
   ) {}
 
   ngOnInit(): void {
@@ -46,6 +50,15 @@ export class HomeComponent implements OnInit {
         this.isLoadingFreeGames = false;
       },
       error: () => this.isLoadingFreeGames = false
+    });
+
+    // 5 game đông người chơi nhất
+    this.hotService.getHot('popular', 5).subscribe({
+      next: (res) => {
+        this.hotGames = res.games;
+        this.isLoadingHot = false;
+      },
+      error: () => this.isLoadingHot = false
     });
 
     // 5 tin mới nhất

@@ -30,6 +30,7 @@ export const routes: Routes = [
     { path: 'follows', loadComponent: () => import('./pages/follows/follows.component').then((m) => m.FollowsComponent) },
     { path: 'wrapped', loadComponent: () => import('./pages/wrapped/wrapped.component').then((m) => m.WrappedComponent) },
     { path: 'deals', component: DealComponent },
+    { path: 'hot', loadComponent: () => import('./pages/hot/hot.component').then((m) => m.HotComponent) },
     { path: 'free', loadComponent: () => import('./pages/free/free.component').then((m) => m.FreeComponent) },
     { path: 'news', loadComponent: () => import('./pages/news/news.component').then((m) => m.NewsComponent) },
     { path: 'game/:slug', loadComponent: () => import('./pages/game/game.component').then((m) => m.GameComponent) },

@@ -3753,3 +3753,61 @@ SEO theo mùa, ra mắt. Kế hoạch ở `PHASE-9.md`. Ba con số đã định
   tag (ứng viên SteamSpy, chưa kiểm điều khoản).
 - Route i18n rẻ hơn tưởng: giữ tiếng Việt ở gốc, tiếng Anh dưới `/en/` thì
   không URL nào phải đổi.
+
+### 2026-09-26 (lượt 30) — A1: bảng hot, và vì sao nó chỉ có 59 game
+
+`PHASE-9.md` mục A1. Trang `/hot` (hai bảng, `?bang=dang-len`), `GET /hot`,
+khối "Đang hot trên Steam" ở trang chủ, mục "Hot" trên nav, `/hot` trong
+sitemap. Nhưng phần lớn công việc nằm ở câu hỏi "vì sao chỉ 59 game".
+
+**Ba nguyên nhân chồng nhau, đều đo được:**
+
+1. **Job CCU chỉ đọc bảng top 100 của Steam**, và bỏ qua game không có trong
+   catalog: 50/100 bị bỏ. Top 100 lại toàn game đứng đầu thường trực, nên
+   "Đang lên" gần như không có ai.
+2. **Hàng đợi catalog lấy việc theo appid tăng dần.** Game mới — cũng là game
+   đang hot — có appid lớn nhất, nằm sau 143.520 mục: Battlefield 6, Call of
+   Duty, Forza Horizon 6, Elden Ring Nightreign, ARC Raiders đều `pending`.
+   Sửa: `steam_queue.prioritize` + trường `priority`; job CCU đẩy game top 100
+   chưa có trong catalog lên đầu, lấy CCU làm độ ưu tiên. Lượt 16:20 lấy đúng
+   chúng trước.
+3. **Phản hồi bị bóp tốc độ bị coi là "không bán ở VN" — vĩnh viễn.** appdetails
+   trả 200 với body `null`, `(payload or {}).get(appid, {})` biến nó thành `{}`,
+   và job đánh `missing`. Palworld, Overwatch, Marvel Rivals đều nằm đó. Sửa:
+   phản hồi không có mục của app là `TransientError`, job trả việc về hàng
+   đợi. Lượt 16:35 sau khi sửa: 200 app → 135 xong, **61 phản hồi không có mục**
+   (trước đây cả 61 thành `missing`), 4 `missing` thật (Delta Force, Path of
+   Exile 2, Arena Breakout, eFootball — nhiều khả năng khoá vùng VN).
+
+**CCU từng game** (`job_fetch_tracked_ccu`, phút :50): 500 game nhiều review
+Steam nhất, `GetNumberOfCurrentPlayers` (không cần key, kiểm tay trước khi
+viết: `{"player_count", "result": 1}`, app lạ trả 404 kèm `result: 42`). Bỏ
+qua game vừa có điểm từ bảng top 100. Gặp 429 thì dừng lượt. Lượt thật đầu
+tiên: **468 game, 134 giây, 0 lỗi**.
+
+**Bảng "Đang lên" lọc theo một bậc hạng**, không theo "momentum dương": đo
+trên 59 game, đuôi bảng là PUBG 0.0031, Dota 2 0.0016 — dao động của trung
+bình cửa sổ. Một bậc trong N game là 1/(N-1) percentile, nên ngưỡng tự nhỏ
+lại khi tập lớn lên. Trước khi mở rộng: 9 game qua ngưỡng.
+
+Nghiệm thu: `ruff` + `mypy` sạch, `pytest` **747 passed** (733 → 747), web
+**123/123** (117 → 123). Mutation: sắp hàng đợi về appid, ưu tiên mở lại việc
+đã xong, job CCU không đẩy ưu tiên, bảng đang lên giữ game đứng yên, bỏ lọc
+game vừa đo, không dừng khi 429, 404 thành lỗi, bỏ kiểm "không có mục" — mỗi
+cái đỏ đúng test. Trình duyệt: `/hot?bang=dang-len` hiện 9 game kèm ảnh, số
+người chơi, giá VND; SSR có sẵn nội dung (48 game ở `/hot`, không có CS2 ở
+bảng đang lên); trang chủ có khối hot.
+
+**Checkpoint A1 chưa đạt:** "Đang lên ≥ 20 game". Game mới vào tập theo dõi
+chưa có dữ liệu ở cửa sổ 7 ngày trước nên momentum bằng 0 — phải chờ khoảng
+một tuần. "Phổ biến nhất" mở rộng ngay từ lượt tính 17:20.
+
+**Còn nợ:**
+
+- **1.204 app đang `missing`**, phần lớn nhiều khả năng do lỗi (3) chứ không
+  phải khoá vùng. Chưa đưa về hàng đợi: cần người dùng đồng ý (~1.200 request
+  appdetails).
+- 61/200 phản hồi bị bóp mỗi lượt: bucket `DETAILS_RATE_LIMIT` (200/5 phút)
+  có vẻ vượt trần thật của Steam, hoặc job giá đang ăn chung hạn mức IP. Cần đo.
+- Sitemap thiếu `/`: test ghi "`/` 302 sang `/deals`", nhưng `/` giờ trả 200
+  với trang chủ riêng. Chú thích ở `app.routes.ts` cũng cũ theo.

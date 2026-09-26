@@ -8,11 +8,17 @@ của chính MongoDB. Mock lại thì test chỉ kiểm được cái mock — m
 from __future__ import annotations
 
 import datetime as dt
+from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
+from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from pydantic import SecretStr
 
+from app.jobs import metrics as metrics_job
+from app.services import steam_queue
 from app.services.metrics import (
     HOTNESS,
     compute_hotness,
@@ -208,9 +214,7 @@ async def test_bang_dang_tang_manh_khong_bi_game_top_thuong_truc_chiem_cho(
         await record(mongo_db, "thuong_truc", "steam_ccu", 900_000, ts=ts)
         # Nằm đáy suốt, chỉ bật lên trong ba ngày gần nhất. Cửa sổ so sánh
         # (lùi 7 ngày) không chạm tới ba ngày đó.
-        await record(
-            mongo_db, "vua_bat_len", "steam_ccu", 500_000 if day <= 3 else 10, ts=ts
-        )
+        await record(mongo_db, "vua_bat_len", "steam_ccu", 500_000 if day <= 3 else 10, ts=ts)
     await rollup_time_series(mongo_db, now=NOW)
 
     await compute_hotness(mongo_db, now=NOW)
@@ -244,3 +248,106 @@ async def test_tinh_lai_khong_nhan_doi_dong(mongo_db: Db) -> None:
 async def test_khong_xep_hang_theo_truong_bat_ky(mongo_db: Db) -> None:
     with pytest.raises(ValueError):
         await top_games(mongo_db, by="ccu_now")
+
+
+# --- job CCU ---------------------------------------------------------------
+
+
+async def test_job_ccu_day_game_dong_nguoi_chua_co_len_dau_hang_doi(
+    mongo_db: Db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Đo 2026-09-26: 50/100 game đông nhất Steam không có trong catalog, và job
+    chỉ lặng lẽ bỏ qua chúng — nên chúng không bao giờ lên bảng hot."""
+    await steam_queue.ensure_indexes(mongo_db)
+    await mongo_db.games.insert_one({"_id": ObjectId(), "external_ids": {"steam_appid": 730}})
+    await steam_queue.enqueue(mongo_db, [(10, "cũ"), (2807960, "Battlefield 6")])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert "GetGamesByConcurrentPlayers" in request.url.path
+        ranks = [
+            {"rank": 1, "appid": 730, "concurrent_in_game": 1_300_000},
+            {"rank": 56, "appid": 2807960, "concurrent_in_game": 39_071},
+            {"rank": 92, "appid": 5166840, "concurrent_in_game": 22_696},
+        ]
+        return httpx.Response(200, json={"response": {"ranks": ranks}})
+
+    monkeypatch.setattr(
+        metrics_job, "get_settings", lambda: SimpleNamespace(steam_api_key=SecretStr("k"))
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        tally = await metrics_job.job_fetch_steam_ccu(
+            {"clients": SimpleNamespace(db=mongo_db, http=http)}
+        )
+
+    assert tally == {"recorded": 1}
+    assert await mongo_db[RAW].count_documents({}) == 1
+    # Game đông hơn lên trước, và cả hai lên trước appid 10.
+    assert await steam_queue.take_pending(mongo_db, 1) == [2807960]
+    assert await steam_queue.take_pending(mongo_db, 1) == [5166840]
+    assert await steam_queue.take_pending(mongo_db, 1) == [10]
+
+
+async def _seed_tracked(db: Db) -> dict[int, ObjectId]:
+    """Bốn game, số review giảm dần theo thứ tự appid."""
+    ids: dict[int, ObjectId] = {}
+    for appid, total in ((10, 900_000), (20, 50_000), (30, 8_000), (40, 100)):
+        game_id = ObjectId()
+        ids[appid] = game_id
+        await db.games.insert_one({"_id": game_id, "external_ids": {"steam_appid": appid}})
+        await db.game_reviews.insert_one({"store": "steam", "game_id": game_id, "total": total})
+    return ids
+
+
+def _ccu_handler(called: list[int], answers: dict[int, httpx.Response]) -> Any:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert "GetNumberOfCurrentPlayers" in request.url.path
+        appid = int(request.url.params["appid"])
+        called.append(appid)
+        return answers[appid]
+
+    return handler
+
+
+def _players(n: int) -> httpx.Response:
+    return httpx.Response(200, json={"response": {"player_count": n, "result": 1}})
+
+
+async def test_ccu_tung_game_theo_so_review_va_bo_qua_game_vua_do(
+    mongo_db: Db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ids = await _seed_tracked(mongo_db)
+    # Game 10 vừa được job top 100 ghi: không đo lại.
+    await update_game_metric(mongo_db, str(ids[10]), "steam_ccu", 1_000_000)
+    monkeypatch.setattr(metrics_job, "TRACKED_LIMIT", 3)
+
+    called: list[int] = []
+    answers = {
+        20: _players(4_000),
+        # App đã gỡ: 404 kèm result 42 — câu trả lời, không phải lỗi.
+        30: httpx.Response(404, json={"response": {"result": 42}}),
+    }
+    async with httpx.AsyncClient(transport=httpx.MockTransport(_ccu_handler(called, answers))) as h:
+        tally = await metrics_job.job_fetch_tracked_ccu(
+            {"clients": SimpleNamespace(db=mongo_db, http=h)}
+        )
+
+    # Game 40 ngoài top 3 theo review; game 10 vừa đo.
+    assert called == [20, 30]
+    assert tally == {"tracked": 2, "recorded": 1, "no_data": 1, "failed": 0}
+    doc = await mongo_db[RAW].find_one({"meta.game_id": str(ids[20])})
+    assert doc is not None and doc["value"] == 4_000
+
+
+async def test_ccu_tung_game_gap_429_thi_dung_luot(
+    mongo_db: Db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _seed_tracked(mongo_db)
+    called: list[int] = []
+    answers = {10: _players(1), 20: httpx.Response(429), 30: _players(3), 40: _players(4)}
+    async with httpx.AsyncClient(transport=httpx.MockTransport(_ccu_handler(called, answers))) as h:
+        tally = await metrics_job.job_fetch_tracked_ccu(
+            {"clients": SimpleNamespace(db=mongo_db, http=h)}
+        )
+
+    assert called == [10, 20]
+    assert tally["recorded"] == 1

@@ -25,7 +25,7 @@ import uuid
 from typing import Any, Literal
 
 from motor.motor_asyncio import AsyncIOMotorCollection, AsyncIOMotorDatabase
-from pymongo import ASCENDING, IndexModel, UpdateOne
+from pymongo import ASCENDING, DESCENDING, IndexModel, UpdateOne
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,11 @@ _CLAIM_ATTEMPTS = 3
 INDEXES: list[IndexModel] = [
     # Lấy việc theo trạng thái là truy vấn nóng nhất của job bồi chi tiết.
     IndexModel([("status", ASCENDING), ("appid", ASCENDING)], name="status_appid"),
+    # Thứ tự lấy việc của `take_pending`: ưu tiên trước, rồi appid.
+    IndexModel(
+        [("status", ASCENDING), ("priority", DESCENDING), ("appid", ASCENDING)],
+        name="status_priority_appid",
+    ),
     IndexModel([("checked_at", ASCENDING)], name="checked_at"),
     # Đọc lại đúng lô mình vừa giành, và quét việc bị bỏ rơi.
     IndexModel([("claimed_by", ASCENDING)], name="claimed_by", sparse=True),
@@ -95,6 +100,54 @@ async def enqueue(db: Db, apps: list[tuple[int, str]]) -> int:
     ]
     result = await steam_apps(db).bulk_write(operations, ordered=False)
     return int(result.upserted_count)
+
+
+async def prioritize(db: Db, appids: list[int], priority: int) -> int:
+    """Đẩy những app này lên đầu hàng đợi. Trả về số mục được đổi hoặc thêm.
+
+    Hàng đợi lấy việc theo appid tăng dần, mà game mới — thường cũng là game
+    đang hot — có appid lớn nhất. Đo 2026-09-26: 50 trong top 100 game đông
+    người chơi nhất Steam chưa có trong catalog, 40 trong số đó nằm `pending`
+    giữa 143.520 mục (Battlefield 6, Call of Duty, Forza Horizon 6...).
+
+    Chỉ đụng mục còn `pending`, hoặc chưa có trong sổ (thêm mới với tên rỗng —
+    lượt `GetAppList` sau sẽ điền). Mục `done`/`missing`/`skipped` giữ nguyên:
+    đẩy lại chúng là gọi lại appdetails cho một kết quả đã biết.
+    """
+    if not appids:
+        return 0
+    operations = [
+        UpdateOne(
+            {"_id": appid, "status": "pending"},
+            {"$max": {"priority": priority}},
+        )
+        for appid in appids
+    ]
+    result = await steam_apps(db).bulk_write(operations, ordered=False)
+    changed = int(result.modified_count)
+
+    # Chưa có trong sổ: thêm mới. `$setOnInsert` để hai lượt chạy chồng nhau
+    # không đổ `DuplicateKeyError` — mục đã có thì lệnh này không làm gì.
+    now = dt.datetime.now(dt.UTC)
+    inserts = [
+        UpdateOne(
+            {"_id": appid},
+            {
+                "$setOnInsert": {
+                    "appid": appid,
+                    "name": "",
+                    "seen_at": now,
+                    "status": "pending",
+                    "checked_at": None,
+                    "priority": priority,
+                }
+            },
+            upsert=True,
+        )
+        for appid in appids
+    ]
+    inserted = (await steam_apps(db).bulk_write(inserts, ordered=False)).upserted_count
+    return changed + int(inserted)
 
 
 async def reclaim_abandoned(db: Db, *, now: dt.datetime | None = None) -> int:
@@ -149,7 +202,10 @@ async def take_pending(db: Db, limit: int, *, now: dt.datetime | None = None) ->
             break
 
         cursor = (
-            steam_apps(db).find({"status": "pending"}, {"_id": 1}).sort("appid", 1).limit(remaining)
+            steam_apps(db)
+            .find({"status": "pending"}, {"_id": 1})
+            .sort([("priority", -1), ("appid", 1)])
+            .limit(remaining)
         )
         candidates = [doc["_id"] async for doc in cursor]
         if not candidates:

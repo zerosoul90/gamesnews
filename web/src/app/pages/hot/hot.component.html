@@ -1,0 +1,55 @@
+<div class="container mx-auto px-4 py-8">
+  <div class="mb-6">
+    <h1 class="text-3xl font-bold text-white mb-2">
+      {{ board === 'rising' ? 'Game đang lên' : 'Game hot nhất' }}
+    </h1>
+    <p class="text-slate-400">
+      <ng-container *ngIf="board === 'popular'">Xếp theo số người chơi trên Steam trong 30 ngày qua.</ng-container>
+      <ng-container *ngIf="board === 'rising'">Game tăng hạng nhanh nhất so với tuần trước, không tính những game luôn đứng đầu.</ng-container>
+      <span *ngIf="computedAt"> Cập nhật {{ computedAt | date: 'HH:mm dd/MM' : '+0700' }}.</span>
+    </p>
+  </div>
+
+  <nav class="flex gap-2 mb-8" aria-label="Chọn bảng xếp hạng">
+    <a routerLink="/hot"
+       [class]="board === 'popular' ? 'bg-blue-600 text-white px-4 py-2 rounded font-semibold' : 'bg-slate-800 text-slate-300 hover:text-white px-4 py-2 rounded font-semibold'">Phổ biến nhất</a>
+    <a routerLink="/hot" [queryParams]="{ bang: 'dang-len' }"
+       [class]="board === 'rising' ? 'bg-blue-600 text-white px-4 py-2 rounded font-semibold' : 'bg-slate-800 text-slate-300 hover:text-white px-4 py-2 rounded font-semibold'">Đang lên</a>
+  </nav>
+
+  <div *ngIf="isLoading" class="text-center py-12 text-slate-400">Đang tải bảng xếp hạng...</div>
+
+  <div *ngIf="!isLoading && loi" class="text-center py-12 text-slate-400">Không tải được bảng xếp hạng.</div>
+
+  <div *ngIf="!isLoading && !loi && games.length === 0" class="text-center py-12 text-slate-400">
+    <ng-container *ngIf="board === 'rising'">Tuần này chưa có game nào tăng hạng rõ rệt.</ng-container>
+    <ng-container *ngIf="board === 'popular'">Chưa có dữ liệu người chơi.</ng-container>
+  </div>
+
+  <ol *ngIf="!isLoading && games.length > 0" class="space-y-3">
+    <li *ngFor="let g of games">
+      <a [routerLink]="['/game', g.game_details.slug || g.game_id]"
+         class="flex items-center gap-4 bg-slate-800 rounded-lg border border-slate-700 hover:border-blue-500 transition-colors p-3 group">
+        <span class="w-8 text-center text-xl font-bold text-slate-400 shrink-0">{{ g.rank }}</span>
+        <div class="w-32 aspect-video bg-slate-700 rounded overflow-hidden shrink-0 hidden sm:block">
+          <img *ngIf="g.game_details.cover_image_url" [src]="g.game_details.cover_image_url"
+               [alt]="g.game_details.title || 'Game chưa có tên'" loading="lazy" class="w-full h-full object-cover">
+        </div>
+        <div class="flex-1 min-w-0">
+          <h2 class="font-bold text-white truncate group-hover:text-blue-400">{{ g.game_details.title || 'Game chưa có tên' }}</h2>
+          <p *ngIf="g.ccu_now > 0" class="text-sm text-slate-400">{{ g.ccu_now.toLocaleString('vi-VN') }} người đang chơi</p>
+        </div>
+        <div class="text-right shrink-0">
+          <ng-container *ngIf="g.price; else khongGia">
+            <div class="flex items-center justify-end gap-2">
+              <span *ngIf="g.price.is_historical_low" class="bg-yellow-500 text-black font-bold px-2 py-0.5 text-xs rounded">Đáy lịch sử</span>
+              <span *ngIf="g.price.discount_percent > 0" class="bg-red-600 text-white font-bold px-2 py-0.5 text-xs rounded">-{{ g.price.discount_percent }}%</span>
+            </div>
+            <span class="text-lg font-bold text-green-400">{{ g.price.price_final > 0 ? g.price.price_final.toLocaleString('vi-VN') + '₫' : 'Miễn phí' }}</span>
+          </ng-container>
+          <ng-template #khongGia><span class="text-sm text-slate-500">Chưa có giá VN</span></ng-template>
+        </div>
+      </a>
+    </li>
+  </ol>
+</div>
