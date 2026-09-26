@@ -3610,3 +3610,29 @@ Nghiệm thu: `ruff` + `mypy` sạch, `pytest` **726 passed** (722 → 726), web
 và 1/1 request/giây. Nhỏ: `price_intl.checked_at` không ai đọc; `meta robots`
 đặt bởi một trang còn lưu lại khi điều hướng phía client (bot không bị ảnh
 hưởng vì mỗi URL tải mới qua SSR).
+
+### 2026-09-26 (lượt 27) — `meta robots` không còn theo người dùng sang trang khác
+
+Nợ nhỏ cuối cùng làm được bằng code ở lượt 26. Angular không tự dọn meta tag,
+và chỉ trang 404 tự gỡ `noindex` trong `ngOnDestroy`. Bảy chỗ khác đặt tag
+(đăng nhập, tìm kiếm, hồ sơ, tìm kiếm diễn đàn, chủ đề/chuyên mục/game không
+tồn tại) thì không — đi tiếp sang trang cần index vẫn mang `noindex`. Dọn ở
+từng component cũng không đủ: game 404 → game khác dùng lại component,
+`ngOnDestroy` không chạy.
+
+Giờ gỡ một chỗ: `provideMetaRobotsReset` (`web/src/app/meta-robots.ts`) gỡ tag ở
+`ResolveEnd` — sau guard, trước khi trang mới kích hoạt, nên trang đặt tag trong
+constructor vẫn giữ được. `ngOnDestroy` của trang 404 bỏ đi. Spec ba kịch bản;
+mutation sang `NavigationEnd` làm cả ba đỏ, mutation bỏ việc gỡ làm hai đỏ.
+
+Nghiệm thu: `npm run build` sạch (409 kB, không đổi), web **117/117** (114 → 117).
+Trình duyệt với bản SSR vừa build: `/login` có `noindex` → bấm link `/deals`
+(điều hướng phía client, không tải lại) → tag mất → Back → có lại. Bot vốn
+không bị ảnh hưởng vì mỗi URL tải mới qua SSR.
+
+**Không làm:** gỡ index `price_intl.checked_at`. Trường vẫn ở trong API (độ tươi
+của giá quốc tế), chỉ index là thừa. Lợi ích nhỏ, còn drop index là migration
+trên Mongo thật mà lượt này Docker tắt, không kiểm được.
+
+**Còn nợ:** như lượt 26 — Firebase/FCM, các quyết định sản phẩm, các phép đo
+dài hơi; mobile.

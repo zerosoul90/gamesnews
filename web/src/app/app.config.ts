@@ -4,12 +4,14 @@ import { provideHttpClient, withFetch, withInterceptorsFromDi, HTTP_INTERCEPTORS
 import { AuthInterceptor } from './services/auth.interceptor';
 
 import { routes } from './app.routes';
+import { provideMetaRobotsReset } from './meta-robots';
 import { provideClientHydration, withNoHttpTransferCache } from '@angular/platform-browser';
 
 export const appConfig: ApplicationConfig = {
   providers: [
     provideZoneChangeDetection({ eventCoalescing: true }),
     provideRouter(routes),
+    provideMetaRobotsReset(),
     // `withNoHttpTransferCache`: transfer cache đang TRƯỢT 100%, nên nó chỉ là
     // gánh nặng. Khoá cache sinh từ URL request, mà SSR gọi
     // `http://app:8000/...` còn browser gọi `/api/...` — hai khoá khác nhau.

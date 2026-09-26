@@ -1,4 +1,4 @@
-import { Component, Inject, OnDestroy, OnInit, Optional } from '@angular/core';
+import { Component, Inject, OnInit, Optional } from '@angular/core';
 import { Meta, Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 
@@ -10,7 +10,7 @@ import { RENDER_STATUS, RenderStatus } from '../../render-status';
   imports: [RouterLink],
   templateUrl: './not-found.component.html',
 })
-export class NotFoundComponent implements OnInit, OnDestroy {
+export class NotFoundComponent implements OnInit {
   constructor(
     private titleService: Title,
     private metaService: Meta,
@@ -29,11 +29,6 @@ export class NotFoundComponent implements OnInit, OnDestroy {
     // `noindex` mới là phần quan trọng: trước đây mọi URL rác đều trả 200 kèm
     // vỏ app rỗng, nên bot index được vô số trang trắng trùng nội dung.
     this.metaService.updateTag({ name: 'robots', content: 'noindex' });
-  }
-
-  ngOnDestroy(): void {
-    // Angular không tự dọn meta tag khi rời trang. Bỏ qua bước này thì điều
-    // hướng 404 -> /deals trong app để lại `noindex` trên một trang cần index.
-    this.metaService.removeTag("name='robots'");
+    // Rời trang thì tag được gỡ ở `provideMetaRobotsReset`, không ở đây.
   }
 }
