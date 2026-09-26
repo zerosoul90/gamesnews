@@ -25,6 +25,14 @@ interface DangBaoCao {
   id: string;
 }
 
+/** Bài đang sửa tại chỗ. `tieuDe` chỉ dùng khi sửa chủ đề. */
+interface DangSua {
+  loai: 'thread' | 'post';
+  id: string;
+  tieuDe: string;
+  noiDung: string;
+}
+
 /**
  * `/forum/t/:id?page=N` — một chủ đề và các trả lời.
  *
@@ -61,6 +69,8 @@ export class ForumThreadComponent implements OnInit, OnDestroy {
   loiGui: string | null = null;
 
   dangBaoCao: DangBaoCao | null = null;
+  dangSua: DangSua | null = null;
+  loiSua: string | null = null;
   lyDoChon = LY_DO_BAO_CAO[0];
   thongBao: string | null = null;
 
@@ -96,7 +106,9 @@ export class ForumThreadComponent implements OnInit, OnDestroy {
   }
 
   get duocTraLoi(): boolean {
-    return !!this.trangThai?.can_post && !!this.chuDe && !this.chuDe.locked;
+    return (
+      !!this.trangThai?.can_post && !!this.chuDe && !this.chuDe.locked && this.chuDe.status === 'visible'
+    );
   }
 
   /** Bài của chính người đang xem — chỉ để hiện nút xoá. Quyền thật vẫn do
@@ -224,6 +236,37 @@ export class ForumThreadComponent implements OnInit, OnDestroy {
     }
     this.forum.chuyenMuc().subscribe({
       next: (ds) => (this.tenChuyenMuc = ds.find((c) => c.slug === slug)?.name ?? null),
+    });
+  }
+
+  moSuaChuDe(): void {
+    if (!this.chuDe) {
+      return;
+    }
+    this.dangSua = { loai: 'thread', id: this.chuDe.id, tieuDe: this.chuDe.title, noiDung: this.chuDe.body };
+    this.loiSua = null;
+  }
+
+  moSuaTraLoi(bai: BaiTraLoi): void {
+    this.dangSua = { loai: 'post', id: bai.id, tieuDe: '', noiDung: bai.body };
+    this.loiSua = null;
+  }
+
+  luuSua(): void {
+    const sua = this.dangSua;
+    if (!sua) {
+      return;
+    }
+    const goi =
+      sua.loai === 'thread'
+        ? this.forum.suaChuDe(sua.id, { title: sua.tieuDe, body: sua.noiDung })
+        : this.forum.suaTraLoi(sua.id, sua.noiDung);
+    goi.subscribe({
+      next: () => {
+        this.dangSua = null;
+        this.tai();
+      },
+      error: (err) => (this.loiSua = cauBaoLoi(err)),
     });
   }
 

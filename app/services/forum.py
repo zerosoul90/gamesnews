@@ -27,6 +27,9 @@ THREADS = "forum_threads"
 POSTS = "forum_posts"
 REPORTS = "forum_reports"
 MOD_LOG = "forum_mod_log"
+# Bản trước mỗi lần sửa. Không có nó thì người viết bậy chỉ cần sửa bài sau khi
+# bị báo cáo, và admin mở hàng đợi ra thấy một bài vô hại.
+EDITS = "forum_edits"
 
 VISIBLE = "visible"
 HIDDEN = "hidden"
@@ -300,15 +303,35 @@ async def category_counts(db: Db) -> dict[str, int]:
 
 
 async def list_threads(
-    db: Db, *, category: str | None, game_id: str | None, page: int
-) -> tuple[list[dict[str, Any]], int]:
+    db: Db,
+    *,
+    category: str | None,
+    game_id: str | None,
+    page: int,
+    game_slug: str | None = None,
+) -> tuple[list[dict[str, Any]], int, dict[str, Any] | None]:
+    """Chủ đề của một chuyên mục hoặc một game. Trả kèm game khi lọc theo game.
+
+    `game_slug` có để trang `/forum/g/:slug` khỏi phải gọi `/games/by-slug` —
+    endpoint đó kéo cả giá và lịch sử giá chỉ để lấy id với tên.
+    """
     query: dict[str, Any] = {"status": VISIBLE}
+    game_ref: dict[str, Any] | None = None
     if category is not None:
         if category not in category_slugs():
             raise ForumNotFoundError("không tìm thấy chuyên mục")
         query["category"] = category
+    if game_slug is not None:
+        doc = await db.games.find_one({"slug": game_slug}, {"_id": 1})
+        if doc is None:
+            raise ForumNotFoundError("không tìm thấy game")
+        game_id = str(doc["_id"])
     if game_id is not None:
-        query["game_id"] = _oid(game_id, "game")
+        oid = _oid(game_id, "game")
+        query["game_id"] = oid
+        game_ref = (await _games(db, {oid})).get(oid)
+        if game_ref is None:
+            raise ForumNotFoundError("không tìm thấy game")
 
     total = await db[THREADS].count_documents(query)
     cursor = (
@@ -321,7 +344,7 @@ async def list_threads(
     docs = [doc async for doc in cursor]
     authors = await _authors(db, {d["author_id"] for d in docs})
     games = await _games(db, {d["game_id"] for d in docs if d.get("game_id")})
-    return [_thread_summary(d, authors, games) for d in docs], total
+    return [_thread_summary(d, authors, games) for d in docs], total, game_ref
 
 
 def _thread_summary(
@@ -351,9 +374,36 @@ async def _visible_thread(db: Db, thread_id: str) -> dict[str, Any]:
     return doc
 
 
-async def get_thread(db: Db, thread_id: str, *, page: int) -> dict[str, Any]:
-    thread = await _visible_thread(db, thread_id)
-    query = {"thread_id": thread["_id"], "status": VISIBLE}
+# Trạng thái mà CHÍNH người viết vẫn được xem bài của mình, kèm nhãn. Không có
+# `deleted`: tự xoá thì đã biết. Người lạ thì vẫn 404 như cũ.
+_TAC_GIA_XEM_DUOC = (HIDDEN, REMOVED)
+
+
+def _nhin_thay(viewer_id: ObjectId | None) -> dict[str, Any]:
+    """Điều kiện Mongo: bài đang hiện, HOẶC bài của chính người xem bị ẩn/gỡ."""
+    if viewer_id is None:
+        return {"status": VISIBLE}
+    return {
+        "$or": [
+            {"status": VISIBLE},
+            {"author_id": viewer_id, "status": {"$in": list(_TAC_GIA_XEM_DUOC)}},
+        ]
+    }
+
+
+async def get_thread(
+    db: Db, thread_id: str, *, page: int, viewer_id: ObjectId | None = None
+) -> dict[str, Any]:
+    """Một chủ đề và một trang trả lời.
+
+    Người viết bị ẩn/gỡ bài mà nhận 404 như người lạ thì không biết chuyện gì
+    xảy ra — tưởng lỗi, đăng lại, và bị báo cáo lần nữa. Nên với chính họ, bài
+    vẫn hiện kèm `status`; với mọi người khác vẫn là 404.
+    """
+    thread = await db[THREADS].find_one({"_id": _oid(thread_id, "chủ đề"), **_nhin_thay(viewer_id)})
+    if thread is None:
+        raise ForumNotFoundError("không tìm thấy chủ đề")
+    query = {"thread_id": thread["_id"], **_nhin_thay(viewer_id)}
     total = await db[POSTS].count_documents(query)
     cursor = (
         db[POSTS]
@@ -389,6 +439,7 @@ async def get_thread(db: Db, thread_id: str, *, page: int) -> dict[str, Any]:
             **_thread_summary(thread, authors, games),
             "body": thread["body"],
             "edited_at": thread.get("edited_at"),
+            "status": thread["status"],
         },
         "posts": [_post(p, authors, quotes) for p in posts],
         "total_posts": total,
@@ -420,6 +471,7 @@ def _post(
         "quote": quote,
         "created_at": doc["created_at"],
         "edited_at": doc.get("edited_at"),
+        "status": doc["status"],
     }
 
 
@@ -524,11 +576,31 @@ async def _own(
     return doc
 
 
+async def _luu_ban_cu(db: Db, target_type: str, doc: dict[str, Any], now: dt.datetime) -> None:
+    await db[EDITS].insert_one(
+        {
+            "target_type": target_type,
+            "target_id": doc["_id"],
+            "title": doc.get("title"),
+            "body": doc["body"],
+            "at": now,
+        }
+    )
+
+
+async def edit_history(db: Db, target_type: str, target_id: ObjectId) -> list[dict[str, Any]]:
+    """Các bản trước, cũ nhất trước — cho trang kiểm duyệt."""
+    cursor = db[EDITS].find({"target_type": target_type, "target_id": target_id}).sort("at", 1)
+    return [doc async for doc in cursor]
+
+
 async def edit_thread(
     db: Db, user_id: ObjectId, thread_id: str, *, title: str | None, body: str | None
 ) -> None:
     doc = await _own(db, THREADS, thread_id, user_id, "chủ đề")
-    update: dict[str, Any] = {"edited_at": dt.datetime.now(dt.UTC)}
+    now = dt.datetime.now(dt.UTC)
+    await _luu_ban_cu(db, "thread", doc, now)
+    update: dict[str, Any] = {"edited_at": now}
     if title is not None:
         update["title"] = title
     if body is not None:
@@ -538,9 +610,9 @@ async def edit_thread(
 
 async def edit_post(db: Db, user_id: ObjectId, post_id: str, *, body: str) -> None:
     doc = await _own(db, POSTS, post_id, user_id, "bài trả lời")
-    await db[POSTS].update_one(
-        {"_id": doc["_id"]}, {"$set": {"body": body, "edited_at": dt.datetime.now(dt.UTC)}}
-    )
+    now = dt.datetime.now(dt.UTC)
+    await _luu_ban_cu(db, "post", doc, now)
+    await db[POSTS].update_one({"_id": doc["_id"]}, {"$set": {"body": body, "edited_at": now}})
 
 
 async def delete_thread(db: Db, user_id: ObjectId, thread_id: str) -> None:
@@ -671,7 +743,11 @@ async def moderation_queue(db: Db, *, limit: int = 100) -> dict[str, list[dict[s
         # Bài đã bị gỡ/xoá mà báo cáo còn treo: không còn gì để quyết.
         if doc is None or doc["status"] not in (VISIBLE, HIDDEN):
             continue
+        history = await edit_history(db, g["_id"]["type"], doc["_id"])
         item = {
+            # Bản ĐẦU TIÊN — thứ người báo cáo đã thấy, trước mọi lần sửa.
+            "original_body": history[0]["body"][:500] if history else None,
+            "edit_count": len(history),
             "target_type": g["_id"]["type"],
             "target_id": str(doc["_id"]),
             "thread_id": str(doc.get("thread_id") or doc["_id"]),

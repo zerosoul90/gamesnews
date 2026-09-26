@@ -3450,3 +3450,42 @@ có dừng. Đã siết để khẳng định số request và từ khoá thực
 **Còn nợ:** nhịp 1/3 giây mới đo qua 164 request không lỗi; chưa biết hạn mức
 thật nằm đâu giữa 1/3 và 1/1. Enqueue tay vẫn theo trần 300s mặc định (đủ vì
 ngân sách 240s).
+
+### 2026-09-26 (lượt 23) — Dọn nợ diễn đàn
+
+Bốn trong sáu món nợ ghi ở lượt 21.
+
+- **Sitemap.** `/sitemap-forum.xml`: `/forum`, các chuyên mục, và chủ đề
+  `visible` (bị ẩn/xoá/gỡ là 404 — nộp cho Google là nộp URL hỏng). Không liệt
+  kê `/forum/g/:slug`: hơn 40.000 game gần hết chưa có chủ đề nào. Phải thêm
+  đường dẫn vào danh sách proxy tường minh ở `web/server.ts` — thiếu nó thì
+  file rơi xuống route SSR và trả HTML với mã 200. Kiểm qua cổng web thật: 200,
+  `application/xml`.
+- **Tra game nhẹ.** `/threads?game_slug=` trả kèm `{id, slug, title}` của
+  game; trang `/forum/g/:slug` thôi gọi `/games/by-slug` (kéo cả giá + lịch sử
+  giá chỉ để lấy id và tên). Spec khẳng định không còn request nào tới đó.
+- **Người viết thấy bài mình bị ẩn/gỡ.** Trước đây họ nhận 404 như người lạ —
+  tưởng lỗi, đăng lại, bị báo cáo lần nữa. Giờ với chính họ bài vẫn hiện kèm
+  `status` và băng rôn giải thích; người khác vẫn 404. Cần dependency xác thực
+  **tuỳ chọn** mới (`get_optional_user_id`): không token = khách, token hỏng =
+  401 (lặng lẽ coi là khách thì bài của họ "biến mất" không rõ lý do). Mutation
+  bỏ điều kiện `author_id` → hai test đỏ. Trên trình duyệt thật với phiên test:
+  băng rôn hiện, không có form trả lời hay nút Sửa.
+- **Sửa bài + lịch sử sửa.** Nút Sửa cho chủ đề và trả lời của chính mình (chỉ
+  khi đang hiện). Mỗi lần sửa lưu bản cũ vào `forum_edits`, và hàng đợi kiểm
+  duyệt hiện **bản gốc** — không thì người viết bậy chỉ cần sửa bài sau khi bị
+  báo cáo, và admin mở hàng đợi thấy một bài vô hại.
+
+Một lỗi của chính tôi giữa chừng: chạy `ruff format app` thay vì từng file,
+format lại 30+ file không liên quan. Đã hoàn tác bằng `git checkout` và áp lại
+đúng phần thay đổi; diff cuối chỉ chạm file của lượt này.
+
+Nghiệm thu: `ruff` + `mypy` sạch, `pytest` **704 passed** (699 → 704), web **100/100**
+(95 → 100), `ng build` xanh.
+
+**Còn nợ (diễn đàn):**
+
+- **Lọc từ ngữ trong nội dung — cần quyết định sản phẩm trước khi làm**:
+  chặn hẳn hay che ký tự, danh sách từ lấy ở đâu và ai duy trì.
+- Mobile, thông báo trả lời, tìm kiếm chủ đề (ngoài MVP).
+- Trang 404 chuyên mục vẫn gọi `/me` một lần (đã cân nhắc, giữ nguyên).

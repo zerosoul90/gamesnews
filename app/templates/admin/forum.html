@@ -14,6 +14,11 @@
     <td>
       {% if it.title %}<strong>{{ it.title }}</strong><br>{% endif %}
       <span style="white-space:pre-line">{{ it.body }}</span><br>
+      {% if it.edit_count %}
+      <details><summary class="muted">Đã sửa {{ it.edit_count }} lần — xem bản gốc</summary>
+        <span style="white-space:pre-line">{{ it.original_body }}</span>
+      </details>
+      {% endif %}
       <a class="muted" href="/forum/t/{{ it.thread_id }}" target="_blank" rel="noopener">{{ it.target_type }} · mở chủ đề</a>
     </td>
     <td>{{ it.author.nickname or it.author.id }}</td>

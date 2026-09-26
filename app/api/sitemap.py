@@ -28,6 +28,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.config import get_settings
 from app.core.deps import MongoDep
+from app.services import forum
 
 router = APIRouter(tags=["SEO"])
 
@@ -132,7 +133,10 @@ async def sitemap_index(db: MongoDep) -> Response:
     # cũng không có là cấu trúc Search Console báo lỗi.
     pages = max(1, math.ceil(total / PAGE_SIZE))
 
-    entries = [f"<sitemap><loc>{base}/sitemap-pages.xml</loc></sitemap>"]
+    entries = [
+        f"<sitemap><loc>{base}/sitemap-pages.xml</loc></sitemap>",
+        f"<sitemap><loc>{base}/sitemap-forum.xml</loc></sitemap>",
+    ]
     entries += [
         f"<sitemap><loc>{base}/sitemap-games-{page}.xml</loc></sitemap>"
         for page in range(1, pages + 1)
@@ -191,6 +195,42 @@ async def sitemap_games(db: MongoDep, page: int) -> Response:
         lastmod = _lastmod(row.get("updated_at"))
         mod = f"<lastmod>{lastmod}</lastmod>" if lastmod else ""
         urls.append(f"<url><loc>{loc}</loc>{mod}<changefreq>weekly</changefreq></url>")
+
+    return _xml(
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+        + "".join(urls)
+        + "</urlset>"
+    )
+
+
+@router.get("/sitemap-forum.xml", response_class=Response)
+async def sitemap_forum(db: MongoDep) -> Response:
+    """Diễn đàn: trang chủ, các chuyên mục, và chủ đề đang hiện.
+
+    Chỉ `visible`: chủ đề bị ẩn/xoá/gỡ trả 404, nộp nó cho Google là nộp một
+    URL hỏng. Một file, không chia trang — `PAGE_SIZE` chủ đề hoạt động gần nhất
+    là đủ cho tới khi diễn đàn lớn tới mức đó; lúc ấy chia như sitemap game.
+
+    Không liệt kê `/forum/g/:slug`: hơn 40.000 game mà gần hết chưa có chủ đề
+    nào — một rổ trang rỗng. Chủ đề theo game vẫn vào qua URL của chính nó.
+    """
+    base = _base_url()
+    urls = [f"<url><loc>{base}/forum</loc><changefreq>daily</changefreq></url>"]
+    urls += [
+        f"<url><loc>{base}/forum/c/{escape(c['slug'])}</loc><changefreq>daily</changefreq></url>"
+        for c in forum.categories()
+    ]
+    cursor = (
+        db[forum.THREADS]
+        .find({"status": forum.VISIBLE}, {"last_post_at": 1})
+        .sort("last_post_at", -1)
+        .limit(PAGE_SIZE)
+    )
+    async for row in cursor:
+        lastmod = _lastmod(row.get("last_post_at"))
+        mod = f"<lastmod>{lastmod}</lastmod>" if lastmod else ""
+        urls.append(f"<url><loc>{base}/forum/t/{row['_id']}</loc>{mod}</url>")
 
     return _xml(
         '<?xml version="1.0" encoding="UTF-8"?>'

@@ -14,7 +14,6 @@ import {
   TrangThaiDang,
   cauBaoLoi,
 } from '../../services/forum.service';
-import { GameService } from '../../services/game.service';
 import { ForumTrangThaiComponent } from '../../components/forum-trang-thai/forum-trang-thai.component';
 
 /**
@@ -58,7 +57,6 @@ export class ForumCategoryComponent implements OnInit, OnDestroy {
     private route: ActivatedRoute,
     private router: Router,
     private forum: ForumService,
-    private games: GameService,
     private title: Title,
     private meta: Meta,
   ) {}
@@ -93,7 +91,14 @@ export class ForumCategoryComponent implements OnInit, OnDestroy {
     return this.laGame ? ['/forum/g', this.gameSlug] : ['/forum/c', this.slug];
   }
 
-  private get noi(): NoiDang | null {
+  /** Nơi ĐỌC: game thì lọc thẳng theo slug trong URL — `/threads` trả kèm id
+   *  và tên game, khỏi gọi `/games/by-slug` (kéo cả giá + lịch sử giá). */
+  private get noiDoc(): NoiDang {
+    return this.laGame ? { game_slug: this.gameSlug } : { category: this.slug };
+  }
+
+  /** Nơi GHI: backend nhận `game_id`, nên phải đợi lượt đọc đầu trả id về. */
+  private get noiGhi(): NoiDang | null {
     if (!this.laGame) {
       return { category: this.slug };
     }
@@ -106,20 +111,7 @@ export class ForumCategoryComponent implements OnInit, OnDestroy {
     this.khongCo = false;
 
     if (this.laGame) {
-      // `/threads` lọc theo `game_id`, còn URL mang slug cho dễ đọc — phải đổi
-      // slug ra id trước. Đã có game của đúng slug này thì khỏi hỏi lại.
-      if (this.game && this.game.slug === this.gameSlug) {
-        this.taiChuDe();
-        return;
-      }
-      this.games.getBySlug(this.gameSlug).subscribe({
-        next: (g) => {
-          this.game = { id: g.id, slug: g.slug, title: g.title };
-          this.datMeta();
-          this.taiChuDe();
-        },
-        error: (err) => this.baoLoi(err),
-      });
+      this.taiChuDe();
       return;
     }
 
@@ -134,12 +126,12 @@ export class ForumCategoryComponent implements OnInit, OnDestroy {
   }
 
   private taiChuDe(): void {
-    const noi = this.noi;
-    if (!noi) {
-      return;
-    }
-    this.forum.danhSach(noi, this.page).subscribe({
+    this.forum.danhSach(this.noiDoc, this.page).subscribe({
       next: (res) => {
+        if (res.game) {
+          this.game = res.game;
+          this.datMeta();
+        }
         this.chuDe = res.items;
         this.total = res.total;
         this.perPage = res.per_page;
@@ -165,7 +157,7 @@ export class ForumCategoryComponent implements OnInit, OnDestroy {
   }
 
   guiChuDe(): void {
-    const noi = this.noi;
+    const noi = this.noiGhi;
     if (this.dangGui || !noi) {
       return;
     }

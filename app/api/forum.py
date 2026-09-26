@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.api.admin import TEMPLATES, AdminAuth, PageAuth
-from app.api.auth import get_current_user_id
+from app.api.auth import get_current_user_id, get_optional_user_id
 from app.core.deps import ClientsDep, MongoDep, SettingsDep
 from app.core.serialization import jsonify as jsonable
 from app.services import forum
@@ -148,6 +148,9 @@ class ThreadSummary(BaseModel):
 class ThreadDetail(ThreadSummary):
     body: str
     edited_at: dt.datetime | None
+    # Khác "visible" chỉ khi người xem là chính người viết — xem
+    # `forum.get_thread`.
+    status: Literal["visible", "hidden", "removed"]
 
 
 class Quote(BaseModel):
@@ -164,6 +167,7 @@ class Post(BaseModel):
     quote: Quote | None
     created_at: dt.datetime
     edited_at: dt.datetime | None
+    status: Literal["visible", "hidden", "removed"]
 
 
 class Category(BaseModel):
@@ -175,6 +179,8 @@ class Category(BaseModel):
 
 class ThreadList(BaseModel):
     items: list[ThreadSummary]
+    # Có khi lọc theo game: trang `/forum/g/:slug` lấy tên + id từ đây.
+    game: GameRef | None = None
     total: int
     page: int
     per_page: int
@@ -216,17 +222,30 @@ async def list_threads(
     db: MongoDep,
     category: str | None = None,
     game_id: str | None = None,
+    game_slug: str | None = None,
     page: Annotated[int, Query(ge=1)] = 1,
 ) -> dict[str, Any]:
-    items, total = await forum.list_threads(db, category=category, game_id=game_id, page=page)
-    return {"items": items, "total": total, "page": page, "per_page": THREADS_PER_PAGE}
+    items, total, game = await forum.list_threads(
+        db, category=category, game_id=game_id, game_slug=game_slug, page=page
+    )
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "per_page": THREADS_PER_PAGE,
+        "game": game,
+    }
 
 
 @router.get("/threads/{thread_id}", response_model=ThreadPage)
 async def get_thread(
-    db: MongoDep, thread_id: str, page: Annotated[int, Query(ge=1)] = 1
+    db: MongoDep,
+    thread_id: str,
+    viewer: Annotated[str | None, Depends(get_optional_user_id)],
+    page: Annotated[int, Query(ge=1)] = 1,
 ) -> dict[str, Any]:
-    result = await forum.get_thread(db, thread_id, page=page)
+    viewer_id = ObjectId(viewer) if viewer and ObjectId.is_valid(viewer) else None
+    result = await forum.get_thread(db, thread_id, page=page, viewer_id=viewer_id)
     return {**result, "page": page, "per_page": POSTS_PER_PAGE}
 
 

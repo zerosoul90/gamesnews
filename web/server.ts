@@ -89,7 +89,7 @@ function mountApiProxy(server: express.Express): void {
    * tố sẽ nuốt luôn mọi URL người dùng bắt đầu bằng chữ đó.
    */
   server.get(
-    ['/robots.txt', '/sitemap.xml', '/sitemap-pages.xml', /^\/sitemap-games-\d+\.xml$/],
+    ['/robots.txt', '/sitemap.xml', '/sitemap-pages.xml', '/sitemap-forum.xml', /^\/sitemap-games-\d+\.xml$/],
     (req, res) => {
       forward(req, res, `${basePath}${req.originalUrl}`);
     },

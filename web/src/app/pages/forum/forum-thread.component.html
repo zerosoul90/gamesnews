@@ -24,6 +24,14 @@
   <ng-container *ngIf="chuDe && !khongCo">
     <p *ngIf="thongBao" class="bg-slate-800 border border-slate-700 rounded px-4 py-2 mb-4 text-slate-200 text-sm" role="status">{{ thongBao }}</p>
 
+    <!-- Chỉ người viết mới tới được đây với status khác visible. -->
+    <p *ngIf="chuDe.status === 'hidden'" class="bg-amber-900/40 border border-amber-700 rounded px-4 py-3 mb-4 text-amber-100 text-sm" data-trang-thai>
+      Chủ đề của bạn đang bị ẩn vì nhận nhiều báo cáo, chờ ban quản trị xem xét. Người khác hiện không thấy nó.
+    </p>
+    <p *ngIf="chuDe.status === 'removed'" class="bg-red-900/40 border border-red-700 rounded px-4 py-3 mb-4 text-red-100 text-sm" data-trang-thai>
+      Chủ đề của bạn đã bị ban quản trị gỡ. Chỉ bạn còn thấy nó.
+    </p>
+
     <article class="bg-slate-900 border border-slate-800 rounded-lg p-5 mb-6">
       <h1 class="text-2xl font-bold text-white mb-1">
         <span *ngIf="chuDe.locked" class="text-sm text-amber-300 mr-1">[Đã khoá]</span>{{ chuDe.title }}
@@ -33,9 +41,21 @@
         <span *ngIf="chuDe.edited_at"> · đã sửa</span>
       </p>
       <!-- Nội suy, không innerHTML: xem chú thích đầu component. -->
-      <div class="text-slate-200 whitespace-pre-line break-words" data-noi-dung>{{ chuDe.body }}</div>
+      <form *ngIf="dangSua?.loai === 'thread'; else noiDungChuDe" (ngSubmit)="luuSua()" class="space-y-2" aria-label="Sửa chủ đề">
+        <input name="tieuDeSua" [(ngModel)]="dangSua!.tieuDe" maxlength="150" aria-label="Tiêu đề"
+               class="w-full bg-slate-800 border border-slate-700 text-white rounded px-3 py-2">
+        <textarea name="noiDungSua" [(ngModel)]="dangSua!.noiDung" rows="6" maxlength="10000" aria-label="Nội dung"
+                  class="w-full bg-slate-800 border border-slate-700 text-white rounded px-3 py-2"></textarea>
+        <p *ngIf="loiSua" class="text-red-400 text-sm" role="alert">{{ loiSua }}</p>
+        <button type="submit" class="bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold px-3 py-1 rounded">Lưu</button>
+        <button type="button" (click)="dangSua = null" class="text-slate-400 hover:text-white text-sm px-2">Huỷ</button>
+      </form>
+      <ng-template #noiDungChuDe>
+        <div class="text-slate-200 whitespace-pre-line break-words" data-noi-dung>{{ chuDe.body }}</div>
+      </ng-template>
       <div class="flex gap-4 mt-4 text-xs">
         <button *ngIf="trangThai?.can_post && !cuaToi(chuDe.author.id)" (click)="moBaoCao('thread', chuDe.id)" class="text-slate-500 hover:text-red-400">Báo cáo</button>
+        <button *ngIf="cuaToi(chuDe.author.id) && chuDe.status === 'visible'" (click)="moSuaChuDe()" class="text-slate-500 hover:text-blue-400">Sửa</button>
         <button *ngIf="cuaToi(chuDe.author.id)" (click)="xoaChuDe()" class="text-slate-500 hover:text-red-400">Xoá chủ đề</button>
       </div>
     </article>
@@ -48,6 +68,8 @@
           <strong class="text-slate-300">{{ bai.author.nickname || 'Người dùng' }}</strong>
           · {{ bai.created_at | date: 'dd/MM/yyyy HH:mm' : '+0700' }}
           <span *ngIf="bai.edited_at"> · đã sửa</span>
+          <span *ngIf="bai.status === 'hidden'" class="text-amber-300" data-trang-thai> · đang bị ẩn chờ kiểm duyệt, chỉ bạn thấy</span>
+          <span *ngIf="bai.status === 'removed'" class="text-red-300" data-trang-thai> · đã bị ban quản trị gỡ, chỉ bạn thấy</span>
         </p>
         <blockquote *ngIf="bai.quote" class="border-l-2 border-slate-600 pl-3 mb-2 text-sm text-slate-400" data-trich-dan>
           <ng-container *ngIf="bai.quote.body !== null; else daAn">
@@ -56,10 +78,20 @@
           </ng-container>
           <ng-template #daAn><em>Bài được trích đã bị xoá hoặc ẩn.</em></ng-template>
         </blockquote>
-        <div class="text-slate-200 whitespace-pre-line break-words" data-noi-dung>{{ bai.body }}</div>
+        <form *ngIf="dangSua?.loai === 'post' && dangSua?.id === bai.id; else noiDungBai" (ngSubmit)="luuSua()" class="space-y-2" aria-label="Sửa trả lời">
+          <textarea name="noiDungSua" [(ngModel)]="dangSua!.noiDung" rows="4" maxlength="10000" aria-label="Nội dung"
+                    class="w-full bg-slate-800 border border-slate-700 text-white rounded px-3 py-2"></textarea>
+          <p *ngIf="loiSua" class="text-red-400 text-sm" role="alert">{{ loiSua }}</p>
+          <button type="submit" class="bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold px-3 py-1 rounded">Lưu</button>
+          <button type="button" (click)="dangSua = null" class="text-slate-400 hover:text-white text-sm px-2">Huỷ</button>
+        </form>
+        <ng-template #noiDungBai>
+          <div class="text-slate-200 whitespace-pre-line break-words" data-noi-dung>{{ bai.body }}</div>
+        </ng-template>
         <div class="flex gap-4 mt-3 text-xs">
           <button *ngIf="duocTraLoi" (click)="trich(bai)" class="text-slate-500 hover:text-blue-400">Trích dẫn</button>
           <button *ngIf="trangThai?.can_post && !cuaToi(bai.author.id)" (click)="moBaoCao('post', bai.id)" class="text-slate-500 hover:text-red-400">Báo cáo</button>
+          <button *ngIf="cuaToi(bai.author.id) && bai.status === 'visible'" (click)="moSuaTraLoi(bai)" class="text-slate-500 hover:text-blue-400">Sửa</button>
           <button *ngIf="cuaToi(bai.author.id)" (click)="xoaTraLoi(bai)" class="text-slate-500 hover:text-red-400">Xoá</button>
         </div>
       </li>

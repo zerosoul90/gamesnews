@@ -106,6 +106,7 @@ async def test_index_tro_toi_du_so_trang(mongo_db: Db, co_base_url: None) -> Non
     urls = locs(await sitemap.sitemap_index(mongo_db))
 
     assert f"{BASE}/sitemap-pages.xml" in urls
+    assert f"{BASE}/sitemap-forum.xml" in urls
     assert f"{BASE}/sitemap-games-1.xml" in urls
 
 
@@ -172,3 +173,30 @@ async def test_trang_tinh_khop_voi_route_cua_web(co_base_url: None) -> None:
     urls = locs(await sitemap.sitemap_pages())
 
     assert urls == [f"{BASE}/deals", f"{BASE}/free"]
+
+
+async def test_sitemap_dien_dan_chi_co_chu_de_dang_hien(mongo_db: Db, co_base_url: None) -> None:
+    """Chủ đề bị ẩn/xoá/gỡ trả 404 — nộp chúng cho Google là nộp URL hỏng."""
+    import datetime as dt
+
+    from bson import ObjectId
+
+    from app.services import forum
+
+    now = dt.datetime(2026, 9, 26, 10, 0, tzinfo=dt.UTC)
+    ids = {}
+    for status in (forum.VISIBLE, forum.HIDDEN, forum.DELETED, forum.REMOVED):
+        ids[status] = (
+            await mongo_db[forum.THREADS].insert_one(
+                {"status": status, "author_id": ObjectId(), "last_post_at": now}
+            )
+        ).inserted_id
+
+    xml = body(await sitemap.sitemap_forum(mongo_db))
+    urls = locs(await sitemap.sitemap_forum(mongo_db))
+
+    assert f"{BASE}/forum" in urls
+    assert f"{BASE}/forum/c/hoi-dap" in urls
+    chu_de = [u for u in urls if "/forum/t/" in u]
+    assert chu_de == [f"{BASE}/forum/t/{ids[forum.VISIBLE]}"]
+    assert "<lastmod>2026-09-26T10:00:00+00:00</lastmod>" in xml

@@ -277,6 +277,8 @@ describe('service gọi đúng đường dẫn backend có thật', () => {
       [() => s.taoChuDe({ category: 'hoi-dap' }, 't', 'b').subscribe(), 'POST', '/api/v1/forum/threads'],
       [() => s.traLoi(id, 'b', null).subscribe(), 'POST', '/api/v1/forum/threads/{}/posts'],
       [() => s.baoCao('post', id, 'spam').subscribe(), 'POST', '/api/v1/forum/reports'],
+      [() => s.suaChuDe(id, { body: 'b' }).subscribe(), 'PATCH', '/api/v1/forum/threads/{}'],
+      [() => s.suaTraLoi(id, 'b').subscribe(), 'PATCH', '/api/v1/forum/posts/{}'],
       [() => s.xoaChuDe(id).subscribe(), 'DELETE', '/api/v1/forum/threads/{}'],
       [() => s.xoaTraLoi(id).subscribe(), 'DELETE', '/api/v1/forum/posts/{}'],
     ];

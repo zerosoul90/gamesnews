@@ -27,6 +27,7 @@ function bai(id: string, authorId: string, body = 'một bài', quote: BaiTraLoi
     quote,
     created_at: '2026-09-26T10:00:00+00:00',
     edited_at: null,
+    status: 'visible',
   };
 }
 
@@ -44,6 +45,7 @@ function trang(over: Partial<TrangChuDe['thread']> = {}, posts: BaiTraLoi[] = []
       last_post_at: '2026-09-26T10:00:00+00:00',
       body: 'nội dung',
       edited_at: null,
+      status: 'visible',
       ...over,
     },
     posts,
@@ -250,5 +252,63 @@ describe('ForumThreadComponent', () => {
     for (const h of hrefs) {
       expect(duongDanCoThat(h)).withContext(h).toBeTrue();
     }
+  });
+
+  describe('bài bị ẩn/gỡ và sửa bài', () => {
+    it('chủ đề của mình đang bị ẩn: có băng rôn, không có form trả lời', () => {
+      mo(trang({ author: { id: TOI, nickname: 'Tôi' }, status: 'hidden' }));
+
+      expect(el().querySelector('[data-trang-thai]')?.textContent).toContain('đang bị ẩn');
+      expect(el().querySelector('form[aria-label="Viết trả lời"]')).toBeNull();
+      // Sửa bài đang bị xem xét thì admin thấy bản khác bản bị báo cáo.
+      expect(nut('Sửa').length).toBe(0);
+    });
+
+    it('trả lời của mình bị gỡ thì ghi rõ chỉ mình thấy', () => {
+      mo(trang({}, [{ ...bai('p1', TOI), status: 'removed' }]));
+
+      expect(el().querySelector('li [data-trang-thai]')?.textContent).toContain('chỉ bạn thấy');
+    });
+
+    it('nút Sửa chỉ trên bài của chính mình', () => {
+      mo(trang({}, [bai('p1', TOI), bai('p2', NGUOI_KHAC)]));
+
+      const cacBai = Array.from(el().querySelectorAll('li[id^="bai-"]'));
+      const nutTrong = (li: Element) => Array.from(li.querySelectorAll('button')).map((b) => b.textContent?.trim());
+      expect(nutTrong(cacBai[0])).toContain('Sửa');
+      expect(nutTrong(cacBai[1])).not.toContain('Sửa');
+    });
+
+    it('sửa trả lời gửi PATCH đúng nội dung rồi nạp lại', () => {
+      mo(trang({}, [bai('p1', TOI, 'bản cũ')]));
+      const c = fixture.componentInstance;
+
+      c.moSuaTraLoi(c.baiTraLoi[0]);
+      expect(c.dangSua?.noiDung).toBe('bản cũ');
+      c.dangSua!.noiDung = 'bản mới';
+      c.luuSua();
+
+      const req = http.expectOne(`${F}/posts/p1`);
+      expect(req.request.method).toBe('PATCH');
+      expect(req.request.body).toEqual({ body: 'bản mới' });
+      req.flush(null);
+      http.expectOne((r) => r.url === `${F}/threads/${THREAD}`).flush(trang());
+      expect(c.dangSua).toBeNull();
+    });
+
+    it('sửa chủ đề gửi cả tiêu đề lẫn nội dung', () => {
+      mo(trang({ author: { id: TOI, nickname: 'Tôi' } }));
+      const c = fixture.componentInstance;
+
+      c.moSuaChuDe();
+      c.dangSua!.tieuDe = 'Tiêu đề mới hơn';
+      c.luuSua();
+
+      const req = http.expectOne(`${F}/threads/${THREAD}`);
+      expect(req.request.method).toBe('PATCH');
+      expect(req.request.body).toEqual({ title: 'Tiêu đề mới hơn', body: 'nội dung' });
+      req.flush(null);
+      http.expectOne((r) => r.method === 'GET' && r.url === `${F}/threads/${THREAD}`).flush(trang());
+    });
   });
 });

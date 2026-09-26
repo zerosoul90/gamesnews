@@ -14,6 +14,7 @@ from app.services.auth import create_jwt_token, get_steam_openid_url, verify_ste
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
 security = HTTPBearer()
+optional_security = HTTPBearer(auto_error=False)
 
 
 # --- dependency xác thực ---------------------------------------------------
@@ -39,6 +40,22 @@ async def get_current_user(
             status_code=401, detail="Token không hợp lệ hoặc đã hết hạn"
         ) from exc
     return payload
+
+
+async def get_optional_user_id(
+    credentials: HTTPAuthorizationCredentials | None = Depends(optional_security),
+) -> str | None:
+    """`sub` nếu có token hợp lệ, `None` nếu không có token.
+
+    Cho endpoint đọc công khai mà người đăng nhập thấy thêm thứ riêng của họ.
+    Token có mà sai/hết hạn vẫn là 401: lặng lẽ coi như khách thì người dùng
+    thấy bài của mình "biến mất" mà không biết là do phiên hết hạn.
+    """
+    if credentials is None:
+        return None
+    payload = await get_current_user(credentials)
+    user_id = payload.get("sub")
+    return str(user_id) if user_id else None
 
 
 async def get_current_user_id(

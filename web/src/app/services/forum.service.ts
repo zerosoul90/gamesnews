@@ -34,9 +34,14 @@ export interface ChuDeTomTat {
   last_post_at: string;
 }
 
+/** Khác `visible` chỉ khi người xem chính là người viết — với người khác, bài
+ *  bị ẩn/gỡ là 404. Xem `forum.get_thread` ở backend. */
+export type TrangThaiBai = 'visible' | 'hidden' | 'removed';
+
 export interface ChuDeChiTiet extends ChuDeTomTat {
   body: string;
   edited_at: string | null;
+  status: TrangThaiBai;
 }
 
 export interface TrichDan {
@@ -53,6 +58,7 @@ export interface BaiTraLoi {
   quote: TrichDan | null;
   created_at: string;
   edited_at: string | null;
+  status: TrangThaiBai;
 }
 
 export interface ChuyenMuc {
@@ -64,6 +70,8 @@ export interface ChuyenMuc {
 
 export interface DanhSachChuDe {
   items: ChuDeTomTat[];
+  /** Có khi lọc theo game (`game_id` hoặc `game_slug`). */
+  game?: GameRef | null;
   total: number;
   page: number;
   per_page: number;
@@ -84,8 +92,9 @@ export interface TrangThaiDang {
   reason: string | null;
 }
 
-/** Nơi một chủ đề mới thuộc về — đúng một trong hai, backend trả 422 nếu không. */
-export type NoiDang = { category: string } | { game_id: string };
+/** Nơi một chủ đề thuộc về. Tạo chủ đề chỉ nhận `category` hoặc `game_id`
+ *  (backend trả 422 nếu không); `game_slug` chỉ dùng để ĐỌC danh sách. */
+export type NoiDang = { category: string } | { game_id: string } | { game_slug: string };
 
 /**
  * Câu báo lỗi đọc được từ một lỗi HTTP của diễn đàn.
@@ -128,7 +137,9 @@ export class ForumService {
 
   danhSach(noi: NoiDang, page = 1): Observable<DanhSachChuDe> {
     let params = new HttpParams().set('page', page);
-    params = 'category' in noi ? params.set('category', noi.category) : params.set('game_id', noi.game_id);
+    for (const [khoa, giaTri] of Object.entries(noi)) {
+      params = params.set(khoa, giaTri);
+    }
     return this.http.get<DanhSachChuDe>(`${this.goc}/threads`, { params });
   }
 
@@ -162,6 +173,14 @@ export class ForumService {
       target_id: targetId,
       reason,
     });
+  }
+
+  suaChuDe(id: string, thayDoi: { title?: string; body?: string }): Observable<void> {
+    return this.http.patch<void>(`${this.goc}/threads/${id}`, thayDoi);
+  }
+
+  suaTraLoi(id: string, body: string): Observable<void> {
+    return this.http.patch<void>(`${this.goc}/posts/${id}`, { body });
   }
 
   xoaChuDe(id: string): Observable<void> {

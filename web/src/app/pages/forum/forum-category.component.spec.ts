@@ -166,14 +166,19 @@ describe('ForumCategoryComponent — chế độ game (/forum/g/:gameSlug)', () 
 
   function mo(): void {
     fixture.detectChanges();
-    http
-      .expectOne((r) => r.url === `${GOC}/games/by-slug/elden-ring`)
-      .flush({ id: GAME_ID, slug: 'elden-ring', title: 'Elden Ring' });
+    // Không gọi `/games/by-slug` — endpoint đó kéo cả giá và lịch sử giá chỉ
+    // để lấy id với tên. `/threads?game_slug=` trả kèm cả hai.
+    http.expectNone((r) => r.url.includes('/games/by-slug'));
     const req = http.expectOne((r) => r.url === `${F}/threads`);
-    // URL mang slug cho dễ đọc, nhưng `/threads` lọc theo id — phải đổi đúng.
-    expect(req.request.params.get('game_id')).toBe(GAME_ID);
+    expect(req.request.params.get('game_slug')).toBe('elden-ring');
     expect(req.request.params.has('category')).toBeFalse();
-    req.flush({ items: Array.from({ length: 20 }, (_, i) => chuDe(i)), total: 45, page: 2, per_page: 20 });
+    req.flush({
+      items: Array.from({ length: 20 }, (_, i) => chuDe(i)),
+      total: 45,
+      page: 2,
+      per_page: 20,
+      game: { id: GAME_ID, slug: 'elden-ring', title: 'Elden Ring' },
+    });
     fixture.detectChanges();
     http.expectOne(`${F}/me`).flush({ nickname: 'Tôi', can_post: true, reason: null });
     fixture.detectChanges();
@@ -206,9 +211,7 @@ describe('ForumCategoryComponent — chế độ game (/forum/g/:gameSlug)', () 
 
   it('slug game không tồn tại thì báo không tìm thấy game', () => {
     fixture.detectChanges();
-    http
-      .expectOne((r) => r.url === `${GOC}/games/by-slug/elden-ring`)
-      .flush({ detail: 'x' }, { status: 404, statusText: 'x' });
+    http.expectOne((r) => r.url === `${F}/threads`).flush({ detail: 'x' }, { status: 404, statusText: 'x' });
     http.match(`${F}/me`).forEach((r) => r.flush({ nickname: null, can_post: false, reason: 'x' }));
     fixture.detectChanges();
 

@@ -244,6 +244,17 @@ async def test_chu_de_phai_thuoc_dung_mot_noi(moi: Moi) -> None:
     assert [t["id"] for t in res.json()["items"]] == [thread_id]
     assert res.json()["items"][0]["game"]["title"] == "Elden Ring"
 
+    # Lọc theo slug: trang `/forum/g/:slug` lấy id + tên game từ đây, khỏi gọi
+    # `/games/by-slug` (kéo cả giá + lịch sử giá).
+    res = await moi.http.get("/api/v1/forum/threads", params={"game_slug": "elden-ring"})
+    assert [t["id"] for t in res.json()["items"]] == [thread_id]
+    assert res.json()["game"] == {"id": str(game_id), "slug": "elden-ring", "title": "Elden Ring"}
+    res = await moi.http.get("/api/v1/forum/threads", params={"game_slug": "khong-co"})
+    assert res.status_code == 404
+    # Lọc theo chuyên mục thì không có `game`.
+    res = await moi.http.get("/api/v1/forum/threads", params={"category": "hoi-dap"})
+    assert res.json()["game"] is None
+
 
 async def test_tieu_de_va_noi_dung_duoc_lam_sach_o_bien(moi: Moi) -> None:
     headers = await tao_user(moi.db)
@@ -623,3 +634,87 @@ async def test_form_admin_go_bai_roi_quay_ve_trang(moi: Moi) -> None:
     assert res.headers["location"] == "/admin/forum?done=remove"
     doc = await moi.db[forum.THREADS].find_one({"_id": ObjectId(thread_id)})
     assert doc is not None and doc["status"] == forum.REMOVED
+
+
+# --- Người viết thấy bài mình bị ẩn/gỡ -------------------------------------------
+
+
+async def test_nguoi_viet_thay_bai_minh_bi_an_nguoi_la_thi_404(moi: Moi) -> None:
+    """Nhận 404 như người lạ thì người viết tưởng lỗi, đăng lại, và bị báo cáo
+    lần nữa. Nên với chính họ bài vẫn hiện, kèm `status`."""
+    chu = await tao_user(moi.db)
+    la = await tao_user(moi.db)
+    thread_id = await tao_chu_de(moi, chu)
+    await an_bang_bao_cao(moi, "thread", thread_id)
+    url = f"/api/v1/forum/threads/{thread_id}"
+
+    assert (await moi.http.get(url)).status_code == 404
+    assert (await moi.http.get(url, headers=la)).status_code == 404
+    res = await moi.http.get(url, headers=chu)
+    assert res.status_code == 200
+    assert res.json()["thread"]["status"] == "hidden"
+
+    # Admin gỡ hẳn: người viết vẫn thấy, với nhãn khác.
+    await moi.http.post(
+        "/admin/api/forum/moderate",
+        json={"target_type": "thread", "target_id": thread_id, "action": "remove"},
+        headers=ADMIN,
+    )
+    assert (await moi.http.get(url, headers=chu)).json()["thread"]["status"] == "removed"
+    # Tự xoá thì đã biết — không cần hiện lại.
+    other = await tao_chu_de(moi, chu, title="Chủ đề sẽ tự xoá")
+    await moi.http.delete(f"/api/v1/forum/threads/{other}", headers=chu)
+    assert (await moi.http.get(f"/api/v1/forum/threads/{other}", headers=chu)).status_code == 404
+
+
+async def test_tra_loi_bi_an_chi_nguoi_viet_thay(moi: Moi) -> None:
+    chu_de = await tao_user(moi.db)
+    viet = await tao_user(moi.db)
+    thread_id = await tao_chu_de(moi, chu_de)
+    post_id = (
+        await moi.http.post(
+            f"/api/v1/forum/threads/{thread_id}/posts", json={"body": "bị báo"}, headers=viet
+        )
+    ).json()["id"]
+    await an_bang_bao_cao(moi, "post", post_id)
+    url = f"/api/v1/forum/threads/{thread_id}"
+
+    assert (await moi.http.get(url)).json()["posts"] == []
+    assert (await moi.http.get(url, headers=chu_de)).json()["posts"] == []
+    posts = (await moi.http.get(url, headers=viet)).json()["posts"]
+    assert [(p["id"], p["status"]) for p in posts] == [(post_id, "hidden")]
+
+
+async def test_token_hong_tren_trang_doc_la_401_khong_lang_le_thanh_khach(moi: Moi) -> None:
+    """Coi như khách thì người dùng thấy bài của mình "biến mất" mà không biết
+    là do phiên hết hạn."""
+    headers = await tao_user(moi.db)
+    thread_id = await tao_chu_de(moi, headers)
+
+    res = await moi.http.get(
+        f"/api/v1/forum/threads/{thread_id}", headers={"Authorization": "Bearer token-hong"}
+    )
+    assert res.status_code == 401
+
+
+async def test_sua_bai_sau_khi_bi_bao_cao_khong_xoa_duoc_dau_vet(moi: Moi) -> None:
+    """Người viết bậy sửa bài sau khi bị báo cáo thì admin mở hàng đợi chỉ thấy
+    bài vô hại — trừ khi bản gốc được giữ."""
+    chu = await tao_user(moi.db)
+    thread_id = await tao_chu_de(moi, chu, body="nội dung xấu ban đầu")
+    await an_bang_bao_cao(moi, "thread", thread_id, so_nguoi=1)
+
+    res = await moi.http.patch(
+        f"/api/v1/forum/threads/{thread_id}", json={"body": "đã sửa cho vô hại"}, headers=chu
+    )
+    assert res.status_code == 204
+    res = await moi.http.patch(
+        f"/api/v1/forum/threads/{thread_id}", json={"body": "sửa lần hai"}, headers=chu
+    )
+
+    item = (await moi.http.get("/admin/api/forum/queue", headers=ADMIN)).json()["reported"][0]
+    assert item["body"] == "sửa lần hai"
+    assert item["original_body"] == "nội dung xấu ban đầu"
+    assert item["edit_count"] == 2
+    trang = (await moi.http.get("/admin/forum", headers=ADMIN)).text
+    assert "nội dung xấu ban đầu" in trang
