@@ -3636,3 +3636,71 @@ trên Mongo thật mà lượt này Docker tắt, không kiểm được.
 
 **Còn nợ:** như lượt 26 — Firebase/FCM, các quyết định sản phẩm, các phép đo
 dài hơi; mobile.
+
+### 2026-09-26 (lượt 28) — Hiệu chỉnh `EMBEDDING_THRESHOLD`, và lỗi to hơn ở tầng alias
+
+Người dùng chọn việc hiệu chỉnh ngưỡng. Việc đó lòi ra một lỗi to hơn ở tầng
+alias, cùng gốc: **tên có số phần khác nhau**.
+
+**Dữ liệu thật trước tiên.** 2.138 bài: `alias` 260, `llm_alias` 21,
+`embedding` 12, `exact` 1, còn lại chưa gắn được. Trong 12 bài gắn ở tầng
+embedding, 9 bài có điểm ~1.0 (đúng). **Ba bài còn lại, 0.837-0.841 — ngay
+trên ngưỡng 0.82 — đều sai**: hai bài "Tropico 7" vào Tropico 5, một bài RPG
+chung chung vào Divinity II: Developer's Cut. Không đo lại được đầu vào thật
+của tầng này: `suggested_alias` không được lưu vào bài.
+
+**Hai phép đo:**
+
+- *Không tốn quota:* so từng vector trong Qdrant (2.158 game) với game gần nhất
+  khác nó. 356 game có một game khác ≥ 0.82, và **hai phần của một series
+  giống nhau tới 0.97** (Dawn of War II ↔ Dawn of War 0.966, Bejeweled 2 ↔
+  Bejeweled 0.965). Ngưỡng không chặn được kiểu sai này.
+- *42 lượt embed, qua bucket `gemini_embed` của job:* 74 tên kiểu LLM hay viết,
+  có đáp án; 31 tên đã bị tầng alias bắt trước nên không embed. Cặp đúng
+  0.72-0.97, cặp sai 0.64-0.84 — **chồng lên nhau**.
+
+**Tầng alias gắn phần tiếp theo vào phần gốc.** Trong 31 tên bị alias bắt
+trước: "Far Cry 6" → `far-cry`, "Half-Life 3" → `half-life`, "Final Fantasy XVI"
+→ `final-fantasy`, "Legend of Grimrock 3", "Tomb Raider 2"... Tầng này dò cụm
+con trong tiêu đề, "far cry" khớp khít, số "6" ngay sau bị bỏ qua. Sửa: cụm
+đứng ngay trước số phần (2 chữ số trở xuống, hoặc La Mã ii-xx) không được gắn,
+và nếu nó dài bằng hoặc hơn mọi cụm khớp khác thì cả tiêu đề chuyển duyệt tay.
+Số phiên bản được miễn ("2.0" qua `normalize_vi` là "2 0" — số kèm số).
+
+Bản đầu chỉ bỏ cụm đó rồi xét tiếp. Chạy trên 2.145 bài thật thì lộ ra: alias
+rác ngắn hơn, lâu nay bị cụm dài che, nổi lên thắng — "Final Fantasy 7
+**Revelation**" ra một game Android tên Revelation, cùng "the last", "the
+master", "in sight". Bản cuối: **50 bài đổi kết quả, cả 50 từ gắn sai sang
+duyệt tay, không bài nào được gắn mới** — Mortal Shell 2, Endless Legend 2,
+Alien Isolation 2, Kingdom Come: Deliverance 2, Black Ops 7, 28 bài Final
+Fantasy 7 Revelation/14 vào `final-fantasy`; cùng hai alias rác "the last"
+("over the last 4 years") và "mainlining" ("mainlining 30 hours").
+
+**Tầng embedding:** số phần trong tên LLM trích ra phải có mặt trong tên entity
+(chiều ngược lại không đòi — "Skyrim" vẫn ra "The Elder Scrolls V: Skyrim"), và
+ngưỡng **0.82 → 0.85**. Mô phỏng lại trên 42 tên đã đo:
+
+| | đúng | sai |
+|---|---|---|
+| 0.82, không kiểm số (cũ) | 11 | 1 (Tropico 7) |
+| 0.82, kiểm số | 11 | 0 |
+| **0.85, kiểm số** | **6** | **0** |
+
+Chọn 0.85 dù kiểm số đã đủ trên mẫu đo tay, vì ca Divinity II thật (0.837) qua
+được phép kiểm số (cả hai là "2"). Cái giá gần như không có: tầng này mới gắn
+tổng cộng 12 bài.
+
+Nghiệm thu: `ruff` + `mypy app tests` sạch, `pytest` **733 passed** (726 → 733),
+không skip. Năm mutation — bỏ chặn số phần; chỉ bỏ cụm mà không chuyển duyệt
+tay; bỏ miễn trừ phiên bản; bỏ kiểm số ở tầng 4; ngưỡng về 0.82 — mỗi cái đỏ
+đúng test của nó. Build lại `app` + `worker` + `web`; chạy thử trong container
+`worker`: ngưỡng 0.85, ba tiêu đề thật từng gắn sai giờ trả duyệt tay.
+
+**Còn nợ:**
+
+- ~15 bài đang gắn sai trong DB (12 ở tầng alias, 3 ở tầng embedding) — code
+  mới chỉ áp cho bài mới.
+- Nên lưu `suggested_alias` vào bài: không có nó thì lần hiệu chỉnh sau lại
+  phải đo tay bằng quota.
+- Mẫu nhỏ (42 tên + 3 bài thật). Ngưỡng 0.85 là "đủ chặt với cái đã thấy",
+  chưa phải con số tối ưu.

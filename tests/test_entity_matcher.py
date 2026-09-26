@@ -14,9 +14,12 @@ from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.models.game import ExternalIds, Game, Titles
-from app.services import entity_review
+from app.services import embeddings, entity_review
 from app.services.catalog import ensure_indexes, games, upsert_game, with_aliases
 from app.services.entity_matcher import (
+    EMBEDDING_THRESHOLD,
+    embedding_match,
+    grams_before_sequel,
     is_specific_enough,
     match_by_alias,
     match_by_store_link,
@@ -378,3 +381,115 @@ async def test_bai_khong_noi_ve_game_nao_thi_tu_choi(mongo_db: Db) -> None:
     await entity_review.reject(mongo_db, article_id=article_id, reason="tin phần cứng")
 
     assert await entity_review.pending(mongo_db) == []
+
+
+# --- số phần: "Far Cry 6" không phải "Far Cry" ------------------------------
+
+
+def test_so_phan_va_so_phien_ban() -> None:
+    """Con số ngay sau tên là số phần; con số kèm một con số nữa là phiên bản."""
+    assert grams_before_sequel("far cry 6 review") >= {"far cry", "cry"}
+    assert "final fantasy" in grams_before_sequel("final fantasy xvi ra mat")
+    # "2.0" qua `normalize_vi` thành "2 0" — bản cập nhật, không phải phần 2.
+    assert "cyberpunk 2077" not in grams_before_sequel("cyberpunk 2077 2 0 update")
+    # Năm và số bốn chữ số là tên, không phải số phần.
+    assert grams_before_sequel("metro 2033 redux") == set()
+
+
+async def seed_series(db: Db) -> dict[str, ObjectId]:
+    await ensure_indexes(db)
+    catalog = [
+        make_game("far-cry", "Far Cry", steam_appid=13520),
+        make_game("final-fantasy", "Final Fantasy", steam_appid=1173770),
+        make_game("final-fantasy-vii-remake", "Final Fantasy VII Remake", steam_appid=1462040),
+        # Alias một từ đủ dài để được tin — loại từng nằm im sau "final fantasy".
+        make_game("revelation", "Revelation", google_play="com.revelation"),
+        make_game("cyberpunk-2077", "Cyberpunk 2077", steam_appid=1091500),
+    ]
+    ids: dict[str, ObjectId] = {}
+    for game in catalog:
+        key = next(k for k, v in game.external_ids.model_dump().items() if v is not None)
+        await upsert_game(db, game, key=key)
+        doc = await games(db).find_one({"slug": game.slug})
+        assert doc is not None
+        ids[game.slug] = doc["_id"]
+    return ids
+
+
+async def test_phan_chua_co_trong_catalog_khong_gan_vao_phan_goc(mongo_db: Db) -> None:
+    ids = await seed_series(mongo_db)
+
+    assert await match_by_alias(mongo_db, "Far Cry 6 review") is None
+    assert await match_by_alias(mongo_db, "Far Cry VI gets a new mode") is None
+    goc = await match_by_alias(mongo_db, "Far Cry review, 20 năm sau")
+    assert goc is not None and goc.game_id == ids["far-cry"]
+
+
+async def test_bo_cum_truoc_so_phan_khong_de_alias_ngan_hon_thang(mongo_db: Db) -> None:
+    """Đo trên bài thật: bỏ "final fantasy" rồi xét tiếp thì "revelation" — một
+    game Android — thắng, và bài về Final Fantasy 7 Revelation gắn vào nó."""
+    await seed_series(mongo_db)
+
+    assert await match_by_alias(mongo_db, "Final Fantasy 7 Revelation director interview") is None
+
+
+async def test_cum_dai_hon_chua_ca_so_phan_van_thang(mongo_db: Db) -> None:
+    ids = await seed_series(mongo_db)
+
+    match = await match_by_alias(mongo_db, "Final Fantasy VII Remake Intergrade lên Switch 2")
+    assert match is not None and match.game_id == ids["final-fantasy-vii-remake"]
+
+    ban_cap_nhat = await match_by_alias(mongo_db, "Cyberpunk 2077 2.0 update is out")
+    assert ban_cap_nhat is not None and ban_cap_nhat.game_id == ids["cyberpunk-2077"]
+
+
+class _Gemini:
+    configured = True
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        return [[0.1] for _ in texts]
+
+
+def _qdrant_tra_ve(
+    monkeypatch: pytest.MonkeyPatch, hits: list[tuple[ObjectId, float, str]]
+) -> list[float]:
+    thresholds: list[float] = []
+
+    async def search(_client: Any, _vector: Any, *, threshold: float, limit: int) -> Any:
+        thresholds.append(threshold)
+        return [h for h in hits if h[1] >= threshold][:limit]
+
+    monkeypatch.setattr(embeddings, "search", search)
+    return thresholds
+
+
+async def test_tang_4_so_phan_khong_khop_thi_khong_gan(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Đo thật: "Tropico 7" ra Tropico 5 ở 0.841, và đã gắn hai bài như thế."""
+    _qdrant_tra_ve(monkeypatch, [(ObjectId(), 0.93, "Tropico 5")])
+
+    match = await embedding_match("Tropico 7", object(), _Gemini())  # type: ignore[arg-type]
+
+    assert match is None
+
+
+async def test_tang_4_ten_khong_so_van_khop_ten_co_so(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Chỉ đòi số của tên LLM có mặt bên entity, không đòi ngược lại."""
+    game_id = ObjectId()
+    thresholds = _qdrant_tra_ve(
+        monkeypatch,
+        [(game_id, 0.91, "The Elder Scrolls V: Skyrim Special Edition")],
+    )
+
+    match = await embedding_match("Skyrim", object(), _Gemini())  # type: ignore[arg-type]
+
+    assert match is not None and match.game_id == game_id
+    assert thresholds == [EMBEDDING_THRESHOLD]
+
+
+async def test_tang_4_duoi_nguong_thi_khong_gan(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ba bài gắn ở tầng này trên dữ liệu thật với điểm 0.837-0.841 đều sai."""
+    _qdrant_tra_ve(monkeypatch, [(ObjectId(), 0.841, "Divinity II: Developer's Cut")])
+
+    match = await embedding_match("Divinity: Original Sin 2", object(), _Gemini())  # type: ignore[arg-type]
+
+    assert match is None

@@ -88,14 +88,19 @@ ALIAS_CONFIDENCE = 0.95
 # entity đến từ đâu.
 LLM_ALIAS_CONFIDENCE = 0.85
 
-# Ngưỡng cosine của tầng 3.
+# Ngưỡng cosine của tầng 4. Hiệu chỉnh 2026-09-26 (lượt 28 ở `PROGRESS.md`):
 #
-# 0.82 là con số **khởi điểm, chưa đo trên dữ liệu thật** — và phải nói thẳng ra
-# thay vì để nó trông như một hằng số đã hiệu chỉnh. Cách hiệu chỉnh đúng: chạy
-# một đợt tin thật, đọc `entity_review_queue` (bỏ sót) và đối chiếu các bài đã
-# gắn ở tầng embedding (gắn sai), rồi kéo ngưỡng theo nguyên tắc đầu file —
-# thà bỏ sót còn hơn gắn sai, tức là **nghi ngờ thì kéo LÊN**.
-EMBEDDING_THRESHOLD = 0.82
+# - Trên dữ liệu thật, mọi bài gắn ở tầng này với điểm dưới 0.99 đều **sai** (3/3,
+#   ở 0.837-0.841 — ngay trên ngưỡng cũ 0.82): hai bài "Tropico 7" vào Tropico 5,
+#   một bài RPG chung chung vào Divinity II.
+# - 42 tên đo tay có đáp án: cặp đúng trải 0.72-0.97, cặp sai 0.64-0.84. Hai phân
+#   bố **chồng lên nhau**, không ngưỡng nào tách sạch. 0.85 là mức thấp nhất bỏ
+#   được mọi cặp sai đã thấy; cái giá là 5/11 cặp đúng qua được 0.82 rơi xuống duyệt
+#   tay — đúng chiều nguyên tắc đầu file.
+# - Hai phần khác nhau của một series giống nhau tới 0.97 (so từng cặp vector
+#   trong Qdrant, 2.158 game). Ngưỡng không chặn được kiểu sai đó; phép kiểm số
+#   phần trong `embedding_match` mới chặn được.
+EMBEDDING_THRESHOLD = 0.85
 
 # Khoảng cách tối thiểu giữa ứng viên nhất và nhì. Sát nhau thì vector không
 # phân biệt được hai entity, và chọn bừa là gắn sai 50% số lần.
@@ -174,6 +179,42 @@ async def match_by_store_link(db: Db, content: str) -> EntityMatch | None:
 # --- Tầng 2: alias ---------------------------------------------------------
 
 
+# Số La Mã đánh số phần, dạng đã qua `normalize_vi` (thường hoá). Không có "i":
+# nó trùng đại từ tiếng Anh, còn "Phần I" thì hiếm khi được viết ra.
+_ROMAN = {
+    "ii": 2, "iii": 3, "iv": 4, "v": 5, "vi": 6, "vii": 7, "viii": 8, "ix": 9, "x": 10,
+    "xi": 11, "xii": 12, "xiii": 13, "xiv": 14, "xv": 15, "xvi": 16, "xvii": 17,
+    "xviii": 18, "xix": 19, "xx": 20,
+}
+
+
+def sequel_number(token: str) -> int | None:
+    """Số thứ tự phần mà một từ (đã chuẩn hoá) biểu diễn, hoặc None.
+
+    Chỉ số một hai chữ số: "2077", "1997" là tên hoặc năm, không phải số phần.
+    """
+    if token.isdigit() and len(token) <= 2:
+        return int(token)
+    return _ROMAN.get(token)
+
+
+def sequel_numbers(normalized: str) -> set[int]:
+    return {n for word in normalized.split() if (n := sequel_number(word)) is not None}
+
+
+def followed_by_sequel(words: list[str], end: int) -> bool:
+    """Từ `words[end]` — ngay sau một cụm — có phải số phần không.
+
+    Trừ số phiên bản: `normalize_vi` biến "2.0" thành "2 0", nên một con số mà
+    ngay sau nó là một con số nữa ("cyberpunk 2077 2 0 update") thì không phải
+    số phần.
+    """
+    if end >= len(words) or sequel_number(words[end]) is None:
+        return False
+    after = words[end + 1] if end + 1 < len(words) else ""
+    return not (words[end].isdigit() and after.isdigit())
+
+
 def ngrams(normalized: str, max_words: int = MAX_ALIAS_WORDS) -> list[str]:
     """Mọi cụm từ liên tiếp trong một chuỗi đã chuẩn hoá, dài trước ngắn sau.
 
@@ -186,6 +227,17 @@ def ngrams(normalized: str, max_words: int = MAX_ALIAS_WORDS) -> list[str]:
         for start in range(len(words) - size + 1):
             out.append(" ".join(words[start : start + size]))
     return out
+
+
+def grams_before_sequel(normalized: str, max_words: int = MAX_ALIAS_WORDS) -> set[str]:
+    """Những cụm đứng ngay trước một số phần — "far cry" trong "far cry 6"."""
+    words = normalized.split()
+    return {
+        " ".join(words[start:end])
+        for end in range(1, len(words))
+        if followed_by_sequel(words, end)
+        for start in range(max(0, end - max_words), end)
+    }
 
 
 def is_specific_enough(alias: str) -> bool:
@@ -219,6 +271,16 @@ async def match_by_alias(
 
     Hai game cùng khớp một cụm dài như nhau thì **không chọn cái nào**: đó
     đúng là lúc con người cần nhìn vào.
+
+    **Cụm đứng trước số phần không được gắn** ("far cry" trong "Far Cry 6"), và
+    nếu nó dài bằng hoặc hơn mọi cụm khớp khác thì cả tiêu đề chuyển duyệt tay.
+    Catalog có "Far Cry 6" thì cụm dài hơn đã thắng; tới được đây nghĩa là phần
+    đó **chưa có**, và bài đang nói về nó. Đo 2026-09-26 trên 2.145 bài thật: 49
+    bài đổi kết quả. Mọi ca bị bỏ là gắn sai — Mortal Shell 2, Endless Legend 2,
+    Black Ops 7, "Final Fantasy 7 Revelation" vào `final-fantasy`. Còn chỉ bỏ
+    cụm đó rồi xét tiếp thì alias rác ngắn hơn nó vẫn che lâu nay nổi lên thắng:
+    "Final Fantasy 7 **Revelation**" ra một game Android tên Revelation, cùng
+    "the last", "the master", "in sight".
     """
     normalized = normalize_vi(title)
     if not normalized:
@@ -227,6 +289,7 @@ async def match_by_alias(
     candidates = [gram for gram in ngrams(normalized) if is_specific_enough(gram)]
     if not candidates:
         return None
+    before_sequel = grams_before_sequel(normalized)
 
     # Một truy vấn duy nhất cho mọi cụm; `aliases_normalized` là index multikey
     # nên đây là index scan, không phải quét bảng.
@@ -237,17 +300,28 @@ async def match_by_alias(
 
     best_len = 0
     best: list[tuple[ObjectId, str]] = []
+    sequel_len = 0
     async for doc in cursor:
         aliases = set(doc.get("aliases_normalized") or [])
         for gram in candidates:
             if gram not in aliases:
                 continue
             length = len(gram.split())
+            if gram in before_sequel:
+                sequel_len = max(sequel_len, length)
+                continue
             if length > best_len:
                 best_len, best = length, [(doc["_id"], gram)]
             elif length == best_len and doc["_id"] not in [x for x, _ in best]:
                 best.append((doc["_id"], gram))
             break
+
+    if sequel_len and sequel_len >= best_len:
+        logger.info(
+            "tiêu đề nói về một phần chưa có trong catalog, chuyển duyệt tay",
+            extra={"title": title[:120]},
+        )
+        return None
 
     if not best:
         return None
@@ -325,7 +399,20 @@ async def embedding_match(
         )
         return None
 
-    game_id, score = hits[0]
+    # Số phần trong tên LLM trích ra phải có mặt trong tên entity. "Tropico 7"
+    # ra Tropico 5 ở 0.841, "Street Fighter 6" ra Street Fighter V ở 0.80: vector
+    # gần vì gần như cùng chữ, còn con số — thứ duy nhất phân biệt hai game — thì
+    # vector gần như không thấy. Chiều ngược lại thì không đòi: "Skyrim" phải ra
+    # được "The Elder Scrolls V: Skyrim".
+    game_id, score, entity_name = hits[0]
+    missing = sequel_numbers(normalize_vi(text)) - sequel_numbers(normalize_vi(entity_name))
+    if missing:
+        logger.info(
+            "số phần không khớp ở tầng embedding, chuyển duyệt tay",
+            extra={"game_name": text[:120], "entity": entity_name[:120], "score": score},
+        )
+        return None
+
     return EntityMatch(
         game_id=game_id,
         tier="embedding",

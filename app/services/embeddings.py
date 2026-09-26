@@ -111,8 +111,11 @@ async def upsert_games(
 
 async def search(
     client: AsyncQdrantClient, vector: list[float], *, threshold: float, limit: int = 1
-) -> list[tuple[ObjectId, float]]:
-    """Tìm entity gần nhất. Trả về [(game_id, điểm)], đã lọc theo ngưỡng."""
+) -> list[tuple[ObjectId, float, str]]:
+    """Tìm entity gần nhất. Trả về [(game_id, điểm, tên)], đã lọc theo ngưỡng.
+
+    Tên là `embedding_text` đã nạp — mọi tên và alias nối bằng " | ".
+    """
     response = await client.query_points(
         collection_name=COLLECTION,
         query=vector,
@@ -121,12 +124,13 @@ async def search(
         with_payload=True,
     )
 
-    results: list[tuple[ObjectId, float]] = []
+    results: list[tuple[ObjectId, float, str]] = []
     for hit in response.points:
         raw = (hit.payload or {}).get("game_id")
         if not isinstance(raw, str) or not ObjectId.is_valid(raw):
             # Point cũ từ một lần nạp theo lược đồ khác. Bỏ qua, đừng nổ.
             logger.warning("point Qdrant thiếu game_id hợp lệ", extra={"point_id": str(hit.id)})
             continue
-        results.append((ObjectId(raw), float(hit.score)))
+        name = (hit.payload or {}).get("name")
+        results.append((ObjectId(raw), float(hit.score), name if isinstance(name, str) else ""))
     return results
