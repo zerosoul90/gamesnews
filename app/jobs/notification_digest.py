@@ -1,3 +1,4 @@
+import datetime as dt
 import logging
 from typing import Any
 
@@ -7,13 +8,31 @@ from app.services.notification import send_push_notification
 
 logger = logging.getLogger(__name__)
 
+# Bản tin tuần đi vào thứ Hai giờ VN. `weekday()` của Python: thứ Hai = 0.
+WEEKLY_DAY = 0
+VN = dt.timezone(dt.timedelta(hours=7))
 
-async def send_notification_digest(ctx: dict[str, Any]) -> dict[str, int]:
+
+async def send_notification_digest(
+    ctx: dict[str, Any], *, now: dt.datetime | None = None
+) -> dict[str, int]:
     """
     Job chạy hàng ngày.
     Gom các thông báo bị kẹt trong `notification_queue` thành một digest và gửi FCM.
+
+    Tôn trọng `channels.news_digest` của từng user:
+
+    - `daily` (mặc định, kể cả user không có cài đặt): gửi mỗi lượt;
+    - `weekly`: chỉ gửi vào thứ Hai giờ VN, các ngày khác GIỮ hàng đợi;
+    - `none`: không gửi bản tin, và bỏ các mục đang chờ — giữ lại thì hàng đợi
+      của người ấy phình mãi mà không bao giờ có ai đọc.
+
+    Bản trước gửi mỗi ngày cho mọi người: trường này có trong model từ Phase 3
+    mà không chỗ nào đọc.
     """
     db: AsyncIOMotorDatabase[dict[str, Any]] = ctx["clients"].db
+    now = now or dt.datetime.now(dt.UTC)
+    la_ngay_ban_tin_tuan = now.astimezone(VN).weekday() == WEEKLY_DAY
 
     # 1. Tìm tất cả user có thông báo trong queue
     cursor = db.notification_queue.aggregate(
@@ -30,11 +49,25 @@ async def send_notification_digest(ctx: dict[str, Any]) -> dict[str, int]:
 
     users_processed = 0
     notifications_sent = 0
+    dropped = 0
+    deferred = 0
 
     async for user_data in cursor:
         user_id = user_data["_id"]
         count = user_data["count"]
         items = user_data["items"]
+
+        user = await db.users.find_one({"_id": user_id}, {"notification_settings": 1}) or {}
+        tan_suat = (
+            (user.get("notification_settings") or {}).get("channels") or {}
+        ).get("news_digest", "daily")
+        if tan_suat == "none":
+            await db.notification_queue.delete_many({"user_id": user_id})
+            dropped += count
+            continue
+        if tan_suat == "weekly" and not la_ngay_ban_tin_tuan:
+            deferred += count
+            continue
 
         # Tạo nội dung digest
         title = f"Bản tin GameNews ({count} cập nhật)"
@@ -60,6 +93,16 @@ async def send_notification_digest(ctx: dict[str, Any]) -> dict[str, int]:
 
     logger.info(
         "Hoàn thành Notification Digest",
-        extra={"users": users_processed, "notifications": notifications_sent},
+        extra={
+            "users": users_processed,
+            "notifications": notifications_sent,
+            "dropped": dropped,
+            "deferred": deferred,
+        },
     )
-    return {"users_processed": users_processed, "notifications_sent": notifications_sent}
+    return {
+        "users_processed": users_processed,
+        "notifications_sent": notifications_sent,
+        "dropped": dropped,
+        "deferred": deferred,
+    }

@@ -14,6 +14,7 @@ Hai bất biến dưới đây đều đã từng hỏng và đều hỏng **im 
 
 from __future__ import annotations
 
+import datetime as dt
 from dataclasses import dataclass
 from typing import Any
 
@@ -46,7 +47,12 @@ async def xep_hang(db: Db, user_id: ObjectId, title: str, loai: str = "price_ale
 async def test_hang_doi_rong_thi_khong_lam_gi(mongo_db: Db) -> None:
     ket_qua = await send_notification_digest(ctx_cua(mongo_db))
 
-    assert ket_qua == {"users_processed": 0, "notifications_sent": 0}
+    assert ket_qua == {
+        "users_processed": 0,
+        "notifications_sent": 0,
+        "dropped": 0,
+        "deferred": 0,
+    }
 
 
 async def test_gui_khong_toi_thi_van_giu_hang_doi(mongo_db: Db) -> None:
@@ -144,3 +150,70 @@ async def test_mot_thong_bao_thi_khong_noi_them_tin_khac(
     await send_notification_digest(ctx_cua(mongo_db))
 
     assert "tin khác" not in than[0]
+
+
+# --- Tần suất bản tin (`channels.news_digest`) ------------------------------------
+
+THU_HAI = dt.datetime(2026, 9, 28, 2, 0, tzinfo=dt.UTC)  # 09:00 thứ Hai giờ VN
+THU_BA = dt.datetime(2026, 9, 29, 2, 0, tzinfo=dt.UTC)
+
+
+async def user_voi_tan_suat(db: Db, tan_suat: str) -> ObjectId:
+    user_id = ObjectId()
+    await db.users.insert_one(
+        {"_id": user_id, "notification_settings": {"channels": {"news_digest": tan_suat}}}
+    )
+    await xep_hang(db, user_id, "Có người trả lời", loai="forum_reply")
+    return user_id
+
+
+def dem_gui(monkeypatch: Any) -> list[ObjectId]:
+    da_gui: list[ObjectId] = []
+
+    async def gui_gia(db: Db, http: Any, user_id: ObjectId, *_: Any) -> int:
+        da_gui.append(user_id)
+        return 1
+
+    monkeypatch.setattr(notification_digest, "send_push_notification", gui_gia)
+    return da_gui
+
+
+async def test_ban_tin_tuan_chi_gui_thu_hai_ngay_khac_giu_hang_doi(
+    mongo_db: Db, monkeypatch: Any
+) -> None:
+    da_gui = dem_gui(monkeypatch)
+    user_id = await user_voi_tan_suat(mongo_db, "weekly")
+
+    ket_qua = await send_notification_digest(ctx_cua(mongo_db), now=THU_BA)
+    assert da_gui == []
+    assert ket_qua["deferred"] == 1
+    assert await mongo_db.notification_queue.count_documents({"user_id": user_id}) == 1
+
+    await send_notification_digest(ctx_cua(mongo_db), now=THU_HAI)
+    assert da_gui == [user_id]
+    assert await mongo_db.notification_queue.count_documents({"user_id": user_id}) == 0
+
+
+async def test_tat_ban_tin_thi_khong_gui_va_bo_hang_doi(mongo_db: Db, monkeypatch: Any) -> None:
+    """Giữ lại thì hàng đợi của người ấy phình mãi mà không ai đọc."""
+    da_gui = dem_gui(monkeypatch)
+    user_id = await user_voi_tan_suat(mongo_db, "none")
+
+    ket_qua = await send_notification_digest(ctx_cua(mongo_db), now=THU_HAI)
+
+    assert da_gui == []
+    assert ket_qua["dropped"] == 1
+    assert await mongo_db.notification_queue.count_documents({"user_id": user_id}) == 0
+
+
+async def test_hang_ngay_va_user_khong_co_cai_dat_deu_gui_moi_luot(
+    mongo_db: Db, monkeypatch: Any
+) -> None:
+    da_gui = dem_gui(monkeypatch)
+    hang_ngay = await user_voi_tan_suat(mongo_db, "daily")
+    khong_cai_dat = ObjectId()
+    await xep_hang(mongo_db, khong_cai_dat, "Deal")
+
+    await send_notification_digest(ctx_cua(mongo_db), now=THU_BA)
+
+    assert set(da_gui) == {hang_ngay, khong_cai_dat}

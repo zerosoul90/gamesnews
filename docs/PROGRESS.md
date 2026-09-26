@@ -3521,3 +3521,45 @@ Nghiệm thu: `ruff` + `mypy` sạch, `pytest` **714 passed** (704 → 714), web
 
 **Còn nợ (diễn đàn):** mobile; chưa có endpoint/giao diện bật tắt kênh thông
 báo nào (kể cả kênh cũ) — `forum_reply` chỉ đổi được bằng sửa DB; reaction.
+
+### 2026-09-26 (lượt 25) — Giao diện bật tắt thông báo, và hai công tắc vốn không làm gì
+
+Trang `/cai-dat-thong-bao` (lối vào: nav cá nhân + thẻ ở trang hồ sơ) và
+`GET/PUT /api/v1/user/notification-settings`. Nhưng trước khi làm giao diện
+phải sửa hai chỗ — không thì một nửa số nút là nút giả:
+
+- **`streamer_live` không được kiểm ở đâu.** Có trong `NotificationChannels`
+  từ Phase 3, nhưng gatekeeper chỉ đọc `price_alert` (và `forum_reply` thêm ở
+  lượt 24). Tắt vẫn nhận. Giờ mọi loại có công tắc nằm trong `CHANNEL_TYPES` và
+  được kiểm chung một chỗ.
+- **`news_digest` (daily/weekly/none) không được job digest đọc** — mọi người
+  nhận bản tin mỗi ngày. Giờ: `daily` gửi mỗi lượt; `weekly` chỉ thứ Hai giờ
+  VN, ngày khác giữ hàng đợi; `none` không gửi và bỏ các mục đang chờ (giữ lại
+  thì phình mãi không ai đọc). Trang cảnh báo rõ khi chọn "Không nhận": cảnh
+  báo giá rơi vào giờ im lặng cũng bị bỏ.
+
+Không ai thấy hai lỗi này vì chưa từng có giao diện để tắt — làm giao diện là
+lúc lời hứa trong model bị lộ.
+
+Chi tiết đáng giữ:
+
+- Giờ im lặng lưu dưới khoá `from`/`to` (alias) — dạng gatekeeper đọc. Ghi ra
+  `from_time` thì gatekeeper lặng lẽ rơi về 22:00-07:00. Test đọc thẳng
+  document Mongo để chốt.
+- Giờ sai định dạng bị chặn ở biên (`HH:MM`): gatekeeper coi giờ không parse
+  được là "không có giờ im lặng", nên lưu một giờ sai là âm thầm tắt nó.
+- User cũ thiếu kênh thêm sau vẫn nhận đủ khoá với giá trị mặc định — đúng giá
+  trị gatekeeper dùng khi khoá vắng mặt.
+- Lưu bằng nút, không lưu theo từng cú bấm: PUT thay cả khối, hai cú bấm nhanh
+  có thể về server lệch thứ tự.
+- Trình duyệt thật đọc tên ba checkbox là "on" — thêm `aria-label`, có spec.
+
+Nghiệm thu: mutation bỏ `streamer_live` khỏi `CHANNEL_TYPES` và bỏ nhánh
+`weekly` đều đỏ đúng test. Trên trình duyệt với user tạm: tắt Streamer, đổi
+bản tin sang hằng tuần, bấm Lưu → Mongo có đúng `streamer_live: false`,
+`news_digest: 'weekly'`, giờ vẫn ở `from`/`to`. User tạm đã xoá; user thật duy
+nhất trên dev không bị đụng. `ruff` + `mypy` sạch, `pytest` **722 passed** (714 → 722), web
+**111/111** (104 → 111).
+
+**Còn nợ:** `giftcode` chưa có công tắc (chưa có nguồn giftcode nào gửi thông
+báo); giờ im lặng cố định múi +7.

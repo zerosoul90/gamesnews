@@ -14,6 +14,11 @@ from app.services.devices import forget, tokens_of
 logger = logging.getLogger(__name__)
 
 
+# Loại thông báo có công tắc bật/tắt riêng trong `NotificationChannels`.
+# `giftcode` chưa có công tắc; `digest` là bản tin gom, tần suất ở `news_digest`.
+CHANNEL_TYPES = frozenset({"price_alert", "streamer_live", "forum_reply"})
+
+
 class NotificationPayload(BaseModel):
     user_id: PyObjectId
     type: Literal["price_alert", "streamer_live", "giftcode", "digest", "forum_reply"]
@@ -108,15 +113,15 @@ async def process_notification(
     quiet_hours = settings.get("quiet_hours", {})
 
     # 1. User có bật kênh này không?
-    if payload.type == "price_alert" and not channels.get("price_alert", True):
+    #
+    # Mọi loại có công tắc riêng đều phải kiểm ở đây. Bản trước chỉ kiểm
+    # `price_alert`: `streamer_live` có trong `NotificationChannels` từ Phase 3
+    # nhưng không chỗ nào đọc nó — tắt đi vẫn nhận. Không ai thấy vì chưa có
+    # giao diện nào để tắt; làm giao diện là lúc lời hứa đó bị lộ.
+    if payload.type in CHANNEL_TYPES and not channels.get(payload.type, True):
         logger.info(
-            "Spam Prevented: User tắt kênh price_alert", extra={"user_id": str(payload.user_id)}
-        )
-        return
-
-    if payload.type == "forum_reply" and not channels.get("forum_reply", True):
-        logger.info(
-            "Spam Prevented: User tắt kênh forum_reply", extra={"user_id": str(payload.user_id)}
+            "Spam Prevented: User tắt kênh",
+            extra={"user_id": str(payload.user_id), "type": payload.type},
         )
         return
 

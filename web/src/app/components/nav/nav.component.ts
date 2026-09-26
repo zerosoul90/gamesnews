@@ -59,6 +59,7 @@ export class NavComponent implements OnInit, OnDestroy {
     { duongDan: '/follows', nhan: 'Đang theo dõi' },
     { duongDan: '/thu-vien', nhan: 'Thư viện' },
     { duongDan: '/wrapped', nhan: 'Wrapped' },
+    { duongDan: '/cai-dat-thong-bao', nhan: 'Thông báo' },
   ];
 
   dangMoMobile = false;

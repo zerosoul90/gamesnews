@@ -1,0 +1,62 @@
+<div class="container mx-auto px-4 py-8 max-w-2xl">
+  <h1 class="text-3xl font-bold text-white mb-2">Cài đặt thông báo</h1>
+  <p class="text-slate-400 mb-6">Chọn loại thông báo bạn muốn nhận. Cảnh báo giảm giá không bao giờ gửi cho game bạn đã sở hữu.</p>
+
+  <div *ngIf="canDangNhap" class="text-center py-12">
+    <p class="text-slate-300 mb-4">Đăng nhập để chỉnh thông báo.</p>
+    <a routerLink="/login" class="bg-blue-600 hover:bg-blue-500 text-white font-bold px-6 py-2 rounded-lg inline-block">Đăng nhập với Steam</a>
+  </div>
+
+  <div *ngIf="dangTai" class="text-center py-12 text-slate-400">Đang tải...</div>
+
+  <form *ngIf="caiDat as c" (ngSubmit)="luu()" class="space-y-6" aria-label="Cài đặt thông báo">
+    <fieldset class="bg-slate-800 border border-slate-700 rounded-lg divide-y divide-slate-700">
+      <legend class="sr-only">Loại thông báo</legend>
+      <label *ngFor="let t of congTac" class="flex items-start justify-between gap-4 p-4 cursor-pointer">
+        <span>
+          <span class="block text-white font-semibold">{{ t.nhan }}</span>
+          <span class="block text-sm text-slate-400">{{ t.moTa }}</span>
+        </span>
+        <input type="checkbox" [name]="t.khoa" [(ngModel)]="c.channels[t.khoa]" (ngModelChange)="khiDoi()" [attr.aria-label]="t.nhan"
+               class="mt-1 h-5 w-5 accent-blue-600 shrink-0" [attr.data-kenh]="t.khoa">
+      </label>
+    </fieldset>
+
+    <div class="bg-slate-800 border border-slate-700 rounded-lg p-4">
+      <label for="ban-tin" class="block text-white font-semibold mb-1">Bản tin gom thông báo</label>
+      <p class="text-sm text-slate-400 mb-2">
+        Thông báo không gửi ngay (trả lời diễn đàn, hoặc rơi vào giờ im lặng) được gom lại thành một bản tin lúc 9 giờ sáng.
+      </p>
+      <select id="ban-tin" name="newsDigest" [(ngModel)]="c.channels.news_digest" (ngModelChange)="khiDoi()"
+              class="bg-slate-900 border border-slate-700 text-white rounded px-3 py-2">
+        <option value="daily">Hằng ngày</option>
+        <option value="weekly">Hằng tuần (sáng thứ Hai)</option>
+        <option value="none">Không nhận</option>
+      </select>
+      <p *ngIf="c.channels.news_digest === 'none'" class="text-amber-300 text-sm mt-2" data-canh-bao-none>
+        Thông báo đã bị gom sẽ bị bỏ, không gửi lại sau — kể cả cảnh báo giá rơi vào giờ im lặng.
+      </p>
+    </div>
+
+    <div class="bg-slate-800 border border-slate-700 rounded-lg p-4">
+      <span class="block text-white font-semibold mb-1">Giờ im lặng (giờ Việt Nam)</span>
+      <p class="text-sm text-slate-400 mb-2">Trong khoảng này không báo ngay; thông báo chuyển vào bản tin.</p>
+      <div class="flex items-center gap-2">
+        <input type="time" name="tu" [(ngModel)]="c.quiet_hours.from" (ngModelChange)="khiDoi()" aria-label="Từ"
+               class="bg-slate-900 border border-slate-700 text-white rounded px-3 py-2">
+        <span class="text-slate-400">đến</span>
+        <input type="time" name="den" [(ngModel)]="c.quiet_hours.to" (ngModelChange)="khiDoi()" aria-label="Đến"
+               class="bg-slate-900 border border-slate-700 text-white rounded px-3 py-2">
+      </div>
+    </div>
+
+    <p *ngIf="loi" class="text-red-400" role="alert">{{ loi }}</p>
+    <div class="flex items-center gap-3">
+      <button type="submit" [disabled]="dangLuu"
+              class="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold px-5 py-2 rounded">
+        {{ dangLuu ? 'Đang lưu...' : 'Lưu cài đặt' }}
+      </button>
+      <span *ngIf="daLuu" class="text-green-400 text-sm" role="status">Đã lưu.</span>
+    </div>
+  </form>
+</div>

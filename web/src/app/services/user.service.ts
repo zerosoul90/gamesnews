@@ -70,6 +70,18 @@ export interface WrappedData {
   message: string;
 }
 
+/** Đúng dạng `GET/PUT /api/v1/user/notification-settings` (`app/api/user.py`).
+ *  Giờ im lặng dùng khoá `from`/`to`, là dạng gatekeeper ở backend đọc. */
+export interface CaiDatThongBao {
+  quiet_hours: { from: string; to: string };
+  channels: {
+    price_alert: boolean;
+    streamer_live: boolean;
+    forum_reply: boolean;
+    news_digest: 'daily' | 'weekly' | 'none';
+  };
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -83,6 +95,14 @@ export class UserService {
     // `/api/v1/user`, không phải `/me`. Nhóm endpoint cá nhân hoá nằm dưới
     // tiền tố này (xem `app/api/user.py`); `/me/...` trả 404.
     this.apiUrl = `${apiBaseUrl}/api/v1/user`;
+  }
+
+  getNotificationSettings(): Observable<CaiDatThongBao> {
+    return this.http.get<CaiDatThongBao>(`${this.apiUrl}/notification-settings`);
+  }
+
+  putNotificationSettings(caiDat: CaiDatThongBao): Observable<CaiDatThongBao> {
+    return this.http.put<CaiDatThongBao>(`${this.apiUrl}/notification-settings`, caiDat);
   }
 
   getFollows(): Observable<FollowsResponse> {

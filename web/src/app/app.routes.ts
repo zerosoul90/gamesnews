@@ -36,6 +36,13 @@ export const routes: Routes = [
     { path: 'search', component: SearchComponent },
     { path: 'thong-ke', component: StatsComponent },
     { path: 'thu-vien', component: LibraryComponent },
+    {
+      path: 'cai-dat-thong-bao',
+      loadComponent: () =>
+        import('./pages/notification-settings/notification-settings.component').then(
+          (m) => m.NotificationSettingsComponent,
+        ),
+    },
     // Diễn đàn — `docs/FORUM.md`. `c/` và `t/` tách hai loại trang để slug
     // chuyên mục không bao giờ đụng id chủ đề.
     //

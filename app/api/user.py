@@ -9,7 +9,13 @@ from pydantic import BaseModel, Field
 from app.adapters.steam.user import PrivateProfileError
 from app.api.auth import get_current_user
 from app.models.game import PyObjectId
-from app.models.user import ConditionType, PriceAlert, TargetType, UserFollow
+from app.models.user import (
+    ConditionType,
+    NotificationSettings,
+    PriceAlert,
+    TargetType,
+    UserFollow,
+)
 from app.services import devices, user_reads
 from app.services.user_library import delete_library, sync_steam_library
 
@@ -341,3 +347,67 @@ async def get_user_wrapped(
     if not wrapped_data:
         raise HTTPException(status_code=404, detail="Chưa đủ dữ liệu để tổng kết")
     return wrapped_data
+
+
+# --- Cài đặt thông báo -------------------------------------------------------
+#
+# Model lưu giờ im lặng dưới khoá `from`/`to` (alias của `from_time`/`to_time`)
+# — đó là dạng `services/notification.py` đọc. Đọc/ghi luôn qua alias, không thì
+# ghi ra `from_time` và gatekeeper lặng lẽ rơi về mặc định 22:00-07:00.
+
+_HH_MM = r"^([01]\d|2[0-3]):[0-5]\d$"
+
+
+class QuietHoursBody(BaseModel):
+    from_: str = Field(alias="from", pattern=_HH_MM)
+    to: str = Field(pattern=_HH_MM)
+
+
+class ChannelsBody(BaseModel):
+    price_alert: bool
+    streamer_live: bool
+    forum_reply: bool
+    news_digest: Literal["daily", "weekly", "none"]
+
+
+class NotificationSettingsBody(BaseModel):
+    quiet_hours: QuietHoursBody
+    channels: ChannelsBody
+
+
+def _settings_out(raw: dict[str, Any] | None) -> dict[str, Any]:
+    """Cài đặt đã lưu, điền mặc định cho phần thiếu.
+
+    User cũ có thể thiếu hẳn kênh mới (`forum_reply` thêm sau) — trả về mặc
+    định của model, đúng giá trị gatekeeper đang dùng khi khoá vắng mặt.
+    """
+    merged = NotificationSettings.model_validate(raw or {})
+    out: dict[str, Any] = merged.model_dump(by_alias=True)
+    return out
+
+
+@router.get("/notification-settings")
+async def get_notification_settings(
+    request: Request, current_user: dict[str, Any] = Depends(get_current_user)
+) -> dict[str, Any]:
+    db = db_of(request)
+    user = await db.users.find_one({"_id": _user_id(current_user)}, {"notification_settings": 1})
+    if user is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy người dùng")
+    return _settings_out(user.get("notification_settings"))
+
+
+@router.put("/notification-settings")
+async def put_notification_settings(
+    body: NotificationSettingsBody,
+    request: Request,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    db = db_of(request)
+    doc = body.model_dump(by_alias=True)
+    result = await db.users.update_one(
+        {"_id": _user_id(current_user)}, {"$set": {"notification_settings": doc}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Không tìm thấy người dùng")
+    return _settings_out(doc)

@@ -250,3 +250,78 @@ async def test_return_to_tro_vao_trang_spa_khong_phai_endpoint_json(
     assert tham_so["openid.realm"][0] == f"{urllib.parse.urlparse(return_to).scheme}://{
         urllib.parse.urlparse(return_to).netloc
     }/"
+
+
+# --- cài đặt thông báo -------------------------------------------------------
+
+
+async def test_cai_dat_mac_dinh_cho_user_chua_tung_luu(
+    client: httpx.AsyncClient, mongo_db: Db
+) -> None:
+    """User cũ thiếu hẳn kênh thêm sau (`forum_reply`) vẫn nhận đủ khoá, đúng
+    giá trị gatekeeper dùng khi khoá vắng mặt."""
+    user_id = (await mongo_db.users.insert_one({"steam_id64": "1"})).inserted_id
+
+    res = await client.get("/api/v1/user/notification-settings", headers=auth(user_id))
+
+    assert res.status_code == 200
+    assert res.json() == {
+        "quiet_hours": {"from": "22:00", "to": "07:00"},
+        "channels": {
+            "price_alert": True,
+            "streamer_live": True,
+            "forum_reply": True,
+            "news_digest": "daily",
+        },
+    }
+
+
+async def test_luu_cai_dat_roi_doc_lai_va_luu_dung_khoa_gatekeeper_doc(
+    client: httpx.AsyncClient, mongo_db: Db
+) -> None:
+    user_id = (await mongo_db.users.insert_one({"steam_id64": "1"})).inserted_id
+    body = {
+        "quiet_hours": {"from": "23:30", "to": "06:00"},
+        "channels": {
+            "price_alert": False,
+            "streamer_live": True,
+            "forum_reply": False,
+            "news_digest": "weekly",
+        },
+    }
+
+    res = await client.put("/api/v1/user/notification-settings", json=body, headers=auth(user_id))
+    assert res.status_code == 200
+    assert res.json() == body
+
+    # Khoá phải là `from`/`to` — dạng `services/notification.py` đọc. Ghi ra
+    # `from_time` thì gatekeeper lặng lẽ rơi về 22:00-07:00.
+    doc = await mongo_db.users.find_one({"_id": user_id})
+    assert doc is not None
+    assert doc["notification_settings"]["quiet_hours"] == {"from": "23:30", "to": "06:00"}
+    res = await client.get("/api/v1/user/notification-settings", headers=auth(user_id))
+    assert res.json() == body
+
+
+async def test_gio_sai_dinh_dang_bi_tu_choi(client: httpx.AsyncClient, mongo_db: Db) -> None:
+    """Gatekeeper coi giờ không parse được là "không có giờ im lặng" — lưu một
+    giờ sai là âm thầm tắt giờ im lặng của người dùng."""
+    user_id = (await mongo_db.users.insert_one({"steam_id64": "1"})).inserted_id
+    body = {
+        "quiet_hours": {"from": "25:00", "to": "7h"},
+        "channels": {
+            "price_alert": True,
+            "streamer_live": True,
+            "forum_reply": True,
+            "news_digest": "daily",
+        },
+    }
+
+    res = await client.put("/api/v1/user/notification-settings", json=body, headers=auth(user_id))
+
+    assert res.status_code == 422
+
+
+async def test_cai_dat_can_dang_nhap(client: httpx.AsyncClient) -> None:
+    res = await client.get("/api/v1/user/notification-settings")
+    assert res.status_code in (401, 403)

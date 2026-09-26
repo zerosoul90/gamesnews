@@ -265,6 +265,25 @@ describe('service gọi đúng đường dẫn backend có thật', () => {
     expect(kiem(() => s.search('elden').subscribe())).toBe('/search');
   });
 
+  it('UserService cài đặt thông báo -> /api/v1/user/notification-settings', () => {
+    const s = TestBed.inject(UserService);
+    for (const goi of [
+      () => s.getNotificationSettings().subscribe(),
+      () =>
+        s
+          .putNotificationSettings({
+            quiet_hours: { from: '22:00', to: '07:00' },
+            channels: { price_alert: true, streamer_live: true, forum_reply: true, news_digest: 'daily' },
+          })
+          .subscribe(),
+    ]) {
+      goi();
+      const req = http.expectOne(() => true);
+      expect(chuanHoa(req.request.url)).toBe('/api/v1/user/notification-settings');
+      req.flush({});
+    }
+  });
+
   it('ForumService -> /api/v1/forum/*, đúng prefix của `app/api/forum.py`', () => {
     const s = TestBed.inject(ForumService);
     const id = '65f1a2b3c4d5e6f708190001';

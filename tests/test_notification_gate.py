@@ -191,3 +191,16 @@ def test_khoang_trong_ngay() -> None:
 def test_gio_sai_dinh_dang_thi_coi_nhu_khong_im_lang() -> None:
     """Cấu hình hỏng không được biến thành "chặn hết mọi thông báo"."""
     assert is_in_quiet_hours(at(23), "hai mươi hai giờ", "07:00") is False
+
+
+async def test_tat_kenh_streamer_live_thi_khong_gui(mongo_db: Db) -> None:
+    """Kênh này có trong model từ Phase 3 mà gatekeeper không đọc: tắt vẫn nhận.
+    Lộ ra đúng lúc làm giao diện bật/tắt."""
+    user_id = await make_user(mongo_db, {"channels": {"streamer_live": False}})
+    payload = NotificationPayload(
+        user_id=user_id, type="streamer_live", title="Đang live", body="...", data={}
+    )
+
+    await process_notification(mongo_db, payload, http=None)
+
+    assert await mongo_db.notification_queue.count_documents({}) == 0
