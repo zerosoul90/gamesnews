@@ -143,6 +143,11 @@ export class ForumService {
     return this.http.get<DanhSachChuDe>(`${this.goc}/threads`, { params });
   }
 
+  timKiem(q: string, page = 1): Observable<DanhSachChuDe> {
+    const params = new HttpParams().set('q', q).set('page', page);
+    return this.http.get<DanhSachChuDe>(`${this.goc}/search`, { params });
+  }
+
   chuDe(id: string, page = 1): Observable<TrangChuDe> {
     const params = new HttpParams().set('page', page);
     return this.http.get<TrangChuDe>(`${this.goc}/threads/${id}`, { params });

@@ -22,6 +22,9 @@ class QuietHours(BaseModel):
 class NotificationChannels(BaseModel):
     price_alert: bool = True
     streamer_live: bool = True
+    # Có người trả lời chủ đề / trích dẫn bài của mình trên diễn đàn. Chỉ vào
+    # digest, không đẩy tức thì — xem `api/forum.py::_bao_tra_loi`.
+    forum_reply: bool = True
     news_digest: Literal["daily", "weekly", "none"] = "daily"
 
 

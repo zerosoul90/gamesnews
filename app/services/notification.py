@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class NotificationPayload(BaseModel):
     user_id: PyObjectId
-    type: Literal["price_alert", "streamer_live", "giftcode", "digest"]
+    type: Literal["price_alert", "streamer_live", "giftcode", "digest", "forum_reply"]
     title: str
     body: str
     data: dict[str, Any] = {}
@@ -111,6 +111,12 @@ async def process_notification(
     if payload.type == "price_alert" and not channels.get("price_alert", True):
         logger.info(
             "Spam Prevented: User tắt kênh price_alert", extra={"user_id": str(payload.user_id)}
+        )
+        return
+
+    if payload.type == "forum_reply" and not channels.get("forum_reply", True):
+        logger.info(
+            "Spam Prevented: User tắt kênh forum_reply", extra={"user_id": str(payload.user_id)}
         )
         return
 

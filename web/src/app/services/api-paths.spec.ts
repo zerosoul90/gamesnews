@@ -272,6 +272,7 @@ describe('service gọi đúng đường dẫn backend có thật', () => {
       [() => s.chuyenMuc().subscribe(), 'GET', '/api/v1/forum/categories'],
       [() => s.danhSach({ category: 'hoi-dap' }).subscribe(), 'GET', '/api/v1/forum/threads'],
       [() => s.chuDe(id).subscribe(), 'GET', '/api/v1/forum/threads/{}'],
+      [() => s.timKiem('lien quan').subscribe(), 'GET', '/api/v1/forum/search'],
       [() => s.trangThai().subscribe(), 'GET', '/api/v1/forum/me'],
       [() => s.datBietDanh('x').subscribe(), 'PUT', '/api/v1/forum/me/nickname'],
       [() => s.taoChuDe({ category: 'hoi-dap' }, 't', 'b').subscribe(), 'POST', '/api/v1/forum/threads'],

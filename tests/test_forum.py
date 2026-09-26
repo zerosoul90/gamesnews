@@ -718,3 +718,153 @@ async def test_sua_bai_sau_khi_bi_bao_cao_khong_xoa_duoc_dau_vet(moi: Moi) -> No
     assert item["edit_count"] == 2
     trang = (await moi.http.get("/admin/forum", headers=ADMIN)).text
     assert "nội dung xấu ban đầu" in trang
+
+
+# --- Lọc từ ngữ ------------------------------------------------------------------
+
+
+def test_chan_tu_tuc_giu_dau_va_theo_tu_nguyen_ven() -> None:
+    assert forum.find_banned("Game này đéo chơi được") == "đéo"
+    assert forum.find_banned("ĐÉO") == "đéo"
+    assert forum.find_banned("hay vcl") == "vcl"
+    # Dạng tổ hợp dấu (NFD) vẫn phải bắt được: bàn phím/IME khác nhau gửi khác nhau.
+    import unicodedata
+
+    assert forum.find_banned(unicodedata.normalize("NFD", "đéo")) == "đéo"
+
+
+def test_khong_chan_nham_chu_vo_hai() -> None:
+    """Đây là lý do KHÔNG bỏ dấu khi so. Bỏ dấu thì cả câu dưới bị chặn."""
+    vo_hai = (
+        "Các bạn đeo tai nghe chơi buổi tối, lon nước, cặp sách, lồng chim, "
+        "du lịch, đi dịt dắt, cắc bụp, dmca, vclass"
+    )
+    assert forum.find_banned(vo_hai) is None
+
+
+async def test_bai_co_tu_tuc_bi_tu_choi_va_khong_dot_luot(moi: Moi) -> None:
+    headers = await tao_user(moi.db)
+    url = "/api/v1/forum/threads"
+
+    for _ in range(5):
+        res = await moi.http.post(
+            url,
+            json={"category": "hoi-dap", "title": "Game đéo chạy được", "body": "x"},
+            headers=headers,
+        )
+        assert res.status_code == 422
+        assert "“đéo”" in res.json()["detail"]
+    # Năm lần bị từ chối không ăn vào hạn mức 5 chủ đề/giờ.
+    for i in range(5):
+        await tao_chu_de(moi, headers, title=f"Chủ đề sạch số {i}")
+
+
+async def test_sua_bai_cung_bi_loc(moi: Moi) -> None:
+    headers = await tao_user(moi.db)
+    thread_id = await tao_chu_de(moi, headers)
+    res = await moi.http.patch(
+        f"/api/v1/forum/threads/{thread_id}", json={"body": "sửa thành vcl"}, headers=headers
+    )
+    assert res.status_code == 422
+
+
+# --- Tìm kiếm chủ đề -------------------------------------------------------------
+
+
+async def test_tim_khong_dau_van_ra_co_dau_va_bo_bai_bi_an(moi: Moi) -> None:
+    headers = await tao_user(moi.db)
+    lq = await tao_chu_de(moi, headers, title="Liên Quân mùa mới có gì")
+    await tao_chu_de(moi, headers, title="Hỏi cấu hình máy chơi Elden")
+    an = await tao_chu_de(moi, headers, title="Liên Quân bị báo cáo")
+    await an_bang_bao_cao(moi, "thread", an)
+
+    res = await moi.http.get("/api/v1/forum/search", params={"q": "lien quan"})
+
+    assert res.status_code == 200
+    assert [t["id"] for t in res.json()["items"]] == [lq]
+
+
+async def test_sua_tieu_de_thi_tim_theo_tieu_de_moi(moi: Moi) -> None:
+    headers = await tao_user(moi.db)
+    thread_id = await tao_chu_de(moi, headers, title="Tiêu đề cũ ban đầu")
+    await moi.http.patch(
+        f"/api/v1/forum/threads/{thread_id}", json={"title": "Genshin Impact"}, headers=headers
+    )
+
+    ids = [
+        t["id"]
+        for t in (await moi.http.get("/api/v1/forum/search", params={"q": "genshin"})).json()[
+            "items"
+        ]
+    ]
+    assert ids == [thread_id]
+
+
+async def test_tu_khoa_qua_ngan(moi: Moi) -> None:
+    res = await moi.http.get("/api/v1/forum/search", params={"q": " a "})
+    assert res.status_code == 422
+
+
+# --- Thông báo trả lời -----------------------------------------------------------
+
+
+async def hang_doi(m: Moi, headers: dict[str, str]) -> list[dict[str, Any]]:
+    user = await m.db.users.find_one({"steam_id64": {"$exists": True}, "_id": uid(headers)})
+    assert user is not None
+    return [d async for d in m.db.notification_queue.find({"user_id": user["_id"]})]
+
+
+def uid(headers: dict[str, str]) -> ObjectId:
+    import jwt
+
+    token = headers["Authorization"].removeprefix("Bearer ")
+    return ObjectId(jwt.decode(token, options={"verify_signature": False})["sub"])
+
+
+async def test_tra_loi_bao_cho_chu_chu_de_nhung_khong_bao_chinh_minh(moi: Moi) -> None:
+    a = await tao_user(moi.db, nickname="Người Mở")
+    b = await tao_user(moi.db, nickname="Người Đáp")
+    thread_id = await tao_chu_de(moi, a, title="Chủ đề của A đây")
+    url = f"/api/v1/forum/threads/{thread_id}/posts"
+
+    await moi.http.post(url, json={"body": "A tự trả lời"}, headers=a)
+    assert await hang_doi(moi, a) == []
+
+    await moi.http.post(url, json={"body": "B trả lời"}, headers=b)
+    q = await hang_doi(moi, a)
+    assert len(q) == 1
+    assert q[0]["type"] == "forum_reply"
+    assert q[0]["title"] == "Người Đáp trả lời chủ đề của bạn"
+    assert q[0]["data"]["url"] == f"/forum/t/{thread_id}"
+
+
+async def test_trich_dan_bao_nguoi_bi_trich_va_khong_bao_trung(moi: Moi) -> None:
+    a = await tao_user(moi.db, nickname="Chủ Chủ Đề")
+    b = await tao_user(moi.db, nickname="Người Trích")
+    c = await tao_user(moi.db, nickname="Người Bị Trích")
+    thread_id = await tao_chu_de(moi, a)
+    url = f"/api/v1/forum/threads/{thread_id}/posts"
+    cua_c = (await moi.http.post(url, json={"body": "bài C"}, headers=c)).json()["id"]
+    cua_a = (await moi.http.post(url, json={"body": "bài A"}, headers=a)).json()["id"]
+    await moi.db.notification_queue.delete_many({})
+
+    await moi.http.post(url, json={"body": "trích C", "quote_post_id": cua_c}, headers=b)
+    assert [x["title"] for x in await hang_doi(moi, c)] == ["Người Trích trích dẫn bài của bạn"]
+    assert [x["title"] for x in await hang_doi(moi, a)] == ["Người Trích trả lời chủ đề của bạn"]
+
+    # A vừa là chủ chủ đề vừa bị trích: MỘT thông báo, không phải hai.
+    await moi.db.notification_queue.delete_many({})
+    await moi.http.post(url, json={"body": "trích A", "quote_post_id": cua_a}, headers=b)
+    assert [x["title"] for x in await hang_doi(moi, a)] == ["Người Trích trích dẫn bài của bạn"]
+
+
+async def test_tat_kenh_forum_reply_thi_khong_bao(moi: Moi) -> None:
+    a = await tao_user(moi.db)
+    b = await tao_user(moi.db)
+    await moi.db.users.update_one(
+        {"_id": uid(a)}, {"$set": {"notification_settings.channels.forum_reply": False}}
+    )
+    thread_id = await tao_chu_de(moi, a)
+    await moi.http.post(f"/api/v1/forum/threads/{thread_id}/posts", json={"body": "x"}, headers=b)
+
+    assert await hang_doi(moi, a) == []

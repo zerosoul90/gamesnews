@@ -8,6 +8,7 @@ lượt của chính họ.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 from typing import Annotated, Any, Literal
 
 from bson import ObjectId
@@ -21,7 +22,9 @@ from app.core.deps import ClientsDep, MongoDep, SettingsDep
 from app.core.serialization import jsonify as jsonable
 from app.services import forum
 from app.services.forum import POSTS_PER_PAGE, THREADS_PER_PAGE, ForumError
+from app.services.notification import NotificationPayload, process_notification
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/forum", tags=["forum"])
 
 TITLE_MIN, TITLE_MAX = 5, 150
@@ -237,6 +240,16 @@ async def list_threads(
     }
 
 
+@router.get("/search", response_model=ThreadList)
+async def search_threads(
+    db: MongoDep,
+    q: Annotated[str, Query(max_length=200)],
+    page: Annotated[int, Query(ge=1)] = 1,
+) -> dict[str, Any]:
+    items, total = await forum.search_threads(db, q, page=page)
+    return {"items": items, "total": total, "page": page, "per_page": THREADS_PER_PAGE}
+
+
 @router.get("/threads/{thread_id}", response_model=ThreadPage)
 async def get_thread(
     db: MongoDep,
@@ -277,10 +290,41 @@ async def _poster(db: MongoDep, settings: SettingsDep, user_id: UserId) -> Objec
 Poster = Annotated[ObjectId, Depends(_poster)]
 
 
+async def _bao_tra_loi(
+    db: MongoDep, thread: dict[str, Any], replier: ObjectId, quote: ObjectId | None
+) -> None:
+    """Báo cho chủ chủ đề và người bị trích.
+
+    Đi qua `process_notification` như mọi thông báo khác — kênh bật/tắt, giờ im
+    lặng — và KHÔNG thuộc nhóm đẩy tức thì: nó vào hàng đợi digest. Một chủ đề
+    sôi nổi có thể nhận hàng chục trả lời một giờ; đẩy từng cái là spam.
+
+    Lỗi ở đây không được làm hỏng bài vừa đăng — bài đã ghi rồi.
+    """
+    nickname = (await db.users.find_one({"_id": replier}, {"nickname": 1}) or {}).get("nickname")
+    ai = nickname or "Ai đó"
+    for user_id, vi_sao in (await forum.reply_recipients(db, thread, replier, quote)).items():
+        title = (
+            f"{ai} trích dẫn bài của bạn" if vi_sao == "quote" else f"{ai} trả lời chủ đề của bạn"
+        )
+        payload = NotificationPayload(
+            user_id=user_id,
+            type="forum_reply",
+            title=title,
+            body=thread["title"][:120],
+            data={"thread_id": str(thread["_id"]), "url": f"/forum/t/{thread['_id']}"},
+        )
+        try:
+            await process_notification(db, payload)
+        except Exception:
+            logger.exception("không xếp được thông báo trả lời", extra={"user_id": str(user_id)})
+
+
 @router.post("/threads", response_model=Created, status_code=status.HTTP_201_CREATED)
 async def create_thread(
     body: ThreadCreate, db: MongoDep, clients: ClientsDep, author: Poster
 ) -> dict[str, str]:
+    forum.check_content(body.title, body.body)
     target = await forum.validate_thread_target(db, category=body.category, game_id=body.game_id)
     await forum.take_token(clients.redis, "thread", author)
     thread_id = await forum.create_thread(
@@ -291,6 +335,7 @@ async def create_thread(
 
 @router.patch("/threads/{thread_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def edit_thread(thread_id: str, body: ThreadEdit, db: MongoDep, author: Poster) -> Response:
+    forum.check_content(body.title, body.body)
     await forum.edit_thread(db, author, thread_id, title=body.title, body=body.body)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -309,14 +354,17 @@ async def delete_thread(thread_id: str, db: MongoDep, user_id: UserId) -> Respon
 async def create_post(
     thread_id: str, body: PostCreate, db: MongoDep, clients: ClientsDep, author: Poster
 ) -> dict[str, str]:
+    forum.check_content(body.body)
     thread, quote = await forum.validate_reply(db, thread_id, body.quote_post_id)
     await forum.take_token(clients.redis, "post", author)
     post_id = await forum.create_post(db, author, thread, body=body.body, quote_post_id=quote)
+    await _bao_tra_loi(db, thread, author, quote)
     return {"id": post_id}
 
 
 @router.patch("/posts/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def edit_post(post_id: str, body: PostEdit, db: MongoDep, author: Poster) -> Response:
+    forum.check_content(body.body)
     await forum.edit_post(db, author, post_id, body=body.body)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

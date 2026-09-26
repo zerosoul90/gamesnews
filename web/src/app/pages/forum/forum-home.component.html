@@ -4,6 +4,14 @@
 
   <app-forum-trang-thai></app-forum-trang-thai>
 
+  <!-- Form GET thuần: chạy được cả khi JS chưa tải xong (SSR), trình duyệt tự
+       dựng `/forum/tim-kiem?q=...`. -->
+  <form action="/forum/tim-kiem" method="get" class="flex gap-2 mb-6" role="search">
+    <input name="q" maxlength="200" placeholder="Tìm chủ đề..." aria-label="Tìm trong diễn đàn"
+           class="flex-1 bg-slate-800 border border-slate-700 text-white rounded px-3 py-2 focus:outline-none focus:border-blue-500">
+    <button type="submit" class="bg-slate-700 hover:bg-slate-600 text-white font-semibold px-4 py-2 rounded">Tìm</button>
+  </form>
+
   <div *ngIf="dangTai" class="text-center py-12 text-slate-400">Đang tải...</div>
 
   <div *ngIf="loi" class="text-center py-12">

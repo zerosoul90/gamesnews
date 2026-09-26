@@ -46,6 +46,11 @@ export const routes: Routes = [
       loadComponent: () => import('./pages/forum/forum-home.component').then((m) => m.ForumHomeComponent),
     },
     {
+      path: 'forum/tim-kiem',
+      loadComponent: () =>
+        import('./pages/forum/forum-search.component').then((m) => m.ForumSearchComponent),
+    },
+    {
       path: 'forum/c/:slug',
       loadComponent: () =>
         import('./pages/forum/forum-category.component').then((m) => m.ForumCategoryComponent),

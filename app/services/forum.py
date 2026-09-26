@@ -9,12 +9,14 @@ from __future__ import annotations
 import datetime as dt
 import functools
 import json
+import re
+import unicodedata
 from pathlib import Path
 from typing import Any
 
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
-from pymongo import ASCENDING, DESCENDING, IndexModel
+from pymongo import ASCENDING, DESCENDING, TEXT, IndexModel
 from pymongo.errors import DuplicateKeyError
 from redis.asyncio import Redis
 
@@ -108,6 +110,58 @@ def category_slugs() -> frozenset[str]:
 
 
 @functools.cache
+def _banned() -> tuple[frozenset[str], tuple[str, ...]]:
+    """(từ đơn, cụm nhiều từ) — xem `_ghi_chu` trong file JSON."""
+    raw = json.loads((_DATA_DIR / "forum_banned_words.json").read_text(encoding="utf-8"))
+    entries = [_lower_nfc(w) for w in raw["words"]]
+    return (
+        frozenset(w for w in entries if " " not in w),
+        tuple(w for w in entries if " " in w),
+    )
+
+
+def _lower_nfc(text: str) -> str:
+    # NFC trước: cùng một chữ "ồ" có thể tới dưới dạng dựng sẵn hoặc tổ hợp dấu,
+    # và hai dạng đó không bằng nhau khi so chuỗi.
+    return unicodedata.normalize("NFC", text).lower()
+
+
+_WORD = re.compile(r"\w+")
+
+
+def find_banned(text: str) -> str | None:
+    """Từ bị chặn đầu tiên có trong `text`, hoặc None.
+
+    So theo từ nguyên vẹn (regex từ trên chuỗi NFC, giữ dấu): "cặc" chặn, nhưng
+    "các", "cặp", "lồng" thì không.
+    """
+    tokens: list[str] = _WORD.findall(_lower_nfc(text))
+    singles, phrases = _banned()
+    for token in tokens:
+        if token in singles:
+            return token
+    joined = f" {' '.join(tokens)} "
+    for phrase in phrases:
+        if f" {phrase} " in joined:
+            return phrase
+    return None
+
+
+def check_content(*texts: str | None) -> None:
+    for text in texts:
+        if text and (word := find_banned(text)):
+            raise ForumValidationError(
+                f"nội dung có từ ngữ không phù hợp: “{word}” — sửa rồi gửi lại"
+            )
+
+
+def search_text(title: str, body: str) -> str:
+    """Trường dùng cho tìm kiếm: bỏ dấu, chữ thường — gõ "lien quan" vẫn ra
+    "Liên Quân". Ngược với bộ lọc từ ngữ ở trên, vì ở đây khớp rộng là cái cần."""
+    return normalize_vi(f"{title} {body[:5000]}")
+
+
+@functools.cache
 def _reserved() -> tuple[frozenset[str], tuple[str, ...]]:
     raw = json.loads((_DATA_DIR / "forum_reserved_names.json").read_text(encoding="utf-8"))
     return frozenset(raw["exact"]), tuple(raw["contains"])
@@ -128,6 +182,16 @@ async def ensure_indexes(db: Db) -> list[str]:
                 name="theo_game",
             ),
             IndexModel([("author_id", ASCENDING), ("created_at", DESCENDING)], name="theo_tac_gia"),
+            # `language_override` trỏ vào một field không tồn tại: không có nó
+            # thì Mongo đọc field `language` của document (nếu ai đó thêm) làm
+            # ngôn ngữ stemming. `none` = không stemming, không stopword — tiếng
+            # Việt không có bộ nào trong Mongo.
+            IndexModel(
+                [("search_norm", TEXT)],
+                name="tim_kiem",
+                default_language="none",
+                language_override="_khong_dung",
+            ),
         ]
     )
     names += await db[POSTS].create_indexes(
@@ -347,6 +411,34 @@ async def list_threads(
     return [_thread_summary(d, authors, games) for d in docs], total, game_ref
 
 
+SEARCH_MIN = 2
+
+
+async def search_threads(db: Db, q: str, *, page: int) -> tuple[list[dict[str, Any]], int]:
+    """Chủ đề đang hiện khớp từ khoá, liên quan nhất trước.
+
+    Text index của Mongo chứ không Meilisearch: diễn đàn còn nhỏ, và một index
+    Meilisearch thứ hai là thêm một đường đồng bộ phải giữ cho khỏi lệch — đúng
+    loại lệch đã làm 2.939 game biến mất khỏi tìm kiếm (lượt 18).
+    """
+    norm = normalize_vi(q)
+    if len(norm.replace(" ", "")) < SEARCH_MIN:
+        raise ForumValidationError(f"từ khoá cần ít nhất {SEARCH_MIN} ký tự")
+    query: dict[str, Any] = {"$text": {"$search": norm}, "status": VISIBLE}
+    total = await db[THREADS].count_documents(query)
+    cursor = (
+        db[THREADS]
+        .find(query, {"body": 0, "search_norm": 0, "score": {"$meta": "textScore"}})
+        .sort([("score", {"$meta": "textScore"}), ("last_post_at", DESCENDING)])
+        .skip((page - 1) * THREADS_PER_PAGE)
+        .limit(THREADS_PER_PAGE)
+    )
+    docs = [doc async for doc in cursor]
+    authors = await _authors(db, {d["author_id"] for d in docs})
+    games = await _games(db, {d["game_id"] for d in docs if d.get("game_id")})
+    return [_thread_summary(d, authors, games) for d in docs], total
+
+
 def _thread_summary(
     doc: dict[str, Any],
     authors: dict[ObjectId, str | None],
@@ -516,6 +608,7 @@ async def create_thread(
             "report_count": 0,
             "created_at": now,
             "last_post_at": now,
+            "search_norm": search_text(title, body),
         }
     )
     return str(result.inserted_id)
@@ -605,6 +698,9 @@ async def edit_thread(
         update["title"] = title
     if body is not None:
         update["body"] = body
+    update["search_norm"] = search_text(
+        update.get("title", doc["title"]), update.get("body", doc["body"])
+    )
     await db[THREADS].update_one({"_id": doc["_id"]}, {"$set": update})
 
 
@@ -819,3 +915,24 @@ async def moderate(
             "at": now,
         }
     )
+
+
+# --- Thông báo trả lời -------------------------------------------------------------
+
+
+async def reply_recipients(
+    db: Db, thread: dict[str, Any], replier_id: ObjectId, quote_post_id: ObjectId | None
+) -> dict[ObjectId, str]:
+    """Ai cần được báo, và vì sao: chủ chủ đề, và người bị trích dẫn.
+
+    Không báo cho chính người trả lời; một người vừa là chủ chủ đề vừa bị trích
+    thì chỉ nhận MỘT thông báo — hai thông báo cho một bài là spam.
+    """
+    who: dict[ObjectId, str] = {}
+    if quote_post_id is not None:
+        quoted = await db[POSTS].find_one({"_id": quote_post_id}, {"author_id": 1})
+        if quoted is not None and quoted["author_id"] != replier_id:
+            who[quoted["author_id"]] = "quote"
+    if thread["author_id"] != replier_id:
+        who.setdefault(thread["author_id"], "thread")
+    return who

@@ -3489,3 +3489,35 @@ Nghiệm thu: `ruff` + `mypy` sạch, `pytest` **704 passed** (699 → 704), web
   chặn hẳn hay che ký tự, danh sách từ lấy ở đâu và ai duy trì.
 - Mobile, thông báo trả lời, tìm kiếm chủ đề (ngoài MVP).
 - Trang 404 chuyên mục vẫn gọi `/me` một lần (đã cân nhắc, giữ nguyên).
+
+### 2026-09-26 (lượt 24) — Nốt phần diễn đàn: lọc từ ngữ, tìm kiếm, thông báo trả lời
+
+Người dùng bảo "làm nốt" mà không chốt hai câu hỏi về lọc từ ngữ; tôi chọn mặc
+định và ghi rõ ở `docs/FORUM.md` để đổi được.
+
+- **Lọc từ ngữ**: chặn (422 kèm đúng từ đó) chứ không che, vì hệ thống lưu text
+  nguyên văn. So theo từ nguyên vẹn và **giữ dấu** — bỏ dấu thì "đéo"→"deo"
+  (đeo), "buồi"→"buoi" (buổi), "các"→"cac". Có test một câu toàn chữ vô hại
+  dễ dính nhầm; mutation so sau khi bỏ dấu làm nó đỏ. Danh sách khởi đầu tối
+  thiểu ở `forum_banned_words.json`, chủ dự án bổ sung. Từ bị chặn không đốt
+  lượt chặn tần suất.
+- **Tìm kiếm chủ đề**: `GET /forum/search`, text index Mongo trên trường bỏ dấu
+  (gõ "lien quan" ra "Liên Quân"), chỉ chủ đề đang hiện, cập nhật khi sửa. Web:
+  `/forum/tim-kiem?q=`, `noindex`, chỉ tìm khi bấm (không theo từng phím); ô
+  tìm ở `/forum` là form GET thuần nên chạy cả trước khi JS tải xong.
+- **Thông báo trả lời**: chủ chủ đề + người bị trích, không báo chính mình, một
+  người một thông báo mỗi bài. Loại `forum_reply` đi qua gatekeeper như mọi
+  loại khác, **chỉ vào digest** — chủ đề sôi nổi có thể hàng chục trả lời một
+  giờ. Kênh `forum_reply` mặc định bật.
+
+**Không làm mobile**, vì hai lý do đo được: `pubspec` đòi Dart ^3.12 mà máy dev
+có 3.9.2 (chỉ kiểm được qua `flutter analyze` trên CI — viết mù), và app
+Flutter mới là khung (`main.dart` 276 dòng, các màn đều là stub, chưa có cả
+trang game). Diễn đàn mobile nên đi sau khi app có nền.
+
+Nghiệm thu: `ruff` + `mypy` sạch, `pytest` **714 passed** (704 → 714), web **104/104**
+(100 → 104). Stack thật: text index `tim_kiem` được dựng lúc khởi động,
+`/forum/tim-kiem` SSR 200.
+
+**Còn nợ (diễn đàn):** mobile; chưa có endpoint/giao diện bật tắt kênh thông
+báo nào (kể cả kênh cũ) — `forum_reply` chỉ đổi được bằng sửa DB; reaction.

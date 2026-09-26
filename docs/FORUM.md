@@ -22,7 +22,11 @@ với Phase 8 (cộng đồng), nhưng không thay thế mục nào của Phase 
   gỡ / khoá, cấp quyền beta, nhật ký `forum_mod_log`); `/forum/g/:gameSlug`
   và mục "Thảo luận" trên trang game.
 
-Ngoài MVP: mobile, thông báo có người trả lời, tìm kiếm chủ đề, reaction.
+Sau MVP, đã làm (2026-09-26): sitemap, người viết thấy bài mình bị ẩn/gỡ, sửa
+bài có lưu lịch sử, lọc từ ngữ, tìm kiếm chủ đề, thông báo trả lời (qua digest).
+
+Chưa làm: **mobile** (app Flutter mới là khung, và máy dev không biên dịch được
+Dart ^3.12), reaction, giao diện bật/tắt kênh thông báo.
 
 ## Luật dữ liệu
 
@@ -39,6 +43,17 @@ Ngoài MVP: mobile, thông báo có người trả lời, tìm kiếm chủ đ�
   người khác nhau thì bài tự ẩn chờ admin. Admin khôi phục hoặc gỡ thì báo
   cáo đang treo được đóng (`resolved`) — không đóng thì một báo cáo mới là
   đủ ẩn lại bài vừa khôi phục.
+- **Lọc từ ngữ**: `app/services/forum_banned_words.json`, so theo từ nguyên vẹn
+  **giữ dấu**. Bỏ dấu khi so thì "đéo"→"deo" (đeo), "buồi"→"buoi" (buổi),
+  "các"→"cac" — chặn nhầm cả câu vô hại. Bị chặn thì trả 422 kèm đúng từ đó để
+  người viết tự sửa; không che ký tự vì hệ thống lưu text nguyên văn. Danh sách
+  khởi đầu tối thiểu — **chủ dự án bổ sung**.
+- **Tìm kiếm**: text index Mongo trên `search_norm` (bỏ dấu, `default_language:
+  none`), chỉ chủ đề `visible`. Không dùng Meilisearch để khỏi thêm một đường
+  đồng bộ nữa — xem sự cố lệch 2.939 game ở lượt 18.
+- **Thông báo trả lời**: chủ chủ đề và người bị trích, không báo chính mình, một
+  người chỉ một thông báo mỗi bài. Loại `forum_reply`, kênh cùng tên (mặc định
+  bật), **chỉ vào digest** — không đẩy tức thì.
 - **Trạng thái bài**: `visible` · `hidden` (tự ẩn vì báo cáo) · `deleted`
   (người viết tự xoá) · `removed` (admin gỡ). `reply_count` chỉ đếm `visible`.
 

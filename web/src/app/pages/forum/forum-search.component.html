@@ -1,0 +1,44 @@
+<div class="container mx-auto px-4 py-8 max-w-4xl">
+  <nav class="text-sm text-slate-400 mb-4" aria-label="Vị trí">
+    <a routerLink="/forum" class="hover:text-white">Diễn đàn</a>
+    <span class="mx-2">/</span>
+    <span class="text-slate-200">Tìm kiếm</span>
+  </nav>
+
+  <form (ngSubmit)="tim()" class="flex gap-2 mb-6" role="search">
+    <input name="tuKhoa" [(ngModel)]="tuKhoa" maxlength="200" placeholder="Tìm chủ đề (gõ có dấu hay không đều được)" aria-label="Từ khoá"
+           class="flex-1 bg-slate-800 border border-slate-700 text-white rounded px-3 py-2 focus:outline-none focus:border-blue-500">
+    <button type="submit" class="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-2 rounded">Tìm</button>
+  </form>
+
+  <div *ngIf="dangTai" class="text-center py-12 text-slate-400">Đang tìm...</div>
+  <p *ngIf="loi" class="text-center py-12 text-red-400" role="alert">{{ loi }}</p>
+
+  <ng-container *ngIf="q && !dangTai && !loi">
+    <p class="text-slate-400 mb-3">{{ total }} chủ đề khớp “{{ q }}”</p>
+    <ul *ngIf="ketQua.length" class="divide-y divide-slate-800 border border-slate-800 rounded-lg overflow-hidden">
+      <li *ngFor="let t of ketQua" class="bg-slate-900 hover:bg-slate-800 transition-colors">
+        <a [routerLink]="['/forum/t', t.id]" class="flex items-center justify-between gap-4 px-5 py-3">
+          <div class="min-w-0">
+            <h2 class="text-white font-semibold truncate">{{ t.title }}</h2>
+            <p class="text-xs text-slate-500">
+              {{ t.author.nickname || 'Người dùng' }}
+              <ng-container *ngIf="t.game"> · {{ t.game.title }}</ng-container>
+              · {{ t.last_post_at | date: 'dd/MM/yyyy' : '+0700' }}
+            </p>
+          </div>
+          <span class="text-xs text-slate-400 shrink-0 tabular-nums">{{ t.reply_count }} trả lời</span>
+        </a>
+      </li>
+    </ul>
+    <p *ngIf="!ketQua.length" class="text-center py-12 text-slate-400">Không có chủ đề nào khớp.</p>
+
+    <div *ngIf="page > 1 || conTrangSau" class="mt-6 flex justify-center gap-2">
+      <a *ngIf="page > 1" [routerLink]="['/forum/tim-kiem']" [queryParams]="{ q: q, page: page - 1 }"
+         class="px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-300 hover:text-white">Trang trước</a>
+      <span class="px-4 py-2 text-slate-400">Trang {{ page }}</span>
+      <a *ngIf="conTrangSau" [routerLink]="['/forum/tim-kiem']" [queryParams]="{ q: q, page: page + 1 }"
+         class="px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-300 hover:text-white">Trang sau</a>
+    </div>
+  </ng-container>
+</div>
