@@ -3563,3 +3563,50 @@ nhất trên dev không bị đụng. `ruff` + `mypy` sạch, `pytest` **722 pas
 
 **Còn nợ:** `giftcode` chưa có công tắc (chưa có nguồn giftcode nào gửi thông
 báo); giờ im lặng cố định múi +7.
+
+### 2026-09-26 (lượt 26) — Rà nợ: năm mục làm được, và sáu mục đã xong từ lâu mà chưa gạch
+
+Rà mọi mục "Còn nợ" trong file này. Trước khi làm, kiểm từng mục còn đúng không.
+
+**Đã xong từ các lượt trước, chỉ chưa gạch:** `OnDestroy` ở trang tin; tên
+biến trộn Anh–Việt (`c5ba2ef`); `CommunityScore` (giờ là kiểu thật đang dùng
+ở `game.service.ts`); ô nhập ngưỡng `below_price`/`discount_pct`; form đánh giá
+cộng đồng; `MockFirebaseMessaging` (chỉ còn trong chú thích).
+
+**Làm lượt này:**
+
+- **Ảnh thẻ chia sẻ không có dấu tiếng Việt** (nợ từ lượt 8). Render thật: tên
+  "Săn Lùng Dã Thú" ra ô vuông, "400.000₫" cũng vậy, chữ ~11px trên nền
+  1200×630 — đây là thứ hiện trên Facebook/Zalo mỗi lần có người chia sẻ.
+  Dockerfile cài `fonts-dejavu-core` (kho Debian), CI cài cùng font. Test so
+  ảnh vẽ từng chữ "ặ ữ Đ ₫" với ô "không có" của chính font — mutation quay về
+  font mặc định cũ làm nó đỏ. Render lại từ container thì lộ lỗi thứ hai: tên
+  tràn khỏi mép phải, vì ngắt theo 30 ký tự mà DejaVu Bold rộng hơn Arial. Giờ
+  ngắt theo **bề rộng pixel đo bằng chính font**. Hai thẻ render cuối (Witcher,
+  và một tên 84 ký tự) đều nằm gọn.
+- **Hàng đợi thông báo không có trần.** Digest giữ hàng đợi khi gửi hỏng, mà
+  FCM chưa cấu hình, nên hàng đợi phình mãi. Trần 100 mục mới nhất mỗi user.
+- **`dangTheoDoi` khoá bằng `target_id` trần.** Đổi sang `loại:id`. Spec mới
+  dựng đúng kịch bản khoá cũ làm sai (series trùng tên studio → nút hiện nhầm,
+  bấm là xoá nhầm) — mutation quay về khoá cũ làm nó đỏ.
+- **Bundle 541 kB** → **409 kB** (`main` 162 → 29 kB): lazy mọi trang trừ `/`,
+  `/deals`, 404. Hết cảnh báo ngân sách. SSR kiểm từng trang trên container.
+  Spec chốt "chỉ ba trang nạp ngay" để lần thêm trang sau không kéo nó phình.
+- **Bốn trang có `<title>Web</title>`** (lộ ra khi kiểm SSR ở mục trên, có từ
+  trước): tìm kiếm, thống kê, đăng nhập, hồ sơ chưa từng đặt tiêu đề. Thêm
+  `title` ở route; `noindex` cho tìm kiếm/đăng nhập/hồ sơ.
+
+Nghiệm thu: `ruff` + `mypy` sạch, `pytest` **726 passed** (722 → 726), web **114/114**
+(111 → 114).
+
+**Còn nợ — không làm được bằng code, cần người dùng:**
+
+- Firebase/FCM: tạo project, dán khoá — chặng cuối của mọi thông báo đẩy.
+- Quyết định sản phẩm: ẩn hệ máy ít game (PS5 11, Switch 6...) khỏi ô lọc;
+  `game_hotness` dùng cho trang nào; Twitch (2FA bằng số điện thoại).
+
+**Còn nợ — đo lường dài hơi, chưa làm:** mốc sang ngày của Google;
+`EMBEDDING_THRESHOLD` chưa hiệu chỉnh; hạn mức thật của Google Play giữa 1/3
+và 1/1 request/giây. Nhỏ: `price_intl.checked_at` không ai đọc; `meta robots`
+đặt bởi một trang còn lưu lại khi điều hướng phía client (bot không bị ảnh
+hưởng vì mỗi URL tải mới qua SSR).

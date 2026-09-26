@@ -7,6 +7,7 @@ không.**
 
 from __future__ import annotations
 
+import io
 from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -105,3 +106,73 @@ async def test_game_khong_ton_tai_thi_tra_none(mongo_db: Db) -> None:
     await ensure_indexes(mongo_db)
 
     assert await _card_data(mongo_db, "khong-ton-tai") is None
+
+
+# --- Font ảnh thẻ chia sẻ ------------------------------------------------------
+
+
+def test_co_font_du_dau_tieng_viet() -> None:
+    """Font mặc định của Pillow không có "ặ" và "₫" — thẻ Facebook ra ô vuông.
+
+    Không chỉ kiểm file tồn tại: so ảnh của từng ký tự với ảnh của một ký tự
+    chắc chắn KHÔNG có trong font (vùng riêng tư Unicode). Font thiếu chữ nào
+    thì chữ đó vẽ ra đúng cái ô "không có" ấy.
+    """
+    from PIL import Image, ImageDraw
+
+    from app.api.seo import _font, font_path
+
+    assert font_path(bold=False) is not None
+    assert font_path(bold=True) is not None
+
+    def ve(font: object, chu: str) -> bytes:
+        img = Image.new("L", (120, 120))
+        ImageDraw.Draw(img).text((10, 10), chu, fill=255, font=font)  # type: ignore[arg-type]
+        return img.tobytes()
+
+    for bold in (False, True):
+        font = _font(64, bold=bold)
+        khong_co = ve(font, "\U000f0000")
+        for chu in ("ặ", "ữ", "Đ", "₫"):
+            assert ve(font, chu) != khong_co, (chu, bold)
+
+
+def test_ten_dai_duoc_ngat_dong_va_cat() -> None:
+    """Đo bằng pixel của chính font, không đếm ký tự: bản đầu ngắt ở 30 ký tự
+    và "The Witcher 3: Săn Lùng Dã Thú" tràn mất chữ cuối ở mép phải."""
+    from app.api.seo import TEXT_MAX_WIDTH, TITLE_MAX_LINES, TITLE_SIZE, _font, title_lines
+
+    font = _font(TITLE_SIZE, bold=True)
+    assert title_lines("Elden Ring", font) == ["Elden Ring"]
+
+    witcher = title_lines("The Witcher 3: Săn Lùng Dã Thú", font)
+    assert " ".join(witcher) == "The Witcher 3: Săn Lùng Dã Thú"
+    assert all(font.getlength(line) <= TEXT_MAX_WIDTH for line in witcher)
+
+    dai = title_lines(
+        "The Witcher 3: Săn Lùng Dã Thú - Phiên Bản Đầy Đủ Mọi Bản Mở Rộng, "
+        "Kèm Nhạc Nền, Artbook Và Toàn Bộ Nội Dung Tải Thêm Từ Ngày Phát Hành",
+        font,
+    )
+    assert len(dai) == TITLE_MAX_LINES
+    assert all(font.getlength(line) <= TEXT_MAX_WIDTH for line in dai)
+    assert dai[-1].endswith("…")
+
+    # Một "từ" dài hơn cả dòng vẫn không được tràn.
+    viet_lien = title_lines("A" * 80, font)
+    assert all(font.getlength(line) <= TEXT_MAX_WIDTH for line in viet_lien)
+
+
+async def test_anh_the_dung_kich_thuoc_opengraph(mongo_db: Db) -> None:
+    from PIL import Image
+
+    from app.api.seo import CARD_SIZE, generate_og_image
+
+    await mongo_db.games.insert_one(
+        {"slug": "game-thu", "titles": {"primary": "Game Thử", "vi": "Săn Lùng Dã Thú"}}
+    )
+    res = await generate_og_image(mongo_db, "game-thu")
+
+    assert res.media_type == "image/png"
+    img = Image.open(io.BytesIO(bytes(res.body)))
+    assert img.size == CARD_SIZE

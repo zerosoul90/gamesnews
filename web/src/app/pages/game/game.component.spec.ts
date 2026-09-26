@@ -167,6 +167,23 @@ describe('GameComponent', () => {
       expect(userService.follow).not.toHaveBeenCalled();
     });
 
+    it('series trùng tên studio không làm nút studio hiện nhầm, và bấm không xoá nhầm', () => {
+      // Khoá cũ là `target_id` trần: một series tên "FromSoftware" làm nút
+      // studio cùng tên hiện "Đang theo dõi", và bấm vào là GỠ bản ghi series.
+      dung({
+        dangNhap: true,
+        developers: ['FromSoftware'],
+        daTheoDoi: [follow('series', 'FromSoftware')],
+      });
+
+      expect(nut('FromSoftware')!.textContent).not.toContain('Đang theo dõi');
+
+      nut('FromSoftware')!.click();
+
+      expect(userService.unfollow).not.toHaveBeenCalled();
+      expect(userService.follow).toHaveBeenCalledWith('developer', 'FromSoftware');
+    });
+
     it('cờ bận chỉ khoá đúng nút vừa bấm', () => {
       dung({ dangNhap: true, developers: ['FromSoftware', 'Bandai Namco'] });
 

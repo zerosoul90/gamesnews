@@ -2,6 +2,7 @@ import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
+import { Meta } from '@angular/platform-browser';
 import { Subject, Subscription } from 'rxjs';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import { SearchService, SearchHit, SearchResponse } from '../../services/search.service';
@@ -120,10 +121,14 @@ export class SearchComponent implements OnInit, OnDestroy {
   constructor(
     private route: ActivatedRoute,
     private router: Router,
-    private searchService: SearchService
+    private searchService: SearchService,
+    private meta: Meta,
   ) {}
 
   ngOnInit(): void {
+    // Trang kết quả tìm kiếm nội bộ: vô hạn biến thể theo từ khoá, nội dung
+    // trùng trang game. Google khuyên không cho index.
+    this.meta.updateTag({ name: 'robots', content: 'noindex' });
     this.theLoaiSub = this.searchService.genreCounts().subscribe({
       next: counts => {
         this.soGameTheoTheLoai = counts;

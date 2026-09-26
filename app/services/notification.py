@@ -18,6 +18,12 @@ logger = logging.getLogger(__name__)
 # `giftcode` chưa có công tắc; `digest` là bản tin gom, tần suất ở `news_digest`.
 CHANNEL_TYPES = frozenset({"price_alert", "streamer_live", "forum_reply"})
 
+# Trần hàng đợi digest mỗi user. Digest GIỮ hàng đợi khi gửi hỏng (không mất
+# thông báo), nên user chưa có thiết bị nào — hoặc cả hệ thống khi FCM chưa cấu
+# hình — tích luỹ mãi. Giữ phần mới nhất: bản tin nói "bạn có N thông báo, gồm
+# X", và thông báo giá của ba tháng trước không còn đúng nữa.
+MAX_QUEUE_PER_USER = 100
+
 
 class NotificationPayload(BaseModel):
     user_id: PyObjectId
@@ -207,7 +213,25 @@ async def process_notification(
             "created_at": now.isoformat(),
         }
     )
+    await _cat_hang_doi(db, payload.user_id)
     logger.info(
         "Notification kẹt queue (do Quiet Hours, thiếu client, hoặc là Digest type)",
         extra={"user_id": str(payload.user_id)},
+    )
+
+
+async def _cat_hang_doi(db: AsyncIOMotorDatabase[dict[str, Any]], user_id: Any) -> None:
+    """Bỏ phần cũ nhất vượt `MAX_QUEUE_PER_USER`. Sắp theo `_id` — ObjectId
+    tăng theo thời gian chèn — chứ không theo `created_at` (chuỗi ISO)."""
+    excess = await db.notification_queue.count_documents({"user_id": user_id}) - MAX_QUEUE_PER_USER
+    if excess <= 0:
+        return
+    cursor = (
+        db.notification_queue.find({"user_id": user_id}, {"_id": 1}).sort("_id", 1).limit(excess)
+    )
+    old = [doc["_id"] async for doc in cursor]
+    await db.notification_queue.delete_many({"_id": {"$in": old}})
+    logger.warning(
+        "hàng đợi thông báo chạm trần, bỏ phần cũ nhất",
+        extra={"user_id": str(user_id), "dropped": len(old)},
     )

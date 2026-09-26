@@ -1,6 +1,7 @@
 import { Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import { Meta } from '@angular/platform-browser';
 import { Subscription } from 'rxjs';
 
 import { AuthService, SteamSession } from '../../services/auth.service';
@@ -44,12 +45,16 @@ export class UserProfileComponent implements OnInit, OnDestroy {
     private authService: AuthService,
     public pushService: PushService,
     private communityService: CommunityService,
+    private meta: Meta,
   ) {}
 
   badges: HuyHieuHienThi[] = [];
   dangTaiBadges = false;
 
   ngOnInit(): void {
+    // Nội dung riêng của từng người, SSR không có phiên: bot chỉ thấy lời mời
+    // đăng nhập.
+    this.meta.updateTag({ name: 'robots', content: 'noindex' });
     this.sub = this.authService.currentUser$.subscribe((p) => {
       this.phien = p;
       if (this.phien) {

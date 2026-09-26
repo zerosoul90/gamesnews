@@ -12,6 +12,13 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /srv
 
+# Font có đủ dấu tiếng Việt cho ảnh thẻ chia sẻ (`app/api/seo.py`). Image slim
+# không có font nào; font mặc định của Pillow là bitmap không có "ă", "ặ", "₫" —
+# thẻ Facebook/Zalo ra toàn ô vuông. Kho Debian chính thức, miễn phí.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+
 # Lớp phụ thuộc tách riêng khỏi lớp source để đổi code không phải cài lại
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-install-project --no-dev

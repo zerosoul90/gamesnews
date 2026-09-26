@@ -17,6 +17,11 @@ import { AuthService } from '../../services/auth.service';
 import { UserService, Follow } from '../../services/user.service';
 import { ChuDeTomTat, ForumService } from '../../services/forum.service';
 
+/** Khoá theo dõi = cặp loại + id, đúng khoá thật ở backend. */
+export function khoaTheoDoi(targetType: string, targetId: string): string {
+  return `${targetType}:${targetId}`;
+}
+
 /** Mục "Thảo luận" chỉ là lối vào; danh sách đầy đủ ở `/forum/g/:slug`. */
 const SO_CHU_DE_TREN_TRANG_GAME = 5;
 
@@ -434,12 +439,10 @@ export class GameComponent implements OnInit {
    *  MỘT lần `GET /follows` cho cả trang, không phải một lần mỗi nút — game
    *  bốn studio thì cách sau là năm vòng khứ hồi cho một lần mở trang.
    *
-   *  Khoá của `dangTheoDoi` là `target_id` trần, trong khi khoá thật ở backend
-   *  là cặp `{target_type, target_id}`. Hiện không sai được vì hai loại duy
-   *  nhất trên trang này là game (ObjectId) và studio (tên) — không đụng nhau.
-   *  Thêm loại thứ ba dùng chuỗi tên (series, streamer) thì phải đổi khoá
-   *  thành `${target_type}:${target_id}`, nếu không một chuỗi vừa là studio
-   *  vừa là series sẽ hiện sai trạng thái và xoá nhầm bản ghi.
+   *  Khoá là `${target_type}:${target_id}` — đúng khoá thật ở backend. Bản
+   *  trước khoá bằng `target_id` trần: chưa sai với game (ObjectId) + studio
+   *  (tên), nhưng một studio và một series trùng tên sẽ hiện sai trạng thái và
+   *  bấm bỏ theo dõi là xoá nhầm bản ghi kia.
    */
   private napTheoDoi(xong?: () => void): void {
     if (!this.game) {
@@ -456,7 +459,7 @@ export class GameComponent implements OnInit {
         const moi: Record<string, Follow> = {};
         for (const f of res.follows) {
           if (idLienQuan.has(f.target_id)) {
-            moi[f.target_id] = f;
+            moi[khoaTheoDoi(f.target_type, f.target_id)] = f;
           }
         }
         this.dangTheoDoi = moi;
@@ -469,19 +472,30 @@ export class GameComponent implements OnInit {
   /** `targetType` cố ý hẹp hơn `UserService.follow`: trang này chỉ đặt được
    *  hai loại. `series` bị gỡ vì dữ liệu rỗng (xem chú thích ở template),
    *  `streamer` chưa có chỗ đặt nút. */
+  /** Bản ghi theo dõi của một mục trên trang, nếu có. */
+  theoDoi(targetType: 'game' | 'developer', targetId: string): Follow | undefined {
+    return this.dangTheoDoi[khoaTheoDoi(targetType, targetId)];
+  }
+
+  /** Nút của mục này đang chờ server trả lời. */
+  dangDoi(targetType: 'game' | 'developer', targetId: string): boolean {
+    return !!this.dangDoiTheoDoi[khoaTheoDoi(targetType, targetId)];
+  }
+
   doiTheoDoi(targetType: 'game' | 'developer', targetId: string): void {
-    this.dangDoiTheoDoi[targetId] = true;
-    const dangCo = this.dangTheoDoi[targetId];
+    const khoa = khoaTheoDoi(targetType, targetId);
+    this.dangDoiTheoDoi[khoa] = true;
+    const dangCo = this.dangTheoDoi[khoa];
 
     if (dangCo) {
       this.userService.unfollow(dangCo.id).subscribe({
-        next: () => this.napTheoDoi(() => (this.dangDoiTheoDoi[targetId] = false)),
-        error: () => (this.dangDoiTheoDoi[targetId] = false),
+        next: () => this.napTheoDoi(() => (this.dangDoiTheoDoi[khoa] = false)),
+        error: () => (this.dangDoiTheoDoi[khoa] = false),
       });
     } else {
       this.userService.follow(targetType, targetId).subscribe({
-        next: () => this.napTheoDoi(() => (this.dangDoiTheoDoi[targetId] = false)),
-        error: () => (this.dangDoiTheoDoi[targetId] = false),
+        next: () => this.napTheoDoi(() => (this.dangDoiTheoDoi[khoa] = false)),
+        error: () => (this.dangDoiTheoDoi[khoa] = false),
       });
     }
   }

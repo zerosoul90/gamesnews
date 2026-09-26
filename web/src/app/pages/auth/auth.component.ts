@@ -1,5 +1,6 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Meta } from '@angular/platform-browser';
 
 import { AuthService } from '../../services/auth.service';
 
@@ -18,7 +19,13 @@ import { AuthService } from '../../services/auth.service';
   templateUrl: './auth.component.html',
 })
 export class AuthComponent {
-  constructor(private authService: AuthService) {}
+  constructor(
+    private authService: AuthService,
+    meta: Meta,
+  ) {
+    // Mọi trang đều có link "Đăng nhập" nên bot sẽ tới đây; không có gì để index.
+    meta.updateTag({ name: 'robots', content: 'noindex' });
+  }
 
   /**
    * Rời khỏi ứng dụng sang Steam.

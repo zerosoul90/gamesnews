@@ -1,41 +1,41 @@
 import { Routes } from '@angular/router';
 import { DealComponent } from './pages/deal/deal.component';
-import { FreeComponent } from './pages/free/free.component';
-import { GameComponent } from './pages/game/game.component';
-import { NewsComponent } from './pages/news/news.component';
 import { NotFoundComponent } from './pages/not-found/not-found.component';
 import { HomeComponent } from './pages/home/home.component';
-import { StatsComponent } from './pages/stats/stats.component';
-import { AuthComponent } from './pages/auth/auth.component';
-import { SteamCallbackComponent } from './pages/auth/steam-callback.component';
-import { AlertsComponent } from './pages/alerts/alerts.component';
-import { UserProfileComponent } from './pages/user-profile/user-profile.component';
-import { FollowsComponent } from './pages/follows/follows.component';
-import { WrappedComponent } from './pages/wrapped/wrapped.component';
-import { SearchComponent } from './pages/search/search.component';
-import { LibraryComponent } from './pages/library/library.component';
 
+/**
+ * Chỉ ba trang nạp ngay: `/` (chuyển sang `/deals` ở `server.ts`), `/deals`
+ * (trang đích thật của người mới vào) và 404. Mọi trang khác lazy.
+ *
+ * Trước đây cả 14 trang nằm trong bundle ban đầu: 541 kB, vượt ngưỡng cảnh báo
+ * 500 kB của `angular.json`, và mọi khách vào trang deal đều tải luôn code của
+ * trang thống kê, thư viện, Wrapped... mà phần lớn không bao giờ mở. SSR vẫn
+ * trả HTML đầy đủ cho mọi trang — lazy chỉ đổi lúc nào JS của trang được tải.
+ */
+// `title` ở route: bốn trang dưới đây chưa từng tự đặt tiêu đề nên rơi về
+// "Web" của `index.html` — hiện nguyên chữ đó trên tab trình duyệt và trong kết
+// quả Google. Trang nào tự đặt bằng `Title.setTitle` thì vẫn thắng (chạy sau).
 export const routes: Routes = [
     { path: '', component: HomeComponent, pathMatch: 'full' },
-    { path: 'login', component: AuthComponent },
+    { path: 'login', title: 'Đăng nhập - GameNews', loadComponent: () => import('./pages/auth/auth.component').then((m) => m.AuthComponent) },
 
     // Đích của `openid.return_to`. Đường dẫn này được ghép ở backend
     // (`app/api/auth.py`, `steam_login`) từ `FRONTEND_URL` — đổi một bên mà
     // quên bên kia thì Steam trả người dùng về trang 404 sau khi họ đã nhập
     // mật khẩu xong, tức lỗi chỉ lộ ra ở bước cuối cùng.
-    { path: 'auth/steam/callback', component: SteamCallbackComponent },
+    { path: 'auth/steam/callback', loadComponent: () => import('./pages/auth/steam-callback.component').then((m) => m.SteamCallbackComponent) },
 
-    { path: 'profile', component: UserProfileComponent },
-    { path: 'canh-bao-gia', component: AlertsComponent },
-    { path: 'follows', component: FollowsComponent },
-    { path: 'wrapped', component: WrappedComponent },
+    { path: 'profile', title: 'Trang cá nhân - GameNews', loadComponent: () => import('./pages/user-profile/user-profile.component').then((m) => m.UserProfileComponent) },
+    { path: 'canh-bao-gia', loadComponent: () => import('./pages/alerts/alerts.component').then((m) => m.AlertsComponent) },
+    { path: 'follows', loadComponent: () => import('./pages/follows/follows.component').then((m) => m.FollowsComponent) },
+    { path: 'wrapped', loadComponent: () => import('./pages/wrapped/wrapped.component').then((m) => m.WrappedComponent) },
     { path: 'deals', component: DealComponent },
-    { path: 'free', component: FreeComponent },
-    { path: 'news', component: NewsComponent },
-    { path: 'game/:slug', component: GameComponent },
-    { path: 'search', component: SearchComponent },
-    { path: 'thong-ke', component: StatsComponent },
-    { path: 'thu-vien', component: LibraryComponent },
+    { path: 'free', loadComponent: () => import('./pages/free/free.component').then((m) => m.FreeComponent) },
+    { path: 'news', loadComponent: () => import('./pages/news/news.component').then((m) => m.NewsComponent) },
+    { path: 'game/:slug', loadComponent: () => import('./pages/game/game.component').then((m) => m.GameComponent) },
+    { path: 'search', title: 'Tìm game - GameNews', loadComponent: () => import('./pages/search/search.component').then((m) => m.SearchComponent) },
+    { path: 'thong-ke', title: 'Thống kê giá game - GameNews', loadComponent: () => import('./pages/stats/stats.component').then((m) => m.StatsComponent) },
+    { path: 'thu-vien', loadComponent: () => import('./pages/library/library.component').then((m) => m.LibraryComponent) },
     {
       path: 'cai-dat-thong-bao',
       loadComponent: () =>

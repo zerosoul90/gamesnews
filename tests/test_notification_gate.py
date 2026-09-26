@@ -204,3 +204,28 @@ async def test_tat_kenh_streamer_live_thi_khong_gui(mongo_db: Db) -> None:
     await process_notification(mongo_db, payload, http=None)
 
     assert await mongo_db.notification_queue.count_documents({}) == 0
+
+
+async def test_hang_doi_co_tran_va_giu_phan_moi_nhat(mongo_db: Db, monkeypatch: Any) -> None:
+    """Digest giữ hàng đợi khi gửi hỏng, nên thiếu trần thì user chưa có thiết
+    bị nào tích luỹ mãi."""
+    from app.services import notification as mod
+
+    monkeypatch.setattr(mod, "MAX_QUEUE_PER_USER", 3)
+    user_id = await make_user(mongo_db)
+    nguoi_khac = await make_user(mongo_db)
+    await process_notification(
+        mongo_db,
+        NotificationPayload(user_id=nguoi_khac, type="digest", title="khác", body=".", data={}),
+    )
+
+    for i in range(5):
+        await process_notification(
+            mongo_db,
+            NotificationPayload(user_id=user_id, type="digest", title=f"tb {i}", body=".", data={}),
+        )
+
+    con_lai = [d["title"] async for d in mongo_db.notification_queue.find({"user_id": user_id})]
+    assert sorted(con_lai) == ["tb 2", "tb 3", "tb 4"]
+    # Trần tính theo từng user: hàng đợi người khác không bị cắt lây.
+    assert await mongo_db.notification_queue.count_documents({"user_id": nguoi_khac}) == 1

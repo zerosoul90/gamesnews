@@ -81,6 +81,11 @@ jobs:
       - name: Cài phụ thuộc đúng theo lock
         run: uv sync --frozen
 
+      # Cùng font với Dockerfile: test ảnh thẻ chia sẻ khẳng định có font đủ dấu
+      # tiếng Việt, không phụ thuộc runner tình cờ có sẵn hay không.
+      - name: Font cho ảnh thẻ chia sẻ
+        run: sudo apt-get install -y --no-install-recommends fonts-dejavu-core
+
       - name: ruff
         run: uv run ruff check .
 
