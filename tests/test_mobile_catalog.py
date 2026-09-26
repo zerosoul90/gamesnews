@@ -8,8 +8,10 @@ bằng giám sát, không phải bằng một suite test đỏ ngẫu nhiên.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import pathlib
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -18,10 +20,12 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.adapters.app_store.adapter import AppStoreAdapter, with_international_name
 from app.adapters.app_store.adapter import to_game as app_store_to_game
-from app.adapters.base import AdapterConfig, PermanentError, RetryPolicy
+from app.adapters.base import AdapterConfig, PermanentError, RateLimitedError, RetryPolicy
 from app.adapters.google_play.adapter import GooglePlayAdapter
 from app.adapters.google_play.adapter import to_game as play_to_game
-from app.jobs.mobile_catalog import _titles_to_probe, seed_terms
+from app.jobs import mobile_catalog
+from app.jobs.mobile_catalog import PLAY_APPS as SO_PLAY_APPS
+from app.jobs.mobile_catalog import PLAY_PROBES, _titles_to_probe, seed_terms
 from app.models.game import ExternalIds, Game, Titles
 from app.services.catalog import ensure_indexes, games, unique_slug, upsert_game
 from app.services.ingest import find_link_candidate, is_same_game, store_game
@@ -284,7 +288,7 @@ def test_ghep_khi_ca_ten_va_nha_phat_hanh_khop() -> None:
 
 
 def test_ten_khop_nhung_khac_nha_phat_hanh_thi_khong_ghep() -> None:
-    """"Sudoku" của mười nhà khác nhau vẫn là mười game khác nhau."""
+    """ "Sudoku" của mười nhà khác nhau vẫn là mười game khác nhau."""
     ios = make_game(titles=Titles(primary="Sudoku"), publishers=["Nhà A"])
     android = make_game(
         titles=Titles(primary="Sudoku"),
@@ -462,7 +466,181 @@ async def test_chi_do_tren_play_nhung_game_ios_chua_biet_ban_android(mongo_db: D
         key="app_store",
     )
 
-    titles = await _titles_to_probe(mongo_db, limit=50)
+    now = dt.datetime.now(dt.UTC)
+    titles = await _titles_to_probe(mongo_db, limit=50, now=now)
 
     # Free Fire đã biết bản Android rồi, không cần dò lại.
-    assert titles == ["Arena of Valor"]
+    assert [t for _, t in titles] == ["Arena of Valor"]
+
+    # Đã dò gần đây (không thấy bản Play) thì lượt sau bỏ qua — không thì nó
+    # nằm mãi ở đầu danh sách và lượt nào cũng dò lại đúng những tên đó.
+    await mongo_db[PLAY_PROBES].insert_one({"_id": titles[0][0], "probed_at": now})
+    assert await _titles_to_probe(mongo_db, limit=50, now=now) == []
+
+
+# --- Job Play chạy từng phần (đo ngày 2026-09-26) -------------------------------
+#
+# Bản cũ gom 328 lượt search rồi mới lấy chi tiết, rồi mới GHI. Ở 1 request/giây
+# nó chạm trần 300s của arq trước khi ghi được game nào, lượt nào cũng vậy.
+
+
+class DongHo:
+    """Đồng hồ giả: mỗi request tới Play đẩy nó đi `buoc` giây."""
+
+    def __init__(self, buoc: float = 1.0) -> None:
+        self.t = 0.0
+        self.buoc = buoc
+
+    def __call__(self) -> float:
+        return self.t
+
+
+class PlayGia:
+    """Adapter giả đúng hai phương thức mà job dùng."""
+
+    def __init__(self, dong_ho: DongHo, *, chan_sau: int | None = None) -> None:
+        self.dong_ho = dong_ho
+        self.chan_sau = chan_sau
+        self.so_request = 0
+        self.da_tim: list[str] = []
+        self.da_lay: list[str] = []
+
+    def _goi(self) -> None:
+        self.so_request += 1
+        self.dong_ho.t += self.dong_ho.buoc
+        if self.chan_sau is not None and self.so_request > self.chan_sau:
+            raise RateLimitedError("play: bị chặn tần suất (429)", retry_after_seconds=60)
+
+    async def search_games(self, query: str, *, limit: int = 30) -> list[str]:
+        self._goi()
+        self.da_tim.append(query)
+        return [f"com.{query.replace(' ', '')}.{i}" for i in range(2)]
+
+    async def detail(self, app_id: str) -> Game | None:
+        # Hai request như adapter thật: bản tiếng Anh + bản tiếng Việt.
+        self._goi()
+        self._goi()
+        self.da_lay.append(app_id)
+        return make_game(
+            slug=app_id.replace(".", "-"),
+            titles=Titles(primary=app_id),
+            publishers=["Nhà Android"],
+            external_ids=ExternalIds(google_play=app_id),
+            platforms=["android"],
+        )
+
+
+async def chay_play(
+    mongo_db: Db, monkeypatch: pytest.MonkeyPatch, play: PlayGia, dong_ho: DongHo, budget: float
+) -> dict[str, int]:
+    monkeypatch.setattr(mobile_catalog, "_play_adapter", lambda clients: play)
+    ctx = {"clients": SimpleNamespace(db=mongo_db, redis=None)}
+    return await mobile_catalog.sync_google_play(ctx, budget=budget, clock=dong_ho)
+
+
+async def test_het_gio_thi_phan_da_lay_van_duoc_ghi(
+    mongo_db: Db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Đúng lỗi đã đo: bị cắt giữa chừng thì phải còn lại game, không phải 0."""
+    await ensure_indexes(mongo_db)
+    monkeypatch.setattr(mobile_catalog, "seed_terms", lambda: ["a", "b", "c", "d", "e"])
+    dong_ho = DongHo()
+    play = PlayGia(dong_ho)
+
+    tally = await chay_play(mongo_db, monkeypatch, play, dong_ho, budget=7)
+
+    # Khẳng định job ĐÃ NGỪNG, không chỉ gắn nhãn: bản đầu của test này chỉ
+    # kiểm `budget_hit` và vẫn xanh khi bỏ hẳn phép kiểm ngân sách, vì nhãn
+    # được gắn ở cuối bất kể job có dừng hay không.
+    # Mỗi request đẩy đồng hồ 1s: "a" = 1 search + 2 app x 2 = 5s; "b" bắt đầu
+    # ở giây 5 < 7 nên được tìm, lấy được một app (tới giây 8) rồi dừng.
+    assert play.da_tim == ["a", "b"]
+    assert play.so_request == 8
+    assert tally.get("budget_hit") == 1
+    assert tally.get("inserted") == 3
+    so_game = await games(mongo_db).count_documents({"external_ids.google_play": {"$ne": None}})
+    assert so_game == tally["inserted"]
+
+
+async def test_luot_sau_di_tiep_khong_lam_lai(
+    mongo_db: Db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await ensure_indexes(mongo_db)
+    monkeypatch.setattr(mobile_catalog, "seed_terms", lambda: ["a", "b"])
+    dong_ho = DongHo()
+    play = PlayGia(dong_ho)
+
+    await chay_play(mongo_db, monkeypatch, play, dong_ho, budget=100)
+    lan_dau = list(play.da_lay)
+    assert len(lan_dau) == 4
+    assert await mongo_db[SO_PLAY_APPS].count_documents({}) == 4
+
+    play2 = PlayGia(dong_ho)
+    await chay_play(mongo_db, monkeypatch, play2, dong_ho, budget=100)
+
+    # Lượt đầu xử lý trọn cả hai từ khoá nên cả hai vào sổ: lượt sau không tìm
+    # lại, không lấy lại. Đo thật: không có sổ này thì 28 từ khoá seed ăn ~84
+    # giây mỗi lượt trước khi tới phần dò tên iOS.
+    assert play2.da_tim == []
+    assert play2.da_lay == []
+
+
+async def test_tu_khoa_bi_cat_giua_chung_thi_khong_ghi_so(
+    mongo_db: Db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ghi sổ khi mới lấy được một phần app của từ khoá thì phần còn lại mất
+    tới lần dò sau — 7 ngày với từ khoá, 30 ngày với tên iOS."""
+    await ensure_indexes(mongo_db)
+    monkeypatch.setattr(mobile_catalog, "seed_terms", lambda: ["a", "b"])
+    dong_ho = DongHo()
+    # "a" = 1 search + 2 app x 2 = 5s, trọn. "b" tìm ở giây 5, lấy một app tới
+    # giây 8 thì hết ngân sách 7s.
+    await chay_play(mongo_db, monkeypatch, PlayGia(dong_ho), dong_ho, budget=7)
+
+    so = {doc["_id"] async for doc in mongo_db[PLAY_PROBES].find({}, {"_id": 1})}
+    assert so == {"term:a"}
+
+    play2 = PlayGia(dong_ho)
+    await chay_play(mongo_db, monkeypatch, play2, dong_ho, budget=100)
+    # Lượt sau quay lại đúng "b", và chỉ lấy app chưa lấy.
+    assert play2.da_tim == ["b"]
+    assert play2.da_lay == ["com.b.1"]
+
+
+async def test_bi_429_thi_dung_ca_luot_va_khong_ghi_so_ten_chua_do(
+    mongo_db: Db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await ensure_indexes(mongo_db)
+    await store_game(mongo_db, make_game(), key="app_store")
+    monkeypatch.setattr(mobile_catalog, "seed_terms", lambda: [])
+    dong_ho = DongHo()
+    play = PlayGia(dong_ho, chan_sau=0)
+
+    tally = await chay_play(mongo_db, monkeypatch, play, dong_ho, budget=100)
+
+    assert tally.get("rate_limited") == 1
+    # Bị chặn ngay request đầu: không gọi thêm lần nào nữa.
+    assert play.so_request == 1
+    # "Arena of Valor" chưa được dò thật — ghi sổ là mất nó 30 ngày.
+    assert await mongo_db[PLAY_PROBES].count_documents({}) == 0
+
+
+async def test_adapter_doi_429_thanh_loi_tam_thoi() -> None:
+    """Thư viện gói 429 vào `ExtraHTTPError("App not found. Status code 429
+    returned.")`. Đọc theo tên lớp thì thành lỗi vĩnh viễn và job gọi tiếp."""
+
+    class ExtraHTTPError(Exception):
+        pass
+
+    def search_bi_chan(*_: Any, **__: Any) -> list[dict[str, Any]]:
+        raise ExtraHTTPError("App not found. Status code 429 returned.")
+
+    # Một lần thử: có retry thì adapter chờ thật `retry_after` 60 giây.
+    adapter = GooglePlayAdapter(
+        AdapterConfig(limiter=CountingLimiter(), retry=RetryPolicy(max_attempts=1)),
+        app_fetcher=lambda *_a, **_k: {},
+        search_fetcher=search_bi_chan,
+    )
+
+    with pytest.raises(RateLimitedError):
+        await adapter.search_games("liên quân")

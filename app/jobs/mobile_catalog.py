@@ -21,6 +21,8 @@ import datetime as dt
 import json
 import logging
 import pathlib
+import time
+from collections.abc import Callable
 from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -32,7 +34,7 @@ from app.adapters.app_store.adapter import (
     with_international_name,
 )
 from app.adapters.app_store.adapter import RATE_LIMIT as APP_STORE_RATE
-from app.adapters.base import AdapterConfig, AdapterError, RedisTokenBucket
+from app.adapters.base import AdapterConfig, AdapterError, RateLimitedError, RedisTokenBucket
 from app.adapters.google_play.adapter import RATE_LIMIT as PLAY_RATE
 from app.adapters.google_play.adapter import GooglePlayAdapter
 from app.models.game import Game
@@ -52,9 +54,32 @@ FEEDS: tuple[Feed, ...] = ("top-free", "top-paid", "top-grossing")
 # loãng, mà mỗi app còn tốn thêm hai request nữa ở bước lấy chi tiết.
 SEARCH_HITS = 30
 
-# Trần số game iOS đem đi dò trên Play mỗi lượt. Mỗi cái tốn một lần search +
-# hai lần lấy chi tiết, ở mức 1 request/giây thì đây đã là khoảng 20 phút.
+# Trần số game iOS đem đi dò trên Play mỗi lượt. Trần thật là `PLAY_RUN_BUDGET`
+# bên dưới — con số này chỉ chặn việc kéo cả nghìn tên về bộ nhớ một lúc.
 CROSS_STORE_LIMIT = 300
+
+# Job Play dừng nhận việc mới sau chừng này giây, và ghi từng game ngay khi lấy
+# xong chi tiết.
+#
+# Đo ngày 2026-09-26: bản cũ gom 28 từ khoá + 300 tên iOS = 328 lượt search,
+# riêng bước đó ở 1 request/giây đã quá trần `job_timeout` 300s của arq — và
+# game chỉ được ghi SAU khi lấy xong chi tiết của tất cả. Job chết mỗi lượt
+# trước khi ghi được game nào: cả catalog có đúng 4 game mang `google_play`, đều
+# là seed tay ngày 2026-09-07.
+#
+# 240s chừa 60s cho request đang bay, reindex cuối, và độ lệch đồng hồ. Trần
+# timeout của cron đặt ở `worker.py` theo con số này.
+PLAY_RUN_BUDGET = 240.0
+
+# Một app / một tên đã dò thì bao lâu sau mới dò lại. Thiếu sổ này thì lượt nào
+# cũng bắt đầu lại từ đầu danh sách và không bao giờ đi quá 240 giây đầu tiên.
+PLAY_RECHECK = dt.timedelta(days=30)
+PLAY_APPS = "play_apps"
+PLAY_PROBES = "play_probes"
+
+# Từ khoá seed ("liên quân", "game bắn súng"...) là để khám phá game mới trên
+# Play, nên dò lại dày hơn tên iOS — nhưng không phải mỗi lượt.
+SEED_RECHECK = dt.timedelta(days=7)
 
 _SEED_TERMS_FILE = pathlib.Path(__file__).with_name("mobile_seed_terms.json")
 
@@ -143,53 +168,166 @@ async def sync_app_store(ctx: dict[str, Any]) -> dict[str, int]:
     return dict(tally)
 
 
-async def _titles_to_probe(db: Db, limit: int) -> list[str]:
-    """Tên game đã có trong catalog nhưng chưa biết bản Google Play.
+async def _titles_to_probe(db: Db, limit: int, *, now: dt.datetime) -> list[tuple[Any, str]]:
+    """`(game_id, tên)` của game iOS chưa biết bản Google Play và chưa dò gần đây.
 
     Đây là cầu nối giữa hai job: game vào catalog từ App Store, job Play lấy
     chính cái tên đó đi tìm bản Android, rồi `store_game` ghép hai bản lại.
+
+    Bỏ qua tên đã dò trong `PLAY_RECHECK`: phần lớn game iOS không có bản Play
+    trùng tên, và không có sổ thì chúng nằm mãi ở đầu danh sách, lượt nào cũng
+    dò lại đúng 240 giây đầu.
     """
+    recent = [
+        doc["_id"]
+        async for doc in db[PLAY_PROBES].find(
+            {"probed_at": {"$gt": now - PLAY_RECHECK}}, {"_id": 1}
+        )
+    ]
     cursor = (
         games(db)
         .find(
-            {"external_ids.google_play": None, "platforms": "ios"},
+            {"external_ids.google_play": None, "platforms": "ios", "_id": {"$nin": recent}},
             {"titles.primary": 1},
         )
         .limit(limit)
     )
-    return [title async for doc in cursor if (title := (doc.get("titles") or {}).get("primary"))]
+    return [
+        (doc["_id"], title)
+        async for doc in cursor
+        if (title := (doc.get("titles") or {}).get("primary"))
+    ]
 
 
-async def sync_google_play(ctx: dict[str, Any]) -> dict[str, int]:
-    """Tìm game trên Play theo từ khoá tiếng Việt + theo tên game iOS đã có."""
-    clients = ctx["clients"]
-    db: Db = clients.db
-    started = dt.datetime.now(dt.UTC)
-
-    adapter = GooglePlayAdapter(
+def _play_adapter(clients: Any) -> GooglePlayAdapter:
+    """Tách riêng để test thay được bằng adapter giả."""
+    return GooglePlayAdapter(
         AdapterConfig(limiter=RedisTokenBucket(clients.redis, "google_play", PLAY_RATE))
     )
 
-    queries = [*seed_terms(), *await _titles_to_probe(db, CROSS_STORE_LIMIT)]
-    app_ids: set[str] = set()
-    for query in queries:
+
+async def sync_google_play(
+    ctx: dict[str, Any],
+    *,
+    budget: float = PLAY_RUN_BUDGET,
+    clock: Callable[[], float] = time.monotonic,
+) -> dict[str, int]:
+    """Tìm game trên Play theo từ khoá tiếng Việt + theo tên game iOS đã có.
+
+    Chạy **từng phần**: hết `budget` giây thì dừng nhận việc, phần còn lại để
+    lượt sau. Hai sổ ở Mongo (`play_apps`, `play_probes`) nhớ cái gì đã làm để
+    lượt sau đi tiếp chứ không làm lại từ đầu.
+    """
+    clients = ctx["clients"]
+    db: Db = clients.db
+    started = dt.datetime.now(dt.UTC)
+    deadline = clock() + budget
+    adapter = _play_adapter(clients)
+    tally = Tally()
+    # Play trả 429 thì dừng cả lượt, không gọi tiếp: bị chặn theo IP là mất
+    # luôn nguồn. Adapter đã chờ và thử lại trước khi ném lỗi này ra.
+    bi_chan = False
+
+    def het_luot() -> bool:
+        return bi_chan or clock() >= deadline
+
+    async def lay_va_ghi(app_ids: list[str]) -> bool:
+        """Lấy chi tiết rồi GHI NGAY từng app — bị cắt ở đâu thì phần đã lấy
+        vẫn còn. Trả về True nếu đã xử lý HẾT danh sách."""
+        nonlocal bi_chan
+        recent = {
+            doc["_id"]
+            async for doc in db[PLAY_APPS].find(
+                {"_id": {"$in": app_ids}, "checked_at": {"$gt": started - PLAY_RECHECK}}, {"_id": 1}
+            )
+        }
+        for app_id in app_ids:
+            if app_id in recent:
+                continue
+            if het_luot():
+                return False
+            try:
+                game = await adapter.detail(app_id)
+            except RateLimitedError:
+                bi_chan = True
+                return False
+            except AdapterError as exc:
+                logger.warning(
+                    "play: lấy chi tiết hỏng", extra={"app_id": app_id, "error": repr(exc)}
+                )
+                continue
+            await db[PLAY_APPS].update_one(
+                {"_id": app_id},
+                {"$set": {"checked_at": dt.datetime.now(dt.UTC), "is_game": game is not None}},
+                upsert=True,
+            )
+            if game is None:
+                tally.add("not_game")
+                continue
+            try:
+                tally.add(await store_game(db, game, key="google_play"))
+            except Exception as exc:
+                # Một app dị dạng không được chặn các app còn lại.
+                tally.add("failed")
+                logger.warning(
+                    "không ghi được game mobile",
+                    extra={"slug": game.slug, "key": "google_play", "error": repr(exc)},
+                )
+        return True
+
+    async def ghi_so(khoa: Any) -> None:
+        await db[PLAY_PROBES].update_one(
+            {"_id": khoa}, {"$set": {"probed_at": dt.datetime.now(dt.UTC)}}, upsert=True
+        )
+
+    async def tim(query: str) -> list[str]:
+        nonlocal bi_chan
         try:
-            app_ids.update(await adapter.search_games(query, limit=SEARCH_HITS))
+            return await adapter.search_games(query, limit=SEARCH_HITS)
+        except RateLimitedError:
+            bi_chan = True
+            return []
         except AdapterError as exc:
             # Một từ khoá hỏng không đáng để mất cả lượt chạy.
             logger.warning("play: tìm hỏng", extra={"query": query, "error": repr(exc)})
+            return []
 
-    logger.info("play: xong bước tìm", extra={"queries": len(queries), "apps": len(app_ids)})
+    # Từ khoá seed cũng vào sổ: đo ngày 2026-09-26, lượt đầu tiêu hết 240 giây
+    # cho 28 từ khoá và chưa dò được tên iOS nào. Không có sổ thì lượt nào cũng
+    # tìm lại 28 từ khoá (~84 giây ở 1 request/3 giây) trước khi tới phần dò.
+    moc_seed = started - SEED_RECHECK
+    da_tim_seed = {
+        doc["_id"]
+        async for doc in db[PLAY_PROBES].find(
+            {"_id": {"$regex": "^term:"}, "probed_at": {"$gt": moc_seed}}, {"_id": 1}
+        )
+    }
+    for term in seed_terms():
+        if het_luot():
+            break
+        if f"term:{term}" in da_tim_seed:
+            continue
+        hits = await tim(term)
+        # Chỉ ghi sổ khi đã xử lý TRỌN: bị cắt giữa chừng mà ghi thì các app
+        # chưa lấy của từ khoá này mất tới lần dò sau.
+        if not bi_chan and await lay_va_ghi(hits):
+            await ghi_so(f"term:{term}")
 
-    entities: list[Game] = []
-    for app_id in sorted(app_ids):
-        try:
-            if (game := await adapter.detail(app_id)) is not None:
-                entities.append(game)
-        except AdapterError as exc:
-            logger.warning("play: lấy chi tiết hỏng", extra={"app_id": app_id, "error": repr(exc)})
+    for game_id, title in await _titles_to_probe(db, CROSS_STORE_LIMIT, now=started):
+        if het_luot():
+            break
+        hits = await tim(title)
+        if bi_chan:
+            break
+        if await lay_va_ghi(hits):
+            await ghi_so(game_id)
+            tally.add("probed")
 
-    tally = await _store_all(db, entities, key="google_play")
+    if bi_chan:
+        tally.add("rate_limited")
+        logger.warning("play: bị 429, dừng lượt này", extra=dict(tally))
+    elif clock() >= deadline:
+        tally.add("budget_hit")
     await _reindex(ctx, since=started)
     logger.info("play: xong", extra=dict(tally))
     return dict(tally)

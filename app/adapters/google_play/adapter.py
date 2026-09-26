@@ -31,6 +31,7 @@ from app.adapters.base import (
     BaseAdapter,
     PermanentError,
     RateLimit,
+    RateLimitedError,
     TransientError,
 )
 from app.models.game import ExternalIds, Game, Media, ReleaseDate, Titles
@@ -38,9 +39,17 @@ from app.services.normalize import slugify
 
 logger = logging.getLogger(__name__)
 
-# Google không công bố hạn mức nào; đây là mức tự đặt cho lịch sự. Quá tay thì
-# Play chặn theo IP, mà mất IP là mất luôn cả nguồn.
-RATE_LIMIT = RateLimit(capacity=1, per_seconds=1.0)
+# Google không công bố hạn mức nào. Quá tay thì Play chặn theo IP, mà mất IP là
+# mất luôn cả nguồn.
+#
+# Đo ngày 2026-09-26 ở mức cũ 1 request/giây: khoảng 60 request đầu qua hết,
+# rồi 429 xuất hiện từ giây thứ 60 và kéo dài từng đợt (có cửa sổ 15 giây bị
+# chặn cả 15/15). Tức hạn mức bền thấp hơn 1/giây. Hạ xuống 1 request/3 giây.
+RATE_LIMIT = RateLimit(capacity=1, per_seconds=3.0)
+
+# Bị 429 thì chờ ít nhất chừng này trước khi thử lại — đợt chặn đo được kéo dài
+# cỡ 15-30 giây.
+RATE_LIMITED_WAIT_SECONDS = 60.0
 
 # `genreId` của mọi thể loại game đều mở đầu bằng GAME. Đây là bộ lọc tin cậy
 # duy nhất, nhưng CHỈ payload của `app()` mới có trường này — kết quả `search`
@@ -153,6 +162,14 @@ class GooglePlayAdapter(BaseAdapter[list[dict[str, Any]], list[dict[str, Any]]])
                 return list(hits)
         except Exception as exc:  # thư viện ném đủ loại lỗi mạng của riêng nó
             name = type(exc).__name__
+            # Thư viện gói 429 vào `ExtraHTTPError` với câu "App not found.
+            # Status code 429 returned." — đọc theo tên lớp thì thành lỗi vĩnh
+            # viễn, và job cứ thế gọi tiếp vào một nguồn đang chặn mình.
+            if "429" in str(exc):
+                raise RateLimitedError(
+                    f"play {operation}: bị chặn tần suất (429)",
+                    retry_after_seconds=RATE_LIMITED_WAIT_SECONDS,
+                ) from exc
             if name in ("NotFoundError", "ExtraHTTPError"):
                 raise PermanentError(f"play {operation}: {exc!r}") from exc
             raise TransientError(f"play {operation}: {exc!r}") from exc
@@ -175,9 +192,7 @@ class GooglePlayAdapter(BaseAdapter[list[dict[str, Any]], list[dict[str, Any]]])
         Chưa lọc game ở đây: kết quả `search` không có `genreId`. Việc lọc nằm
         ở `detail`.
         """
-        hits = await self.fetch(
-            endpoint="search", op="search", query=query, limit=limit, lang="vi"
-        )
+        hits = await self.fetch(endpoint="search", op="search", query=query, limit=limit, lang="vi")
         app_ids = [str(hit["appId"]) for hit in hits if hit.get("appId")]
         if (dropped := len(hits) - len(app_ids)) > 0:
             logger.info(

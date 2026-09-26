@@ -29,7 +29,7 @@ from app.jobs.cheapshark_pricing import sync_cheapshark_prices
 from app.jobs.embeddings import sync_game_embeddings
 from app.jobs.epic_pricing import sync_epic_free_games
 from app.jobs.metrics import job_compute_hotness, job_fetch_steam_ccu, job_rollup_metrics
-from app.jobs.mobile_catalog import sync_app_store, sync_google_play
+from app.jobs.mobile_catalog import PLAY_RUN_BUDGET, sync_app_store, sync_google_play
 from app.jobs.news import crawl_all_sources
 from app.jobs.notification_digest import send_notification_digest
 from app.jobs.search_sync import sync_search_index
@@ -117,8 +117,23 @@ CRON_JOBS: list[CronJob] = [
     cron(sync_steam_reviews, minute={8, 38}),
     # Danh sách app đầy đủ đổi chậm; kéo lại mỗi tuần.
     cron(sync_steam_app_list, weekday="sun", hour=2, minute=0),
-    cron(sync_app_store, weekday="sun", hour=4, minute=0),
-    cron(sync_google_play, weekday="sun", hour=5, minute=0),
+    # App Store gom hết rồi mới ghi, và lượt đầu chèn mới ~2.700 entity. Đo ngày
+    # 2026-09-26: 205s cho một lượt chủ yếu `unchanged`, sát trần mặc định 300s
+    # của arq — lượt 2026-09-20 nhiều khả năng đã chết đúng ở đó. Nới trần
+    # tường minh thay vì để job sống nhờ may.
+    cron(sync_app_store, weekday="sun", hour=4, minute=0, timeout=900),
+    # Play chạy từng phần (`PLAY_RUN_BUDGET` giây mỗi lượt, có sổ để lượt sau đi
+    # tiếp), nên chạy dày: mỗi 2 giờ. Trước đây là mỗi tuần một lượt, và lượt
+    # nào cũng chết ở giây 300 trước khi ghi được game nào.
+    #
+    # Trần = ngân sách + 60s cho request đang bay và reindex. Enqueue tay thì
+    # vẫn theo trần mặc định 300s — vẫn đủ vì ngân sách là 240s.
+    cron(
+        sync_google_play,
+        hour=set(range(1, 24, 2)),
+        minute=5,
+        timeout=PLAY_RUN_BUDGET + 60,
+    ),
     # Lưới an toàn cho các job trên: job nào chết trước dòng reindex cuối thì
     # phần nó đã ghi vẫn sang được Meilisearch ở lượt này. Lệch khỏi bốn mốc
     # của `sync_steam_details` để không hai lượt cùng đẩy một lô.

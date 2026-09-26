@@ -3394,3 +3394,59 @@ theo thiết kế); nhánh này chỉ được kiểm qua pytest, kể cả ph�
 - Chưa có mobile, thông báo trả lời, tìm kiếm chủ đề.
 - Chủ đề diễn đàn chưa vào sitemap.
 - `getBySlug` ở `/forum/g/:slug` kéo cả giá + lịch sử giá chỉ để lấy id và tên.
+
+### 2026-09-26 (lượt 22) — Job Google Play chưa từng ghi được game nào
+
+Nợ ghi ở lượt 18: `android` chỉ có 5 game. Đo xong thì còn tệ hơn giả thuyết:
+**4** game có `google_play`, cả bốn ghi cùng mili-giây ngày 2026-09-07 — seed
+tay. Job Play chạy mỗi Chủ nhật chưa lần nào ghi được một game.
+
+#### Ba lớp, đo từng lớp
+
+1. **Timeout.** Bản cũ gom 28 từ khoá + 300 tên iOS = 328 lượt search, rồi
+   lấy chi tiết mọi app, rồi mới ghi. Ở 1 request/giây riêng bước search đã
+   quá trần mặc định 300s của arq. Chạy tay: `299.99s ! sync_google_play
+   failed, TimeoutError`, vẫn đang ở bước search. Chú thích trong code còn tự
+   ghi "khoảng 20 phút" ngay dưới trần 5 phút.
+2. **429.** Cùng lượt đó, Play bắt đầu chặn từ giây ~60: cửa sổ 15 giây tệ
+   nhất bị chặn 15/15. Hạn mức bền thấp hơn 1 request/giây.
+3. **429 bị đọc thành lỗi vĩnh viễn.** Thư viện gói 429 vào
+   `ExtraHTTPError("App not found. Status code 429 returned.")`; adapter phân
+   loại theo tên lớp nên thành `PermanentError`, và job cứ gọi tiếp vào một
+   nguồn đang chặn mình theo IP.
+
+#### Bản sửa
+
+- Job chạy **từng phần**: ngân sách `PLAY_RUN_BUDGET` 240s, ghi từng game
+  ngay sau khi lấy chi tiết. Hai sổ Mongo — `play_apps` (app đã lấy, 30 ngày)
+  và `play_probes` (tên iOS 30 ngày, từ khoá seed 7 ngày) — để lượt sau đi
+  tiếp. Chỉ ghi sổ khi đã xử lý **trọn** một tên/từ khoá: bị cắt giữa chừng mà
+  ghi thì phần còn lại mất tới lần dò sau.
+- 429 → `RateLimitedError`, adapter chờ 60s rồi thử lại; vẫn bị thì job dừng
+  cả lượt và không ghi sổ tên đang dò.
+- Nhịp 1 request/3 giây. Cron mỗi 2 giờ (thay vì mỗi tuần), `timeout` tường
+  minh = ngân sách + 60s. `sync_app_store` cũng được trần tường minh 900s —
+  đo 205s cho một lượt chủ yếu `unchanged`, sát 300s.
+
+#### Đo trên stack thật
+
+```
+                      request  lỗi/429  thời gian  kết quả
+bản cũ                    120      26    299.99s   TimeoutError, 0 game
+bản mới, lượt 1            82       0    243.97s   inserted 37, linked 2
+bản mới, lượt 2            82       0    243.85s   inserted 33, linked 6
+game có google_play:  4 -> 82      có cả iOS lẫn Android: 13
+```
+
+Phần dò tên iOS chưa bắt đầu: mỗi từ khoá seed trả ~20 app × 2 request × 3s
+≈ 2 phút, nên 28 từ khoá cần ~14 lượt (~1 ngày ở lịch 2 giờ/lượt). Sau đó
+mới tới 3.229 tên iOS. Giữ thứ tự vì phần khám phá đang cho ~40 game/lượt.
+
+Test: `pytest` **699 passed** (694 → 699). Hai mutation đỏ đúng chỗ — bỏ phép kiểm ngân
+sách, và ghi sổ từ khoá bất kể đã xử lý trọn. Mutation đầu **sống sót** ở bản
+test đầu tiên: test chỉ kiểm nhãn `budget_hit`, mà nhãn gắn ở cuối bất kể job
+có dừng. Đã siết để khẳng định số request và từ khoá thực sự đã tìm.
+
+**Còn nợ:** nhịp 1/3 giây mới đo qua 164 request không lỗi; chưa biết hạn mức
+thật nằm đâu giữa 1/3 và 1/1. Enqueue tay vẫn theo trần 300s mặc định (đủ vì
+ngân sách 240s).
