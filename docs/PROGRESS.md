@@ -1,6 +1,6 @@
 # PROGRESS.md — Tiến độ
 
-**Phase hiện tại:** Phase 1 — Catalog + Search
+**Phase hiện tại:** Phase 9 — Lấp khoảng trống, giá mở rộng, ra mắt (`PHASE-9.md`)
 **Cập nhật lần cuối:** 2026-09-26
 
 Phase 0 đã đạt toàn bộ checkpoint nghiệm thu. Chỉ còn mục 7 (đăng ký key ngoài)
@@ -86,7 +86,8 @@ là việc của người dùng, Phase 1 mới cần tới.
 giảm giá game đã sở hữu.
 
 - [x] Auth + Steam OpenID
-- [x] Import `GetOwnedGames` + `GetWishlist` (tra ngược tên từ appid)
+- [x] Import `GetOwnedGames` (tra ngược tên từ appid)
+- [ ] Import `GetWishlist` — **chưa làm** dù từng đánh dấu xong (rà lượt 29)
 - [x] Cài đặt nhận thông báo + giờ yên tĩnh
 - [x] Hướng dẫn có ảnh để đặt profile Public + tự kiểm tra lỗi (đã làm API ném lỗi chuẩn 403 PROFILE_IS_PRIVATE)
 - [x] Màn hình tick nhanh game free Epic theo tuần (đã thêm API bulk insert)
@@ -116,8 +117,8 @@ render đúng trên Facebook và Zalo.
 - [x] Khung app (Flutter, Riverpod, go_router)
 - [x] Dựng sơ đồ luồng các màn hình chính (Điều hướng Bottom Bar)
 - [x] Tích hợp API Client, Deep link, FCM push
-- [x] Widget Android / Live Activity iOS
-- [x] Apple Developer + Google Play Console
+- [ ] Widget Android / Live Activity iOS — app mới là khung, 454 dòng (rà lượt 29)
+- [ ] Apple Developer + Google Play Console — việc của người dùng
 
 ---
 
@@ -140,19 +141,20 @@ trong 2 giờ.
 push streamer live trong 60 giây.
 
 - [x] Thu thập CCU, most played, top sellers cc=vn, reviews
-- [x] Twitch Get Streams + EventSub
+- [ ] Twitch Get Streams + EventSub — có adapter, bị chặn vì Twitch đòi 2FA bằng số điện thoại
 - [x] YouTube WebSub + job gia hạn subscription
-- [x] Chuẩn hoá percentile, hai bảng hot/rising
+- [ ] Chuẩn hoá percentile, hai bảng hot/rising — **tính** được (59 game), chưa có API/trang hiển thị
 - [x] Rollup time-series
-- [x] Danh sách streamer Việt (curate tay)
+- [ ] Danh sách streamer Việt (curate tay) — 0 streamer
 
 ---
 
 ## Phase 8 — Cộng đồng & Giftcode
 
 - [x] Đánh giá + điểm người dùng (ẩn dưới 20 lượt), chống review bombing
-- [x] Giftcode + lịch banner mobile
-- [x] Mở hàng đợi duyệt cho cộng đồng, badge
+- [ ] Giftcode + lịch banner mobile — có endpoint, không có nguồn dữ liệu (0 mã)
+- [ ] Mở hàng đợi duyệt cho cộng đồng — chỉ admin duyệt được
+- [x] Badge
 - [x] Thống kê thư viện + tổng kết cuối năm
 
 ---
@@ -3716,3 +3718,38 @@ Kiểm lại: 0 bài còn gắn, 33 pending, chạy lại không còn bài nào 
   phải đo tay bằng quota.
 - Mẫu nhỏ (42 tên + 3 bài thật). Ngưỡng 0.85 là "đủ chặt với cái đã thấy",
   chưa phải con số tối ưu.
+
+### 2026-09-26 (lượt 29) — Rà soát: đủ tính năng chưa, và kế hoạch Phase 9
+
+Người dùng hỏi các tính năng đã đủ chưa. Danh sách phase ở đầu file đánh dấu
+gần hết là xong; **đo trên dữ liệu và code thì không**. Đã sửa các checkbox sai
+ở đầu file.
+
+| Phase | Kế hoạch | Thực tế 2026-09-26 |
+|---|---|---|
+| 1 | Catalog ≥ 50.000 | 43.909 |
+| 3 | Import wishlist | chưa làm |
+| 3/5 | Push đến trong 15 phút | FCM chưa cấu hình, chưa ai nhận push |
+| 4 | Route i18n + `hreflang` | chưa làm |
+| 5 | TestFlight, máy thật | app 454 dòng, toàn màn khung |
+| 6 | Gắn entity ≥ 85% | 11,9% |
+| 7 | Bảng hot / rising | tính được 59 game, không có API/trang |
+| 7 | Streamer | 0; Twitch bị chặn |
+| 8 | Giftcode | endpoint có, 0 mã, không nguồn |
+| 8 | Cộng đồng duyệt entity | chỉ admin |
+| — | Oracle Cloud + domain | chưa — sản phẩm chưa ra mắt |
+
+Phần chắc: giá VND + lịch sử (34.486 game có giá), deal/free, cảnh báo giá,
+follow, thư viện Steam, SSR/SEO, tin tức + dịch, diễn đàn, đánh giá, tổng kết
+năm.
+
+Người dùng chọn cả bốn hướng: lấp khoảng trống rẻ, tính năng giá mới, trang
+SEO theo mùa, ra mắt. Kế hoạch ở `PHASE-9.md`. Ba con số đã định hình nó:
+
+- `price_history` mới từ 2026-09-09, 31.122 game có đúng một bản ghi → "nên
+  mua hay chờ" theo chu kỳ của chính mình chưa làm được; bản đầu dựa vào đáy
+  lịch sử + lịch sale.
+- Game không có tag, còn vector Qdrant chỉ là tên → "game tương tự" cần nguồn
+  tag (ứng viên SteamSpy, chưa kiểm điều khoản).
+- Route i18n rẻ hơn tưởng: giữ tiếng Việt ở gốc, tiếng Anh dưới `/en/` thì
+  không URL nào phải đổi.
