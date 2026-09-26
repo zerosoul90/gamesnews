@@ -46,6 +46,7 @@ export class NavComponent implements OnInit, OnDestroy {
     { duongDan: '/deals', nhan: 'Deal' },
     { duongDan: '/free', nhan: 'Miễn phí' },
     { duongDan: '/news', nhan: 'Tin tức' },
+    { duongDan: '/forum', nhan: 'Diễn đàn' },
     { duongDan: '/thong-ke', nhan: 'Thống kê' },
   ];
 

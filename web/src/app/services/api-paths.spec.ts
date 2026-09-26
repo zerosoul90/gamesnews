@@ -8,6 +8,7 @@ import { AuthService } from './auth.service';
 import { CommunityService } from './community.service';
 import { DashboardService } from './dashboard.service';
 import { SearchService } from './search.service';
+import { ForumService } from './forum.service';
 import { UserService } from './user.service';
 
 /**
@@ -262,6 +263,30 @@ describe('service gọi đúng đường dẫn backend có thật', () => {
   it('SearchService -> /search', () => {
     const s = TestBed.inject(SearchService);
     expect(kiem(() => s.search('elden').subscribe())).toBe('/search');
+  });
+
+  it('ForumService -> /api/v1/forum/*, đúng prefix của `app/api/forum.py`', () => {
+    const s = TestBed.inject(ForumService);
+    const id = '65f1a2b3c4d5e6f708190001';
+    const ca: [() => void, string, string][] = [
+      [() => s.chuyenMuc().subscribe(), 'GET', '/api/v1/forum/categories'],
+      [() => s.danhSach({ category: 'hoi-dap' }).subscribe(), 'GET', '/api/v1/forum/threads'],
+      [() => s.chuDe(id).subscribe(), 'GET', '/api/v1/forum/threads/{}'],
+      [() => s.trangThai().subscribe(), 'GET', '/api/v1/forum/me'],
+      [() => s.datBietDanh('x').subscribe(), 'PUT', '/api/v1/forum/me/nickname'],
+      [() => s.taoChuDe({ category: 'hoi-dap' }, 't', 'b').subscribe(), 'POST', '/api/v1/forum/threads'],
+      [() => s.traLoi(id, 'b', null).subscribe(), 'POST', '/api/v1/forum/threads/{}/posts'],
+      [() => s.baoCao('post', id, 'spam').subscribe(), 'POST', '/api/v1/forum/reports'],
+      [() => s.xoaChuDe(id).subscribe(), 'DELETE', '/api/v1/forum/threads/{}'],
+      [() => s.xoaTraLoi(id).subscribe(), 'DELETE', '/api/v1/forum/posts/{}'],
+    ];
+    for (const [goi, method, duongDan] of ca) {
+      goi();
+      const req = http.expectOne(() => true);
+      expect(req.request.method).withContext(duongDan).toBe(method);
+      expect(chuanHoa(req.request.url)).toBe(duongDan);
+      req.flush({});
+    }
   });
 
   it('SearchService.search gửi `per_page`, đúng tên tham số backend nhận', () => {

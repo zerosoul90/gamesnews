@@ -36,6 +36,25 @@ export const routes: Routes = [
     { path: 'search', component: SearchComponent },
     { path: 'thong-ke', component: StatsComponent },
     { path: 'thu-vien', component: LibraryComponent },
+    // Diễn đàn — `docs/FORUM.md`. `c/` và `t/` tách hai loại trang để slug
+    // chuyên mục không bao giờ đụng id chủ đề.
+    //
+    // Lazy: nạp thẳng thì bundle ban đầu tăng 531 -> 567 kB cho mọi người vào
+    // trang chủ, kể cả người không bao giờ mở diễn đàn.
+    {
+      path: 'forum',
+      loadComponent: () => import('./pages/forum/forum-home.component').then((m) => m.ForumHomeComponent),
+    },
+    {
+      path: 'forum/c/:slug',
+      loadComponent: () =>
+        import('./pages/forum/forum-category.component').then((m) => m.ForumCategoryComponent),
+    },
+    {
+      path: 'forum/t/:id',
+      loadComponent: () =>
+        import('./pages/forum/forum-thread.component').then((m) => m.ForumThreadComponent),
+    },
 
     // Phải là route cuối: '**' khớp mọi thứ nên đặt trên sẽ che hết bên dưới.
     // Thiếu nó thì router ném NG04002 và SSR trả 200 kèm vỏ app rỗng — Chrome

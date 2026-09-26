@@ -1,0 +1,27 @@
+<div class="container mx-auto px-4 py-8 max-w-4xl">
+  <h1 class="text-3xl font-bold text-white mb-2">Diễn đàn</h1>
+  <p class="text-slate-400 mb-6">Nơi trao đổi về game. Đang chạy thử nghiệm kín — ai cũng đọc được, người được mời mới đăng bài.</p>
+
+  <app-forum-trang-thai></app-forum-trang-thai>
+
+  <div *ngIf="dangTai" class="text-center py-12 text-slate-400">Đang tải...</div>
+
+  <div *ngIf="loi" class="text-center py-12">
+    <p class="text-red-400 mb-4">{{ loi }}</p>
+    <button (click)="tai()" class="bg-blue-600 hover:bg-blue-500 text-white font-bold px-4 py-2 rounded">Thử lại</button>
+  </div>
+
+  <ul *ngIf="!dangTai && !loi" class="divide-y divide-slate-800 border border-slate-800 rounded-lg overflow-hidden">
+    <li *ngFor="let c of chuyenMuc">
+      <a [routerLink]="['/forum/c', c.slug]" class="flex items-center justify-between gap-4 px-5 py-4 bg-slate-900 hover:bg-slate-800 transition-colors">
+        <div class="min-w-0">
+          <h2 class="text-lg font-semibold text-white">{{ c.name }}</h2>
+          <p class="text-sm text-slate-400">{{ c.description }}</p>
+        </div>
+        <span class="text-sm text-slate-400 shrink-0 tabular-nums">{{ c.thread_count }} chủ đề</span>
+      </a>
+    </li>
+  </ul>
+
+  <p class="text-slate-500 text-sm mt-6">Muốn bàn về một game cụ thể? Mở trang của game đó và vào mục Thảo luận.</p>
+</div>

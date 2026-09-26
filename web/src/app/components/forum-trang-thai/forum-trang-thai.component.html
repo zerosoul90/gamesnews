@@ -1,0 +1,35 @@
+<div class="bg-slate-800/60 border border-slate-700 rounded-lg px-4 py-3 mb-6 text-sm">
+  <ng-container *ngIf="!daDangNhap">
+    <span class="text-slate-300">Ai cũng đọc được. Muốn tham gia thảo luận thì </span>
+    <a routerLink="/login" class="text-blue-400 hover:text-blue-300 font-semibold">đăng nhập bằng Steam</a>.
+  </ng-container>
+
+  <ng-container *ngIf="daDangNhap && trangThai">
+    <form *ngIf="hienForm; else daCoTen" (ngSubmit)="luuBietDanh()" class="flex flex-col sm:flex-row sm:items-center gap-2">
+      <label for="biet-danh" class="text-slate-300 shrink-0">
+        {{ trangThai.nickname ? 'Biệt danh mới:' : 'Đặt biệt danh để tham gia:' }}
+      </label>
+      <input id="biet-danh" name="bietDanh" [(ngModel)]="bietDanh" maxlength="24" autocomplete="off"
+             placeholder="3–24 ký tự: chữ, số, _ . -"
+             class="flex-1 bg-slate-900 border border-slate-700 text-white rounded px-3 py-1.5 focus:outline-none focus:border-blue-500">
+      <button type="submit" [disabled]="dangGui || !bietDanh.trim()"
+              class="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold px-4 py-1.5 rounded">
+        {{ dangGui ? 'Đang lưu...' : 'Lưu' }}
+      </button>
+      <button *ngIf="dangDoi" type="button" (click)="dangDoi = false" class="text-slate-400 hover:text-white px-2">Huỷ</button>
+    </form>
+    <p *ngIf="!trangThai.nickname" class="text-slate-500 text-xs mt-2">
+      Tên có dấu và không dấu được tính là một ("Trần Văn" = "tranvan"). Đổi tối đa 30 ngày một lần.
+    </p>
+
+    <ng-template #daCoTen>
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span class="text-slate-300">Bạn đang là <strong class="text-white">{{ trangThai.nickname }}</strong></span>
+        <button type="button" (click)="moDoi()" class="text-slate-400 hover:text-white underline text-xs">đổi</button>
+        <span *ngIf="!trangThai.can_post" class="text-amber-300" data-ly-do>· {{ trangThai.reason }}</span>
+      </div>
+    </ng-template>
+  </ng-container>
+
+  <p *ngIf="loi" class="text-red-400 mt-2" role="alert">{{ loi }}</p>
+</div>

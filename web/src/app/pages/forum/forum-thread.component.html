@@ -1,0 +1,104 @@
+<div class="container mx-auto px-4 py-8 max-w-4xl">
+  <nav class="text-sm text-slate-400 mb-4" aria-label="Vị trí">
+    <a routerLink="/forum" class="hover:text-white">Diễn đàn</a>
+    <ng-container *ngIf="chuDe?.category as slug">
+      <span class="mx-2">/</span>
+      <a [routerLink]="['/forum/c', slug]" class="hover:text-white">{{ tenChuyenMuc || slug }}</a>
+    </ng-container>
+    <ng-container *ngIf="chuDe?.game as game">
+      <span class="mx-2">/</span>
+      <a *ngIf="game.slug; else tenGame" [routerLink]="['/game', game.slug]" class="hover:text-white">{{ game.title }}</a>
+      <ng-template #tenGame><span>{{ game.title }}</span></ng-template>
+    </ng-container>
+  </nav>
+
+  <div *ngIf="khongCo" class="text-center py-12">
+    <h1 class="text-2xl font-bold text-white mb-2">Không tìm thấy chủ đề</h1>
+    <p class="text-slate-400 mb-4">Chủ đề có thể đã bị xoá hoặc đang chờ kiểm duyệt.</p>
+    <a routerLink="/forum" class="text-blue-400 hover:text-blue-300">Về trang diễn đàn</a>
+  </div>
+
+  <div *ngIf="dangTai && !chuDe" class="text-center py-12 text-slate-400">Đang tải...</div>
+  <p *ngIf="loi" class="text-center py-12 text-red-400">{{ loi }}</p>
+
+  <ng-container *ngIf="chuDe && !khongCo">
+    <p *ngIf="thongBao" class="bg-slate-800 border border-slate-700 rounded px-4 py-2 mb-4 text-slate-200 text-sm" role="status">{{ thongBao }}</p>
+
+    <article class="bg-slate-900 border border-slate-800 rounded-lg p-5 mb-6">
+      <h1 class="text-2xl font-bold text-white mb-1">
+        <span *ngIf="chuDe.locked" class="text-sm text-amber-300 mr-1">[Đã khoá]</span>{{ chuDe.title }}
+      </h1>
+      <p class="text-xs text-slate-500 mb-4">
+        {{ chuDe.author.nickname || 'Người dùng' }} · {{ chuDe.created_at | date: 'dd/MM/yyyy HH:mm' : '+0700' }}
+        <span *ngIf="chuDe.edited_at"> · đã sửa</span>
+      </p>
+      <!-- Nội suy, không innerHTML: xem chú thích đầu component. -->
+      <div class="text-slate-200 whitespace-pre-line break-words" data-noi-dung>{{ chuDe.body }}</div>
+      <div class="flex gap-4 mt-4 text-xs">
+        <button *ngIf="trangThai?.can_post && !cuaToi(chuDe.author.id)" (click)="moBaoCao('thread', chuDe.id)" class="text-slate-500 hover:text-red-400">Báo cáo</button>
+        <button *ngIf="cuaToi(chuDe.author.id)" (click)="xoaChuDe()" class="text-slate-500 hover:text-red-400">Xoá chủ đề</button>
+      </div>
+    </article>
+
+    <h2 class="text-lg font-semibold text-white mb-3">{{ tongTraLoi }} trả lời</h2>
+
+    <ol class="space-y-3 mb-6">
+      <li *ngFor="let bai of baiTraLoi" [id]="'bai-' + bai.id" class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+        <p class="text-xs text-slate-500 mb-2">
+          <strong class="text-slate-300">{{ bai.author.nickname || 'Người dùng' }}</strong>
+          · {{ bai.created_at | date: 'dd/MM/yyyy HH:mm' : '+0700' }}
+          <span *ngIf="bai.edited_at"> · đã sửa</span>
+        </p>
+        <blockquote *ngIf="bai.quote" class="border-l-2 border-slate-600 pl-3 mb-2 text-sm text-slate-400" data-trich-dan>
+          <ng-container *ngIf="bai.quote.body !== null; else daAn">
+            <span class="text-slate-300">{{ bai.quote.author?.nickname || 'Người dùng' }}:</span>
+            <span class="whitespace-pre-line line-clamp-3">{{ bai.quote.body }}</span>
+          </ng-container>
+          <ng-template #daAn><em>Bài được trích đã bị xoá hoặc ẩn.</em></ng-template>
+        </blockquote>
+        <div class="text-slate-200 whitespace-pre-line break-words" data-noi-dung>{{ bai.body }}</div>
+        <div class="flex gap-4 mt-3 text-xs">
+          <button *ngIf="duocTraLoi" (click)="trich(bai)" class="text-slate-500 hover:text-blue-400">Trích dẫn</button>
+          <button *ngIf="trangThai?.can_post && !cuaToi(bai.author.id)" (click)="moBaoCao('post', bai.id)" class="text-slate-500 hover:text-red-400">Báo cáo</button>
+          <button *ngIf="cuaToi(bai.author.id)" (click)="xoaTraLoi(bai)" class="text-slate-500 hover:text-red-400">Xoá</button>
+        </div>
+      </li>
+    </ol>
+
+    <div *ngIf="page > 1 || conTrangSau" class="mb-6 flex justify-center gap-2">
+      <a *ngIf="page > 1" [routerLink]="['/forum/t', chuDe.id]" [queryParams]="{ page: page - 1 }"
+         class="px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-300 hover:text-white">Trang trước</a>
+      <span class="px-4 py-2 text-slate-400">Trang {{ page }}</span>
+      <a *ngIf="conTrangSau" [routerLink]="['/forum/t', chuDe.id]" [queryParams]="{ page: page + 1 }"
+         class="px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-300 hover:text-white">Trang sau</a>
+    </div>
+
+    <!-- Ô báo cáo dùng chung cho chủ đề và từng bài: mỗi lúc chỉ mở một. -->
+    <form *ngIf="dangBaoCao" (ngSubmit)="guiBaoCao()" class="bg-slate-800 border border-red-900 rounded-lg p-4 mb-6 flex flex-wrap items-center gap-2" aria-label="Báo cáo bài viết">
+      <label for="ly-do" class="text-slate-300 text-sm">Lý do báo cáo:</label>
+      <select id="ly-do" name="lyDo" [(ngModel)]="lyDoChon" class="bg-slate-900 border border-slate-700 text-white rounded px-2 py-1 text-sm">
+        <option *ngFor="let l of lyDoBaoCao" [value]="l">{{ l }}</option>
+      </select>
+      <button type="submit" class="bg-red-700 hover:bg-red-600 text-white text-sm font-semibold px-3 py-1 rounded">Gửi báo cáo</button>
+      <button type="button" (click)="dangBaoCao = null" class="text-slate-400 hover:text-white text-sm px-2">Huỷ</button>
+    </form>
+
+    <app-forum-trang-thai (doiTrangThai)="khiDoiTrangThai($event)"></app-forum-trang-thai>
+
+    <p *ngIf="chuDe.locked" class="text-amber-300 text-sm mb-4">Chủ đề đã khoá, không nhận thêm trả lời.</p>
+
+    <form *ngIf="duocTraLoi" (ngSubmit)="guiTraLoi()" class="space-y-3" aria-label="Viết trả lời">
+      <div *ngIf="trichBai" class="flex items-start justify-between gap-2 border-l-2 border-blue-500 pl-3 text-sm text-slate-400">
+        <span class="line-clamp-2">Trích {{ trichBai.author.nickname || 'Người dùng' }}: {{ trichBai.body }}</span>
+        <button type="button" (click)="trichBai = null" class="text-slate-500 hover:text-white shrink-0" aria-label="Bỏ trích dẫn">✕</button>
+      </div>
+      <textarea id="tra-loi" name="noiDung" [(ngModel)]="noiDung" rows="5" maxlength="10000" placeholder="Viết trả lời..." aria-label="Nội dung trả lời"
+                class="w-full bg-slate-900 border border-slate-700 text-white rounded px-3 py-2 focus:outline-none focus:border-blue-500"></textarea>
+      <p *ngIf="loiGui" class="text-red-400 text-sm" role="alert">{{ loiGui }}</p>
+      <button type="submit" [disabled]="dangGui || !noiDung.trim()"
+              class="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold px-4 py-2 rounded">
+        {{ dangGui ? 'Đang gửi...' : 'Gửi trả lời' }}
+      </button>
+    </form>
+  </ng-container>
+</div>

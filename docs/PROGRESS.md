@@ -3329,3 +3329,26 @@ DB; nhánh này đã có pytest phủ.
 - Người viết không thấy bài của mình khi nó bị ẩn — trả 404 như với mọi người.
 - Chưa lọc từ ngữ trong nội dung; chỉ lọc tên cấm trong biệt danh.
 - Sửa bài không giới hạn thời gian và không lưu lịch sử sửa.
+
+### 2026-09-26 (lượt 20) — Diễn đàn, chặng F2: web
+
+Ba trang lazy-load — `/forum`, `/forum/c/:slug`, `/forum/t/:id` — cộng
+`ForumTrangThaiComponent` dùng chung (mời đăng nhập → form biệt danh → lý do
+chưa đăng được, lấy nguyên văn từ `GET /forum/me`). Mục "Diễn đàn" lên nav.
+
+- **Nội dung chỉ đi qua nội suy `{{ }}`**, `whitespace-pre-line` giữ xuống
+  dòng. Backend không lọc HTML, nên đây là lớp duy nhất chắn XSS. Mutation đổi
+  sang `[innerHTML]` → test đỏ với `Expected <img src="x"> to be null`.
+- **Lazy-load là bắt buộc, không phải tối ưu sớm**: nạp thẳng thì bundle ban
+  đầu 531 → 567 kB cho mọi khách vào trang chủ. Lazy: 534,7 kB, ba chunk riêng.
+- **Giờ hiển thị cố định `+0700`**: SSR chạy UTC, trình duyệt chạy giờ máy.
+- **`cauBaoLoi()`**: `ForumError` trả `detail` là chuỗi, còn lỗi Pydantic trả
+  MẢNG — in thẳng ra là "[object Object]".
+
+Nghiệm thu: `ng build` xanh, web **90/90** (67 → 90). Trên container web thật
+với một chủ đề tạm chứa `<img onerror>`: SSR escape đúng cả nội dung lẫn meta
+description, `<title>` đúng, breadcrumb hiện tên chuyên mục. Dữ liệu tạm đã xoá.
+
+**Còn nợ (F2):** UI chưa có nút sửa bài (API có); chưa có trang chủ đề theo
+game (F3); ô trạng thái được dựng trước khi biết chuyên mục tồn tại nên trang
+404 vẫn gọi `/me` một lần.
