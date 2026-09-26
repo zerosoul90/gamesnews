@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testin
 import { ActivatedRoute, Params, Router, provideRouter } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
-import { BehaviorSubject, of } from 'rxjs';
+import { BehaviorSubject, Observable, of, throwError } from 'rxjs';
 
 import { SearchComponent } from './search.component';
 import { SearchResponse, SearchService } from '../../services/search.service';
@@ -13,6 +13,7 @@ function traVe(soHit: number, total: number): SearchResponse {
     total,
     page: 1,
     per_page: 20,
+    facets: {},
     hits: Array.from({ length: soHit }, (_, i) => ({
       id: `65f1a2b3c4d5e6f7081900${String(i).padStart(2, '0')}`,
       slug: `game-${i}`,
@@ -25,6 +26,16 @@ function traVe(soHit: number, total: number): SearchResponse {
     })),
   };
 }
+
+/** Phân bố giống catalog thật: vài thể loại lớn, một đuôi dài lèo tèo. */
+const SO_GAME: Record<string, number> = {
+  indie: 28093,
+  rpg: 6867,
+  'role-playing': 939,
+  'city-builder': 150,
+  education: 66,
+  mmorpg: 1,
+};
 
 /**
  * Trang tìm kiếm — ba ô lọc và đường đi của chúng qua URL.
@@ -44,7 +55,10 @@ describe('SearchComponent', () => {
   let timKiem: jasmine.Spy;
   let dieuHuong: jasmine.Spy;
 
-  function dung(params: Params = {}): void {
+  function dung(
+    params: Params = {},
+    soGame: Observable<Record<string, number>> = of(SO_GAME),
+  ): void {
     params$ = new BehaviorSubject<Params>(params);
     timKiem = jasmine.createSpy('search').and.returnValue(of(traVe(0, 0)));
 
@@ -55,7 +69,7 @@ describe('SearchComponent', () => {
         provideHttpClient(),
         provideHttpClientTesting(),
         { provide: ActivatedRoute, useValue: { queryParams: params$ } },
-        { provide: SearchService, useValue: { search: timKiem } },
+        { provide: SearchService, useValue: { search: timKiem, genreCounts: () => soGame } },
       ],
     });
 
@@ -165,7 +179,7 @@ describe('SearchComponent', () => {
 
       const slugThat = [
         ...fixture.componentInstance.PLATFORMS.map((p) => p.slug),
-        ...fixture.componentInstance.GENRES.map((g) => g.slug),
+        ...fixture.componentInstance.theLoai.map((g) => g.slug),
       ];
 
       // Backend so chuỗi nguyên văn: gửi "Nhập vai (RPG)" thay vì "rpg" thì ra
@@ -180,10 +194,52 @@ describe('SearchComponent', () => {
 
       // Bản đầu dùng `{{ slug | titlecase }}` nên ra "Fps", "Mmorpg", "Crpg".
       // Chốt bằng hai mục hay lộ nhất.
-      const nhan = fixture.componentInstance.GENRES.map((g) => g.label);
-      expect(nhan).toContain('Hành động');
+      const nhan = fixture.componentInstance.theLoai.map((g) => g.label);
+      expect(nhan).toContain('Nhập vai (role-playing)');
       expect(nhan).toContain('Nhập vai (RPG)');
       expect(fixture.componentInstance.PLATFORMS.map((p) => p.label)).toContain('Nintendo Switch');
+    });
+  });
+
+  describe('dropdown thể loại dựng từ facet', () => {
+    function slugTrongO(): string[] {
+      const o = (fixture.nativeElement as HTMLElement).querySelector<HTMLSelectElement>(
+        'select[aria-label="Lọc theo thể loại"]',
+      )!;
+      return Array.from(o.options).map((x) => x.value).filter((v) => v !== '');
+    }
+
+    it('chỉ thể loại từ 100 game trở lên, nhiều game xếp trước', () => {
+      dung({});
+
+      // `education` (66) và `mmorpg` (1) là ngõ cụt: chọn vào gần như rỗng.
+      expect(slugTrongO()).toEqual(['indie', 'rpg', 'role-playing', 'city-builder']);
+    });
+
+    it('thể loại đang chọn vẫn hiện dù dưới ngưỡng', () => {
+      dung({ genre: 'mmorpg' });
+
+      // Mở link cũ `?genre=mmorpg`: kết quả đã bị lọc, ô select không được
+      // trống trơn như thể không có lọc nào.
+      expect(slugTrongO()).toContain('mmorpg');
+      expect(slugTrongO()).not.toContain('education');
+    });
+
+    it('slug chưa có nhãn vẫn lên dropdown, với nhãn dựng từ slug', () => {
+      dung({});
+
+      // Thiếu nhãn đẹp là chuyện nhỏ; lặng lẽ mất một thể loại 150 game mới
+      // là chuyện lớn.
+      const muc = fixture.componentInstance.theLoai.find((g) => g.slug === 'city-builder');
+      expect(muc?.label).toBe('City builder');
+    });
+
+    it('không tải được facet thì trang vẫn tìm được', () => {
+      spyOn(console, 'error');
+      dung({ q: 'elden' }, throwError(() => new Error('503')));
+
+      expect(fixture.componentInstance.theLoai).toEqual([]);
+      expect(timKiem).toHaveBeenCalled();
     });
   });
 });

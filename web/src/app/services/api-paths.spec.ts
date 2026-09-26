@@ -264,6 +264,31 @@ describe('service gọi đúng đường dẫn backend có thật', () => {
     expect(kiem(() => s.search('elden').subscribe())).toBe('/search');
   });
 
+  it('SearchService.search gửi `per_page`, đúng tên tham số backend nhận', () => {
+    const s = TestBed.inject(SearchService);
+    s.search('elden', 1, 50).subscribe();
+    const req = http.expectOne(() => true);
+
+    // Bản trước gửi `limit`: FastAPI lờ tham số lạ đi không báo gì, và server
+    // trả 20 kết quả — trùng đúng mặc định phía client nên không ai thấy.
+    expect(req.request.params.get('per_page')).toBe('50');
+    expect(req.request.params.has('limit')).toBeFalse();
+    req.flush({});
+  });
+
+  it('SearchService.genreCounts lấy facet từ /search, không lọc gì', () => {
+    const s = TestBed.inject(SearchService);
+    let ketQua: Record<string, number> | undefined;
+    s.genreCounts().subscribe((v) => (ketQua = v));
+    const req = http.expectOne(() => true);
+
+    expect(chuanHoa(req.request.url)).toBe('/search');
+    expect(req.request.params.get('q')).toBe('');
+    expect(req.request.params.has('genre')).toBeFalse();
+    req.flush({ facets: { genres: { indie: 28093 }, platforms: { pc: 1 } } });
+    expect(ketQua).toEqual({ indie: 28093 });
+  });
+
   it('AuthService đổi tham số OpenID ở /api/v1/auth/steam/callback', () => {
     const s = TestBed.inject(AuthService);
     s.completeSteamLogin({

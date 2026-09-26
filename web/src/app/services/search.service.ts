@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
 import { API_BASE_URL } from '../api-base-url';
 
 export interface SearchHit {
@@ -20,6 +21,9 @@ export interface SearchResponse {
   page: number;
   per_page: number;
   hits: SearchHit[];
+  /** Số game theo từng giá trị lọc, tính trên TOÀN BỘ tập khớp chứ không
+   *  riêng trang này: `{ genres: { indie: 28093, ... }, platforms: {...} }`. */
+  facets: Record<string, Record<string, number>>;
 }
 
 @Injectable({
@@ -39,7 +43,9 @@ export class SearchService {
     let params = new HttpParams()
       .set('q', query)
       .set('page', page)
-      .set('limit', limit);
+      // Backend nhận `per_page`. Bản trước gửi `limit`, bị lờ đi hoàn toàn, và
+      // chạy đúng chỉ vì mặc định phía server cũng là 20.
+      .set('per_page', limit);
     
     if (platform) {
       params = params.set('platform', platform);
@@ -52,5 +58,17 @@ export class SearchService {
     }
 
     return this.http.get<SearchResponse>(this.apiUrl, { params });
+  }
+
+  /** Số game của từng thể loại trên cả catalog.
+   *
+   *  Không có endpoint riêng vì không cần: `/search` với `q` rỗng, không lọc,
+   *  trả `facetDistribution` của Meilisearch trên toàn index. `per_page=1` vì
+   *  chỉ cần facet — backend không cho 0. */
+  genreCounts(): Observable<Record<string, number>> {
+    const params = new HttpParams().set('q', '').set('per_page', 1);
+    return this.http
+      .get<SearchResponse>(this.apiUrl, { params })
+      .pipe(map(res => res.facets?.['genres'] ?? {}));
   }
 }

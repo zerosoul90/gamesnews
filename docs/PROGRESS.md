@@ -1,7 +1,7 @@
 # PROGRESS.md — Tiến độ
 
 **Phase hiện tại:** Phase 1 — Catalog + Search
-**Cập nhật lần cuối:** 2026-09-13
+**Cập nhật lần cuối:** 2026-09-26
 
 Phase 0 đã đạt toàn bộ checkpoint nghiệm thu. Chỉ còn mục 7 (đăng ký key ngoài)
 là việc của người dùng, Phase 1 mới cần tới.
@@ -3171,3 +3171,107 @@ Bốn cổng, chạy từ đúng thư mục: build sạch, web **61/61** (53 →
 - Danh sách `GENRES` phải cập nhật tay khi catalog đổi; không có endpoint
   facet để dựng động.
 - Các mục còn nợ của lượt 8, 9, 11, 12, 13, 14, 15, 16 giữ nguyên.
+
+### 2026-09-26 (lượt 18) — Facet có sẵn từ lâu, và 2.939 game không ai tìm thấy
+
+Bắt đầu để làm món nợ lượt 17: *"Danh sách `GENRES` phải cập nhật tay; không
+có endpoint facet để dựng động."* Món nợ ấy **sai từ đầu** — `/search` đã trả
+`facets` (Meilisearch `facetDistribution`) từ Phase 1, chỉ là interface
+TypeScript không khai nó. Nhưng đi đo facet thì lộ ra chuyện lớn hơn nhiều.
+
+#### Hai kho lệch nhau 7,3%
+
+Facet của Meilisearch có **40** genre, Mongo có **59**. `role-playing`,
+`board`, `family`, `card` — bốn trong 19 mục dropdown vừa sửa ở lượt 17 — vắng
+mặt hoàn toàn khỏi index. `genre=role-playing` trả **0** trong khi Mongo có 793
+game. Đối chiếu từng document:
+
+```
+mongo 40322   meili 37383
+thieu trong meili 2939        lech genres/platforms 15
+  2026-09-20 04h  app_store   2694   <- đúng lượt cron sync_app_store
+  2026-09-11      steam        227
+  2026-09-16      steam         17
+```
+
+Game iOS tìm được qua `/search`: **7**. Trong Mongo: hơn 3.000. Đúng mảng mà
+`PLAN.md` gọi là ưu tiên thị trường Việt Nam.
+
+Lượt 17 đếm genre trên **Mongo** để chọn danh sách, trong khi bộ lọc chạy trên
+**Meilisearch**. Kênh đo khác kênh dùng — lần thứ 12 của cùng một bài học.
+
+#### Vì sao nó rơi, và vì sao không tự lành
+
+Mỗi job catalog gọi `reindex(since=<giờ job bắt đầu>)` ở **dòng cuối**. Mốc đó
+chỉ sống trong một lượt: job chết ở bất cứ đâu giữa bước ghi Mongo và dòng cuối
+thì phần vừa ghi không bao giờ sang index, vì delta của mọi lượt sau chỉ nhìn
+cửa sổ của riêng nó.
+
+Không chứng minh được lượt 2026-09-20 chết vì sao — log worker chỉ còn từ lần
+container khởi động gần nhất. Arq mặc định `job_timeout=300s`, và lượt đó chèn
+mới 2.694 entity (chạy lại hôm nay, chủ yếu `unchanged`, mất 205s) nên timeout
+là nghi phạm hợp lý nhất, nhưng **chỉ là nghi phạm**.
+
+Điều đo được chắc chắn: **chạy lại job không vá được**. Lượt chạy tay hôm nay
+báo `unchanged: 1977` — `content_hash` không đổi thì `updated_at` không nhảy,
+nên delta bỏ qua đúng những document đang thiếu. Sau lượt đó vẫn thiếu 2.594.
+
+#### Bản sửa
+
+`reindex_pending()` + job `sync_search_index` (cron :13 :28 :43 :58): mốc nằm
+trong Mongo (`search_sync_state`), **chỉ tiến sau khi đẩy xong**, lùi 5 phút để
+không sót lệnh ghi đang bay. Chưa có mốc thì reindex toàn bộ — nên lần chạy đầu
+tự vá luôn phần đã rơi. Các job catalog vẫn tự reindex ở cuối để kết quả hiện
+ngay; job này là lưới an toàn.
+
+Chạy trên dev sau `docker compose build app worker` (in tên job từ trong
+container trước khi tin số đo):
+
+```
+lượt 1 (chưa có mốc)   40832 document   5,07s
+lượt 2                   861 document   0,23s   <- lô App Store 10:00:58, trong khoảng lùi 5 phút
+mongo 40832   meili 40832   thiếu 0   lệch 0
+genre=role-playing 0 -> 939    board 0 -> 164    game iOS 7 -> 3229
+```
+
+#### Dropdown thể loại dựng từ facet
+
+`SearchService.genreCounts()` gọi `/search?q=&per_page=1` lấy facet của cả
+index; component giữ thể loại ≥ `NGUONG_THE_LOAI` (100), xếp giảm dần. Đếm từ
+chính index mà bộ lọc chạy trên đó thì con số trong dropdown và kết quả lọc
+không thể lệch nhau nữa. Thể loại đang chọn luôn được giữ dù dưới ngưỡng (link
+cũ `?genre=mmorpg`); slug vượt ngưỡng mà chưa có nhãn vẫn hiện với nhãn dựng từ
+slug.
+
+Tiện tay: `SearchService` gửi `limit`, backend nhận `per_page`. FastAPI lờ
+tham số lạ, và server trả 20 — trùng mặc định phía client nên không ai thấy.
+
+#### Nghiệm thu
+
+`ruff` + `mypy app tests` sạch, `pytest` **666 passed** (662 → 666), `ng build`
+xanh, web **67/67** (61 → 67). Trên container web thật: `?genre=role-playing`
+ra 20 thẻ (trước: 0), dropdown 19 mục từ facet, request đi `per_page=20`.
+Mutation, mỗi cái đỏ đúng chỗ:
+
+| gỡ ra | đỏ với |
+|---|---|
+| mốc tiến **trước** khi đẩy | `test_day_hong_thi_moc_khong_tien` — mốc đã nhảy dù đẩy hỏng |
+| ngưỡng 100 | `Expected $.length = 6 to equal 4` |
+| giữ thể loại đang chọn | `Expected [...] to contain 'mmorpg'` |
+
+**Còn nợ:**
+
+- Nguyên nhân lượt `sync_app_store` 2026-09-20 không tới dòng reindex chưa
+  xác định. `WorkerSettings` không đặt `job_timeout` (mặc định 300s); nên đặt
+  tường minh theo từng job sau khi có số đo thời gian chạy thật.
+- `android` chỉ có **5** game trong cả catalog. `sync_google_play` chạy 28 từ
+  khoá + tới 300 tên game iOS, mỗi app một request chi tiết — rất có thể chưa
+  lượt nào chạy xong trong 300s; job ghi Mongo sau khi lấy hết chi tiết nên
+  chết giữa chừng là mất sạch. Chưa đo.
+- Ô **hệ máy** có cùng bệnh ngõ cụt như ô thể loại trước đây: PS5 11 game,
+  Switch 6, Xbox Series 5, Android 5. Chưa sửa vì ẩn đi là quyết định sản
+  phẩm (còn lại mỗi PC và iOS).
+- Bundle initial 531 kB, vượt ngưỡng cảnh báo 500 kB (ngưỡng lỗi 1 MB). Có từ
+  trước lượt này.
+- Các mục còn nợ của lượt 8, 9, 11–17 giữ nguyên, trừ mục "không có endpoint
+  facet" — sai, đã gỡ.

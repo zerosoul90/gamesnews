@@ -12,6 +12,63 @@ interface FilterOption {
   label: string;
 }
 
+/** Thể loại dưới ngưỡng này không lên dropdown.
+ *
+ * Đo ngày 2026-09-20: `games.genres` có 59 giá trị, 31 trong số đó gắn cho
+ * **≤10 game** và 13 giá trị chỉ có **đúng 1 game** (`rts`, `mmorpg`, `crpg`,
+ * `accounting`…). Đổ hết vào dropdown thì quá nửa lựa chọn là ngõ cụt — chọn
+ * "MMORPG" nhận về một game.
+ *
+ * Trước đây ngưỡng này được áp **bằng tay** lên một danh sách 19 slug viết
+ * cứng, đếm trên Mongo. Nhưng tìm kiếm chạy trên Meilisearch, và ngày
+ * 2026-09-26 hai kho lệch nhau 2.939 game: `role-playing`, `board`, `family`,
+ * `card` có trong danh sách mà lọc ra 0. Đếm từ chính index mà bộ lọc chạy trên
+ * đó thì hai con số không thể lệch nhau.
+ */
+export const NGUONG_THE_LOAI = 100;
+
+/** Nhãn tiếng Việt. `value` gửi lên API vẫn là slug nguyên văn — backend so
+ *  chuỗi, gửi nhãn là 0 kết quả mà không có lỗi nào để lần ra.
+ *
+ *  Phần lớn là tag Steam nên taxonomy không sạch: `rpg` và `role-playing` là
+ *  hai nhánh RỜI NHAU (788/793 game `role-playing` không có `rpg`, đo
+ *  2026-09-20) — không gộp được, nên nhãn phải nói rõ để người chọn hiểu vì
+ *  sao hai mục giống nhau ra kết quả khác.
+ *
+ *  Slug vượt ngưỡng mà chưa có ở đây vẫn hiện, bằng `nhanMacDinh()`: thiếu nhãn
+ *  đẹp là chuyện nhỏ, mất một thể loại khỏi dropdown mới là chuyện lớn. */
+const NHAN_THE_LOAI: Record<string, string> = {
+  indie: 'Indie',
+  action: 'Hành động',
+  adventure: 'Phiêu lưu',
+  casual: 'Giải trí nhẹ',
+  strategy: 'Chiến thuật',
+  simulation: 'Mô phỏng',
+  rpg: 'Nhập vai (RPG)',
+  'early-access': 'Truy cập sớm',
+  'free-to-play': 'Miễn phí chơi',
+  sports: 'Thể thao',
+  racing: 'Đua xe',
+  'massively-multiplayer': 'Nhiều người chơi (MMO)',
+  'role-playing': 'Nhập vai (role-playing)',
+  violent: 'Bạo lực',
+  puzzle: 'Giải đố',
+  gore: 'Máu me',
+  board: 'Cờ bàn',
+  family: 'Gia đình',
+  card: 'Thẻ bài',
+  education: 'Giáo dục',
+  trivia: 'Đố vui',
+  word: 'Chữ',
+  music: 'Âm nhạc',
+  arcade: 'Arcade',
+};
+
+function nhanMacDinh(slug: string): string {
+  const chu = slug.replace(/-/g, ' ');
+  return chu.charAt(0).toUpperCase() + chu.slice(1);
+}
+
 @Component({
   selector: 'app-search',
   standalone: true,
@@ -47,43 +104,13 @@ export class SearchComponent implements OnInit, OnDestroy {
     { slug: 'ios', label: 'iOS' },
   ];
 
-  /** Thể loại có **từ 100 game trở lên**, xếp theo số game giảm dần.
-   *
-   * Vì sao cắt ngưỡng: `games.genres` có 59 giá trị, nhưng 31 trong số đó gắn
-   * cho **≤10 game** và 13 giá trị chỉ có **đúng 1 game** (`rts`, `mmorpg`,
-   * `battle-royale`, `crpg`, `accounting`…). Đổ cả 59 vào một dropdown thì quá
-   * nửa lựa chọn là ngõ cụt — người dùng chọn "MMORPG" và nhận về một game.
-   * Danh sách này là 19 giá trị còn lại, đo ngày 2026-09-20 trên 39.284 game.
-   *
-   * Phần lớn là tag của Steam nên taxonomy không sạch: `rpg` (6.734) và
-   * `role-playing` (793) là hai nhánh RỜI NHAU — 788/793 game mang
-   * `role-playing` không hề có `rpg` — nên không gộp được, và nhãn phải nói rõ
-   * để người chọn hiểu vì sao hai mục nghe giống nhau lại ra kết quả khác.
-   *
-   * Cập nhật bằng tay khi catalog đổi đáng kể. Không có endpoint facet nào để
-   * dựng động; thêm một cái là việc backend.
-   */
-  readonly GENRES: FilterOption[] = [
-    { slug: 'indie', label: 'Indie' },
-    { slug: 'action', label: 'Hành động' },
-    { slug: 'adventure', label: 'Phiêu lưu' },
-    { slug: 'casual', label: 'Giải trí nhẹ' },
-    { slug: 'strategy', label: 'Chiến thuật' },
-    { slug: 'simulation', label: 'Mô phỏng' },
-    { slug: 'rpg', label: 'Nhập vai (RPG)' },
-    { slug: 'early-access', label: 'Truy cập sớm' },
-    { slug: 'free-to-play', label: 'Miễn phí chơi' },
-    { slug: 'sports', label: 'Thể thao' },
-    { slug: 'racing', label: 'Đua xe' },
-    { slug: 'massively-multiplayer', label: 'Nhiều người chơi (MMO)' },
-    { slug: 'role-playing', label: 'Nhập vai (role-playing)' },
-    { slug: 'violent', label: 'Bạo lực' },
-    { slug: 'puzzle', label: 'Giải đố' },
-    { slug: 'gore', label: 'Máu me' },
-    { slug: 'board', label: 'Cờ bàn' },
-    { slug: 'family', label: 'Gia đình' },
-    { slug: 'card', label: 'Thẻ bài' },
-  ];
+  /** Thể loại hiện trong dropdown, dựng từ facet của cả catalog — xem
+   *  `dungTheLoai()`. Rỗng trong lúc chờ API: ô chỉ còn "Tất cả thể loại",
+   *  tìm kiếm vẫn chạy bình thường. */
+  theLoai: FilterOption[] = [];
+
+  private soGameTheoTheLoai: Record<string, number> = {};
+  private theLoaiSub?: Subscription;
 
   private sub?: Subscription;
   /** Ô năm gõ từng ký tự nên phải giãn; hai ô select thì đi ngay. */
@@ -97,6 +124,15 @@ export class SearchComponent implements OnInit, OnDestroy {
   ) {}
 
   ngOnInit(): void {
+    this.theLoaiSub = this.searchService.genreCounts().subscribe({
+      next: counts => {
+        this.soGameTheoTheLoai = counts;
+        this.dungTheLoai();
+      },
+      // Mất facet không đáng chặn cả trang: dropdown chỉ còn "Tất cả".
+      error: err => console.error('Lỗi khi tải danh sách thể loại:', err),
+    });
+
     // `(ngModelChange)` của ô `type="number"` bắn theo từng phím, và mỗi lần
     // `applyFilters()` là một `router.navigate` + một lượt gọi API. Đo được:
     // gõ "2024" sinh **4** lần điều hướng với `year` = 2, 20, 202, 2024; ba
@@ -112,6 +148,7 @@ export class SearchComponent implements OnInit, OnDestroy {
       this.query = params['q'] || '';
       this.platform = params['platform'] || '';
       this.genre = params['genre'] || '';
+      this.dungTheLoai();
       this.year = params['year'] ? Number(params['year']) : null;
       this.page = Number(params['page']) || 1;
       this.doSearch();
@@ -125,6 +162,21 @@ export class SearchComponent implements OnInit, OnDestroy {
     if (this.yearSub) {
       this.yearSub.unsubscribe();
     }
+    if (this.theLoaiSub) {
+      this.theLoaiSub.unsubscribe();
+    }
+  }
+
+  /** Thể loại từ `NGUONG_THE_LOAI` game trở lên, nhiều game xếp trước.
+   *
+   *  Thể loại đang chọn luôn được giữ lại dù dưới ngưỡng: mở link cũ
+   *  `?genre=mmorpg` thì ô select vẫn phải hiện đúng thứ đang lọc, không được
+   *  trống trơn trong khi kết quả bên dưới đã bị lọc. */
+  private dungTheLoai(): void {
+    this.theLoai = Object.entries(this.soGameTheoTheLoai)
+      .filter(([slug, soGame]) => soGame >= NGUONG_THE_LOAI || slug === this.genre)
+      .sort(([, a], [, b]) => b - a)
+      .map(([slug]) => ({ slug, label: NHAN_THE_LOAI[slug] ?? nhanMacDinh(slug) }));
   }
 
   /** Hai ô select: giá trị rời rạc, một lần bấm là một ý định — đi ngay. */

@@ -13,7 +13,7 @@
 
       <select [(ngModel)]="genre" (ngModelChange)="onFilterChange()" aria-label="Lọc theo thể loại" class="bg-slate-800 border border-slate-700 text-white rounded px-3 py-2 focus:outline-none focus:border-blue-500">
         <option value="">Tất cả thể loại</option>
-        <option *ngFor="let g of GENRES" [value]="g.slug">{{ g.label }}</option>
+        <option *ngFor="let g of theLoai" [value]="g.slug">{{ g.label }}</option>
       </select>
 
       <!-- `onYearInput()` chứ không phải `onFilterChange()`: ô này gõ từng ký
